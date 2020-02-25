@@ -226,7 +226,7 @@ public class KubernetesResource {
         return kCRBList;
     }
 
-    public static ServiceBuilder getSystemtestsServiceResource(String appName, int port, String namespace, String transportProtocol) {
+    public static ServiceBuilder getSystemTestsServiceResource(String appName, int port, String namespace, String transportProtocol) {
         return new ServiceBuilder()
             .withNewMetadata()
                 .withName(appName)
@@ -244,7 +244,7 @@ public class KubernetesResource {
     }
 
     public static DoneableService createServiceResource(String appName, int port, String clientNamespace, String transportProtocol) {
-        Service service = getSystemtestsServiceResource(appName, port, clientNamespace, transportProtocol).build();
+        Service service = getSystemTestsServiceResource(appName, port, clientNamespace, transportProtocol).build();
         LOGGER.info("Creating service {} in namespace {}", service.getMetadata().getName(), clientNamespace);
         ResourceManager.kubeClient().createService(service);
         deleteLater(service);
@@ -264,15 +264,15 @@ public class KubernetesResource {
         Map<String, String> keycloakLabels = new HashMap<>();
         keycloakLabels.put("app", keycloakName);
 
-        return getSystemtestsServiceResource(keycloakName + "service-http",
-                Constants.HTTP_KEYCLOAK_DEFAULT_PORT, namespace, "TCP")
-                .editSpec()
-                    .withType("NodePort")
-                    .withSelector(keycloakLabels)
-                    .editFirstPort()
-                        .withNodePort(Constants.HTTP_KEYCLOAK_DEFAULT_NODE_PORT)
-                    .endPort()
-                .endSpec().build();
+        return getSystemTestsServiceResource(keycloakName + "service-http",
+            Constants.HTTP_KEYCLOAK_DEFAULT_PORT, namespace, "TCP")
+            .editSpec()
+                .withType("NodePort")
+                .withSelector(keycloakLabels)
+                .editFirstPort()
+                    .withNodePort(Constants.HTTP_KEYCLOAK_DEFAULT_NODE_PORT)
+                .endPort()
+            .endSpec().build();
     }
 
     public static Service deployKeycloakNodePortService(String namespace) {
@@ -281,7 +281,7 @@ public class KubernetesResource {
         Map<String, String> keycloakLabels = new HashMap<>();
         keycloakLabels.put("app", keycloakName);
 
-        return getSystemtestsServiceResource(keycloakName + "service-https",
+        return getSystemTestsServiceResource(keycloakName + "service-https",
             Constants.HTTPS_KEYCLOAK_DEFAULT_PORT, namespace, "TCP")
             .editSpec()
                 .withType("NodePort")
@@ -299,7 +299,7 @@ public class KubernetesResource {
         map.put("strimzi.io/name", clusterName + "-bridge");
 
         // Create node port service for expose bridge outside the cluster
-        return getSystemtestsServiceResource(bridgeExternalService, Constants.HTTP_BRIDGE_DEFAULT_PORT, namespace, "TCP")
+        return getSystemTestsServiceResource(bridgeExternalService, Constants.HTTP_BRIDGE_DEFAULT_PORT, namespace, "TCP")
             .editSpec()
                 .withType("NodePort")
                 .withSelector(map)

@@ -4,6 +4,7 @@
  */
 package io.strimzi.systemtest.resources.crd;
 
+import com.sun.tools.jxc.ap.Const;
 import io.fabric8.kubernetes.api.model.ContainerBuilder;
 import io.fabric8.kubernetes.api.model.ContainerPortBuilder;
 import io.fabric8.kubernetes.api.model.PodSpec;
@@ -17,6 +18,7 @@ import io.fabric8.kubernetes.api.model.apps.DoneableDeployment;
 import io.strimzi.api.kafka.model.KafkaUser;
 import io.strimzi.api.kafka.model.KafkaUserScramSha512ClientAuthentication;
 import io.strimzi.api.kafka.model.KafkaUserTlsClientAuthentication;
+import io.strimzi.systemtest.Constants;
 import io.strimzi.systemtest.Environment;
 import io.strimzi.systemtest.resources.KubernetesResource;
 import io.strimzi.systemtest.resources.ResourceManager;
@@ -447,17 +449,24 @@ public class KafkaClientsResource {
                         .withContainers()
                         .addNewContainer()
                             .withName(keycloakName + "pod")
-                            .withImage("jboss/keycloak:8.0.1")
+                            // sso
+                            .withImage("registry.redhat.io/redhat-sso-7/sso73-openshift:1.0")
+//                            .withImage("jboss/keycloak:8.0.1")
                             .withPorts(
                                 new ContainerPortBuilder()
                                     .withName("http")
-                                    .withContainerPort(8080)
+                                    .withContainerPort(Constants.HTTP_KEYCLOAK_DEFAULT_PORT)
                                     .build(),
                                 new ContainerPortBuilder()
                                     .withName("https")
-                                    .withContainerPort(8443)
+                                    .withContainerPort(Constants.HTTPS_KEYCLOAK_DEFAULT_PORT)
                                     .build()
                             )
+                            // TODO: this is only for redhat-sso
+                            .addNewEnv()
+                                .withName("X509_CA_BUNDLE")
+                                .withValue("/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt")
+                            .endEnv()
                             .addNewEnv()
                                 .withName("KEYCLOAK_USER")
                                 .withValue("admin")

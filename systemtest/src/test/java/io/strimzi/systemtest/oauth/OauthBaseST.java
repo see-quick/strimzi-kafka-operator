@@ -28,6 +28,8 @@ import io.strimzi.systemtest.resources.crd.KafkaUserResource;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static io.strimzi.systemtest.Constants.NODEPORT_SUPPORTED;
 import static io.strimzi.systemtest.Constants.OAUTH;
@@ -67,7 +69,7 @@ public class OauthBaseST extends BaseST {
     protected static final int MESSAGE_COUNT = 100;
 
     protected static final String CERTIFICATE_OF_KEYCLOAK = "tls.crt";
-    protected static final String SECRET_OF_KEYCLOAK = "x509-https-secret";
+    protected static final String SECRET_OF_KEYCLOAK = "sso-x509-https-secret-new";
 
     protected static String clusterHost;
     protected static String keycloakIpWithPortHttp;
@@ -88,8 +90,29 @@ public class OauthBaseST extends BaseST {
     }
 
     private void deployTestSpecificResources() throws InterruptedException {
-        LOGGER.info("Deploying keycloak...");
-        KafkaClientsResource.deployKeycloak().done();
+//        LOGGER.info("Deploying keycloak...");
+//        KafkaClientsResource.deployKeycloak().done();
+
+        LOGGER.info("Deploying sso---");
+
+        String vstup = Exec.exec(true, "/bin/bash", "../systemtest/src/test/resources/oauth2/deploy-sso.sh").out();
+
+        Pattern username = Pattern.compile(".*RH-SSO Administrator Username=(.*) # generated.*");
+        Matcher m = username.matcher(vstup);
+
+        String usernameKeycloak = null;
+        String passwordKeycloak = null;
+
+        if (m.find()) {
+            usernameKeycloak = m.group(1);
+        }
+
+        Pattern password = Pattern.compile(".*RH-SSO Administrator Password=(.*) # generated.*");
+        m = password.matcher(vstup);
+
+        if (m.find()) {
+            passwordKeycloak = m.group(1);
+        }
 
         // https
         Service keycloakService = KubernetesResource.deployKeycloakNodePortService(NAMESPACE);
@@ -99,29 +122,40 @@ public class OauthBaseST extends BaseST {
 
         // http
         Service keycloakHttpService = KubernetesResource.deployKeycloakNodePortHttpService(NAMESPACE);
-
+//
         KubernetesResource.createServiceResource(keycloakHttpService, NAMESPACE);
         ServiceUtils.waitForNodePortService(keycloakHttpService.getMetadata().getName());
 
         clusterHost = kubeClient(NAMESPACE).getNodeAddress();
 
-        keycloakIpWithPortHttps = clusterHost + ":" + Constants.HTTPS_KEYCLOAK_DEFAULT_NODE_PORT;
+        keycloakIpWithPortHttps = "sso-oauth2-cluster-test.10.0.133.69.nip.io";
         keycloakIpWithPortHttp = clusterHost + ":" + Constants.HTTP_KEYCLOAK_DEFAULT_NODE_PORT;
 
-        LOGGER.info("Importing new realm");
-        Exec.exec(true, "/bin/bash", "../systemtest/src/test/resources/oauth2/create_realm.sh", "admin", "admin", keycloakIpWithPortHttps);
-        Exec.exec(true, "/bin/bash", "../systemtest/src/test/resources/oauth2/create_realm_authorization.sh", "admin", "admin", keycloakIpWithPortHttps);
+//        LOGGER.info("Importing new realm");
+        Exec.exec(true, "/bin/bash", "../systemtest/src/test/resources/oauth2/create_realm.sh", usernameKeycloak, passwordKeycloak, keycloakIpWithPortHttps);
+        Exec.exec(true, "/bin/bash", "../systemtest/src/test/resources/oauth2/create_realm_authorization.sh", usernameKeycloak, passwordKeycloak, keycloakIpWithPortHttps);
 
         validIssuerUri = "https://" + keycloakIpWithPortHttps + "/auth/realms/internal";
         jwksEndpointUri = "https://" + keycloakIpWithPortHttps + "/auth/realms/internal/protocol/openid-connect/certs";
         oauthTokenEndpointUri = "https://" + keycloakIpWithPortHttps + "/auth/realms/internal/protocol/openid-connect/token";
         introspectionEndpointUri = "https://" + keycloakIpWithPortHttps + "/auth/realms/internal/protocol/openid-connect/token/introspect";
         userNameClaim = "preferred_username";
+//
+//        String keycloakPodName = kubeClient().listPodsByPrefixInName("sso-1-").get(0).getMetadata().getName();
+//
+//        String pubKey = cmdKubeClient().execInPod(keycloakPodName, "keytool", "-exportcert", "-keystore",
+//                "/opt/jboss/keycloak/standalone/configuration/application.keystore", "-alias", "server", "-storepass", "password", "-rfc").out();
 
-        String keycloakPodName = kubeClient().listPodsByPrefixInName("keycloak-").get(0).getMetadata().getName();
+        String openSslResponse = Exec.exec(true, "openssl", "s_client", "-connect", "sso-oauth2-cluster-test.10.0.133.69.nip.io:443").out();
 
-        String pubKey = cmdKubeClient().execInPod(keycloakPodName, "keytool", "-exportcert", "-keystore",
-                "/opt/jboss/keycloak/standalone/configuration/application.keystore", "-alias", "server", "-storepass", "password", "-rfc").out();
+        Pattern pubKeyPattern = Pattern.compile("(-----BEGIN .+?-----(?s).+?-----END .+?-----)");
+        Matcher pubKeyMatcher = pubKeyPattern.matcher(openSslResponse);
+        String pubKey = "";
+
+        if (pubKeyMatcher.find()) {
+            LOGGER.info("HERE");
+            pubKey = pubKeyMatcher.group(1);
+        }
 
         SecretUtils.createSecret(SECRET_OF_KEYCLOAK, CERTIFICATE_OF_KEYCLOAK, new String(Base64.getEncoder().encode(pubKey.getBytes()), StandardCharsets.US_ASCII));
 

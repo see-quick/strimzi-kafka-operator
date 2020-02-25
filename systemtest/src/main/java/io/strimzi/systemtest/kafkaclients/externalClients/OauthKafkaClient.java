@@ -212,8 +212,8 @@ public class OauthKafkaClient implements IKafkaClient<Future<Integer>> {
 
     protected static Properties setOauthClientTlsProperties(Properties clientProperties, String clientId, String clientSecretName,
                                                             String oauthTokenEndpointUri) throws IOException {
-        String responseKeycloak = Exec.exec("openssl", "s_client", "-showcerts", "-connect",
-                kubeClient().getNodeAddress() + ":" + Constants.HTTPS_KEYCLOAK_DEFAULT_NODE_PORT).out();
+        String responseKeycloak = Exec.exec("openssl", "s_client", "-connect",
+                "sso-oauth2-cluster-test.10.0.133.69.nip.io" + ":" + "443").out();
         Matcher matcher = Pattern.compile("-----(?s)(.*)-----").matcher(responseKeycloak);
 
         if (matcher.find()) {
@@ -247,7 +247,6 @@ public class OauthKafkaClient implements IKafkaClient<Future<Integer>> {
                         "oauth.ssl.truststore.type=\"" + clientProperties.get("ssl.truststore.type") + "\" ;");
 
         fixBadlyImportedAuthzSettings();
-
         return clientProperties;
     }
 

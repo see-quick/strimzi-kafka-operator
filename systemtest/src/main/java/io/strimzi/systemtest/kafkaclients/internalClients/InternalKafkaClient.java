@@ -67,6 +67,7 @@ public class InternalKafkaClient implements IKafkaClient<Integer> {
         LOGGER.info("Sending {} messages to {}#{}", messageCount, bootstrapServer, topicName);
 
         boolean hasPassed = producer.run(timeoutMs);
+
         LOGGER.info("Producer finished correctly: {}", hasPassed);
 
         sent = getSentMessagesCount(producer.getMessages().toString(), messageCount);

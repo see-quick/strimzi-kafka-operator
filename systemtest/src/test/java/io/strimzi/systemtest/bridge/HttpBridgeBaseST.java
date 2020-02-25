@@ -101,7 +101,7 @@ public class HttpBridgeBaseST extends BaseST {
         map.put("strimzi.io/name", CLUSTER_NAME + "-bridge");
 
         // Create node port service for expose bridge outside openshift
-        Service service = KubernetesResource.getSystemtestsServiceResource(bridgeExternalService, Constants.HTTP_BRIDGE_DEFAULT_PORT, getBridgeNamespace(), "TCP")
+        Service service = KubernetesResource.getSystemTestsServiceResource(bridgeExternalService, Constants.HTTP_BRIDGE_DEFAULT_PORT, getBridgeNamespace(), "TCP")
                 .editSpec()
                 .withType("NodePort")
                 .withSelector(map)

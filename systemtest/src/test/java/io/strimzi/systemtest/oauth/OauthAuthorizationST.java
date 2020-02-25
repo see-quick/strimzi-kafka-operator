@@ -172,6 +172,14 @@ public class OauthAuthorizationST extends OauthBaseST {
         assertThat(consumer.get(Constants.GLOBAL_CLIENTS_TIMEOUT, TimeUnit.MILLISECONDS), is(MESSAGE_COUNT));
     }
 
+    @Test
+    void testOauthAuthorizationWithSuperUser() {
+        // TODO: create an super user
+        // TODO: teamA can write topic 'x-' and write and read 'a-'
+        // TODO: try super user to read from topic 'x-' will broke that rule because it's superuser
+        // TODO: try without super user will trigger the problem...
+    }
+
     @Disabled("Will be implemented in next PR")
     @Test
     void testListTopics() {

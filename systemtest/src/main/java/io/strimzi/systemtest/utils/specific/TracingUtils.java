@@ -24,7 +24,7 @@ public class TracingUtils {
         map.put("strimzi.io/name", clusterName + "-tracing");
 
         // Create node port service for expose bridge outside Kubernetes
-        return KubernetesResource.getSystemtestsServiceResource(serviceName, Constants.HTTP_JAEGER_DEFAULT_TCP_PORT, namespace, "TCP")
+        return KubernetesResource.getSystemTestsServiceResource(serviceName, Constants.HTTP_JAEGER_DEFAULT_TCP_PORT, namespace, "TCP")
             .editSpec()
                 .withType("NodePort")
                 .withSelector(map)
