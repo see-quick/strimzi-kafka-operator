@@ -24,6 +24,9 @@ import kafka.security.auth.Operation;
 import kafka.security.auth.PermissionType;
 import kafka.security.auth.Read$;
 import kafka.security.auth.Write$;
+import org.apache.kafka.common.acl.AccessControlEntry;
+import org.apache.kafka.common.acl.AccessControlEntryFilter;
+import org.apache.kafka.common.acl.AclPermissionType;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 
 /**
@@ -118,6 +121,118 @@ public class SimpleAclRule {
                 "operation: " + operation + ")";
     }
 
+    public AccessControlEntry toKafkaAccessControlEntry(KafkaPrincipal principal)   {
+        AclPermissionType kafkaType;
+        org.apache.kafka.common.acl.AclOperation kafkaOperation;
+
+        switch (type) {
+            case DENY:
+                kafkaType = AclPermissionType.DENY;
+                break;
+            case ALLOW:
+                kafkaType = AclPermissionType.ALLOW;
+                break;
+            default:
+                throw new IllegalArgumentException("Invalid Acl type: " + type);
+        }
+
+        switch (operation) {
+            case READ:
+                kafkaOperation = org.apache.kafka.common.acl.AclOperation.READ;
+                break;
+            case WRITE:
+                kafkaOperation = org.apache.kafka.common.acl.AclOperation.WRITE;
+                break;
+            case CREATE:
+                kafkaOperation = org.apache.kafka.common.acl.AclOperation.CREATE;
+                break;
+            case DELETE:
+                kafkaOperation = org.apache.kafka.common.acl.AclOperation.DELETE;
+                break;
+            case ALTER:
+                kafkaOperation = org.apache.kafka.common.acl.AclOperation.ALTER;
+                break;
+            case DESCRIBE:
+                kafkaOperation = org.apache.kafka.common.acl.AclOperation.DESCRIBE;
+                break;
+            case CLUSTERACTION:
+                kafkaOperation = org.apache.kafka.common.acl.AclOperation.CLUSTER_ACTION;
+                break;
+            case ALTERCONFIGS:
+                kafkaOperation = org.apache.kafka.common.acl.AclOperation.ALTER_CONFIGS;
+                break;
+            case DESCRIBECONFIGS:
+                kafkaOperation = org.apache.kafka.common.acl.AclOperation.DESCRIBE_CONFIGS;
+                break;
+            case IDEMPOTENTWRITE:
+                kafkaOperation = org.apache.kafka.common.acl.AclOperation.IDEMPOTENT_WRITE;
+                break;
+            case ALL:
+                kafkaOperation = org.apache.kafka.common.acl.AclOperation.ALL;
+                break;
+            default:
+                throw new IllegalArgumentException("Invalid Acl operation: " + operation);
+        }
+
+        return new AccessControlEntry(principal.toString(), getHost(), kafkaOperation, kafkaType);
+    }
+
+    public AccessControlEntryFilter toKafkaAccessControlEntryFilter(KafkaPrincipal principal)   {
+        AclPermissionType kafkaType;
+        org.apache.kafka.common.acl.AclOperation kafkaOperation;
+
+        switch (type) {
+            case DENY:
+                kafkaType = AclPermissionType.DENY;
+                break;
+            case ALLOW:
+                kafkaType = AclPermissionType.ALLOW;
+                break;
+            default:
+                throw new IllegalArgumentException("Invalid Acl type: " + type);
+        }
+
+        switch (operation) {
+            case READ:
+                kafkaOperation = org.apache.kafka.common.acl.AclOperation.READ;
+                break;
+            case WRITE:
+                kafkaOperation = org.apache.kafka.common.acl.AclOperation.WRITE;
+                break;
+            case CREATE:
+                kafkaOperation = org.apache.kafka.common.acl.AclOperation.CREATE;
+                break;
+            case DELETE:
+                kafkaOperation = org.apache.kafka.common.acl.AclOperation.DELETE;
+                break;
+            case ALTER:
+                kafkaOperation = org.apache.kafka.common.acl.AclOperation.ALTER;
+                break;
+            case DESCRIBE:
+                kafkaOperation = org.apache.kafka.common.acl.AclOperation.DESCRIBE;
+                break;
+            case CLUSTERACTION:
+                kafkaOperation = org.apache.kafka.common.acl.AclOperation.CLUSTER_ACTION;
+                break;
+            case ALTERCONFIGS:
+                kafkaOperation = org.apache.kafka.common.acl.AclOperation.ALTER_CONFIGS;
+                break;
+            case DESCRIBECONFIGS:
+                kafkaOperation = org.apache.kafka.common.acl.AclOperation.DESCRIBE_CONFIGS;
+                break;
+            case IDEMPOTENTWRITE:
+                kafkaOperation = org.apache.kafka.common.acl.AclOperation.IDEMPOTENT_WRITE;
+                break;
+            case ALL:
+                kafkaOperation = org.apache.kafka.common.acl.AclOperation.ALL;
+                break;
+            default:
+                throw new IllegalArgumentException("Invalid Acl operation: " + operation);
+        }
+
+        return new AccessControlEntryFilter(principal.toString(), getHost(), kafkaOperation, kafkaType);
+    }
+
     /**
      * Create Kafka's Acl object from SimpleAclRule object.
      *
@@ -178,6 +293,62 @@ public class SimpleAclRule {
         }
 
         return new Acl(principal, kafkaType, getHost(), kafkaOperation);
+    }
+
+    public static SimpleAclRule fromKafkaAccessControlEntry(SimpleAclRuleResource resource, AccessControlEntry accessControlEntry)   {
+        AclRuleType type;
+        AclOperation operation;
+
+        switch (accessControlEntry.permissionType()) {
+            case DENY:
+                type = AclRuleType.DENY;
+                break;
+            case ALLOW:
+                type = AclRuleType.ALLOW;
+                break;
+            default:
+                throw new IllegalArgumentException("Invalid AclRule type: " + accessControlEntry.permissionType());
+        }
+
+        switch (accessControlEntry.operation()) {
+            case READ:
+                operation = AclOperation.READ;
+                break;
+            case WRITE:
+                operation = AclOperation.WRITE;
+                break;
+            case CREATE:
+                operation = AclOperation.CREATE;
+                break;
+            case DELETE:
+                operation = AclOperation.DELETE;
+                break;
+            case ALTER:
+                operation = AclOperation.ALTER;
+                break;
+            case DESCRIBE:
+                operation = AclOperation.DESCRIBE;
+                break;
+            case CLUSTER_ACTION:
+                operation = AclOperation.CLUSTERACTION;
+                break;
+            case ALTER_CONFIGS:
+                operation = AclOperation.ALTERCONFIGS;
+                break;
+            case DESCRIBE_CONFIGS:
+                operation = AclOperation.DESCRIBECONFIGS;
+                break;
+            case IDEMPOTENT_WRITE:
+                operation = AclOperation.IDEMPOTENTWRITE;
+                break;
+            case ALL:
+                operation = AclOperation.ALL;
+                break;
+            default:
+                throw new IllegalArgumentException("Invalid AclRule operation: " + accessControlEntry.operation());
+        }
+
+        return new SimpleAclRule(type, resource, accessControlEntry.host(), operation);
     }
 
     /**

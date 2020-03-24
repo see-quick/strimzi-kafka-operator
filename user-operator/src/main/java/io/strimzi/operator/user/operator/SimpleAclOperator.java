@@ -12,22 +12,26 @@ import io.vertx.core.CompositeFuture;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import kafka.security.auth.Acl;
-import kafka.security.auth.Resource;
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.common.acl.AccessControlEntryFilter;
+import org.apache.kafka.common.acl.AclBinding;
+import org.apache.kafka.common.acl.AclBindingFilter;
+import org.apache.kafka.common.acl.AclOperation;
+import org.apache.kafka.common.acl.AclPermissionType;
+import org.apache.kafka.common.resource.ResourcePattern;
+import org.apache.kafka.common.resource.ResourcePatternFilter;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.apache.kafka.common.utils.SecurityUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import scala.Tuple2;
-import scala.collection.Iterator;
-import scala.collection.JavaConverters;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
 
 /**
  * SimlpeAclOperator is responsible for managing the authorization rules in Apache Kafka / Apache Zookeeper.
@@ -43,17 +47,17 @@ public class SimpleAclOperator {
     private static final List<String> IGNORED_USERS = Arrays.asList("*", "ANONYMOUS");
 
     private final Vertx vertx;
-    private final kafka.security.auth.SimpleAclAuthorizer authorizer;
+    private final Admin adminClient;
 
     /**
      * Constructor
      *
-     * @param vertx     Vertx instance
-     * @param authorizer    SimpleAcAuthorizer instance
+     * @param vertx Vertx instance
+     * @param adminClient Kafka Admin client instance
      */
-    public SimpleAclOperator(Vertx vertx, kafka.security.auth.SimpleAclAuthorizer authorizer)  {
+    public SimpleAclOperator(Vertx vertx, Admin adminClient)  {
         this.vertx = vertx;
-        this.authorizer = authorizer;
+        this.adminClient = adminClient;
     }
 
     /**
@@ -106,11 +110,8 @@ public class SimpleAclOperator {
      */
     protected Future<ReconcileResult<Set<SimpleAclRule>>> internalCreate(String username, Set<SimpleAclRule> desired) {
         try {
-            HashMap<Resource, Set<Acl>> map = getResourceAclsMap(username, desired);
-            for (Map.Entry<Resource, Set<Acl>> entry: map.entrySet()) {
-                scala.collection.mutable.Set<Acl> add = JavaConverters.asScalaSet(entry.getValue());
-                authorizer.addAcls(add.toSet(), entry.getKey());
-            }
+            Collection<AclBinding> aclBindings = getAclBindings(username, desired);
+            adminClient.createAcls(aclBindings).all().get();
         } catch (Exception e) {
             log.error("Adding Acl rules for user {} failed", username, e);
             return Future.failedFuture(e);
@@ -126,10 +127,10 @@ public class SimpleAclOperator {
      * It delagates to {@link #internalCreate internalCreate} and {@link #internalDelete internalDelete} methods for the actual addition or deletion.
      */
     protected Future<ReconcileResult<Set<SimpleAclRule>>> internalUpdate(String username, Set<SimpleAclRule> desired, Set<SimpleAclRule> current) {
-        Set<SimpleAclRule> toBeDeleted = new HashSet<SimpleAclRule>(current);
+        Set<SimpleAclRule> toBeDeleted = new HashSet<>(current);
         toBeDeleted.removeAll(desired);
 
-        Set<SimpleAclRule> toBeAdded = new HashSet<SimpleAclRule>(desired);
+        Set<SimpleAclRule> toBeAdded = new HashSet<>(desired);
         toBeAdded.removeAll(current);
 
         List<Future> updates = new ArrayList<>(2);
@@ -150,31 +151,34 @@ public class SimpleAclOperator {
         return promise.future();
     }
 
-    protected HashMap<Resource, Set<Acl>> getResourceAclsMap(String username, Set<SimpleAclRule> aclRules) {
+    protected Collection<AclBindingFilter> getAclBindingFilters(String username, Set<SimpleAclRule> aclRules) {
         KafkaPrincipal principal = new KafkaPrincipal("User", username);
-        HashMap<Resource, Set<Acl>> map = new HashMap<>();
+        Collection<AclBindingFilter> aclBindingFilters = new ArrayList<>();
         for (SimpleAclRule rule: aclRules) {
-            Resource resource = rule.getResource().toKafkaResource();
-            Set<Acl> aclSet = map.get(resource);
-            if (aclSet == null) {
-                aclSet = new HashSet<>();
-            }
-            aclSet.add(rule.toKafkaAcl(principal));
-            map.put(resource, aclSet);
+            ResourcePatternFilter resourcePatternFilter = rule.getResource().toKafkaResourcePatternFilter();
+            aclBindingFilters.add(new AclBindingFilter(resourcePatternFilter, rule.toKafkaAccessControlEntryFilter(principal)));
         }
-        return map;
+        return aclBindingFilters;
     }
+
+    protected Collection<AclBinding> getAclBindings(String username, Set<SimpleAclRule> aclRules) {
+        KafkaPrincipal principal = new KafkaPrincipal("User", username);
+        Collection<AclBinding> aclBindings = new ArrayList<>();
+        for (SimpleAclRule rule: aclRules) {
+            ResourcePattern resourcePattern = rule.getResource().toKafkaResourcePattern();
+            aclBindings.add(new AclBinding(resourcePattern, rule.toKafkaAccessControlEntry(principal)));
+        }
+        return aclBindings;
+    }
+
     /**
      * Deletes all ACLs for given user
      */
     protected Future<ReconcileResult<Set<SimpleAclRule>>> internalDelete(String username, Set<SimpleAclRule> current) {
 
         try {
-            HashMap<Resource, Set<Acl>> map =  getResourceAclsMap(username, current);
-            for (Map.Entry<Resource, Set<Acl>> entry: map.entrySet()) {
-                scala.collection.mutable.Set<Acl> remove = JavaConverters.asScalaSet(entry.getValue());
-                authorizer.removeAcls(remove.toSet(), entry.getKey());
-            }
+            Collection<AclBindingFilter> aclBindingFilters = getAclBindingFilters(username, current);
+            adminClient.deleteAcls(aclBindingFilters).all().get();
         } catch (Exception e) {
             log.error("Deleting Acl rules for user {} failed", username, e);
             return Future.failedFuture(e);
@@ -190,37 +194,29 @@ public class SimpleAclOperator {
      */
     public Set<SimpleAclRule> getAcls(String username)   {
         log.debug("Searching for ACL rules of user {}", username);
-        Set<SimpleAclRule> result = new HashSet<SimpleAclRule>();
+        Set<SimpleAclRule> result = new HashSet<>();
         KafkaPrincipal principal = new KafkaPrincipal("User", username);
 
-        scala.collection.immutable.Map<Resource, scala.collection.immutable.Set<Acl>> rules;
+        AclBindingFilter aclBindingFilter = new AclBindingFilter(ResourcePatternFilter.ANY,
+            new AccessControlEntryFilter(principal.toString(), null, AclOperation.ANY, AclPermissionType.ANY));
 
+        Collection<AclBinding> aclBindings = null;
         try {
-            rules = authorizer.getAcls(principal);
-        } catch (Exception e)   {
+            aclBindings = adminClient.describeAcls(aclBindingFilter).values().get();
+        } catch (InterruptedException | ExecutionException e)   {
             log.error("Failed to get existing Acls rules for user {}", username, e);
-            throw e;
         }
 
-        Iterator<Tuple2<Resource, scala.collection.immutable.Set<Acl>>> iter = resourceAclsIterator(rules);
-        while (iter.hasNext())  {
-            Tuple2<Resource, scala.collection.immutable.Set<Acl>> tuple = iter.next();
-            SimpleAclRuleResource resource = SimpleAclRuleResource.fromKafkaResource(tuple._1());
-            scala.collection.immutable.Set<Acl> acls = tuple._2();
-
-            Iterator<Acl> iter2 = acls.iterator();
-            while (iter2.hasNext()) {
-                result.add(SimpleAclRule.fromKafkaAcl(resource, iter2.next()));
+        if (aclBindings != null) {
+            log.debug("ACL rules for user {}", username);
+            for (AclBinding aclBinding : aclBindings) {
+                log.debug("{}", aclBinding);
+                SimpleAclRuleResource resource = SimpleAclRuleResource.fromKafkaResourcePattern(aclBinding.pattern());
+                result.add(SimpleAclRule.fromKafkaAccessControlEntry(resource, aclBinding.entry()));
             }
         }
 
         return result;
-    }
-
-    private Iterator<Tuple2<Resource, scala.collection.immutable.Set<Acl>>> resourceAclsIterator(scala.collection.immutable.Map<Resource, scala.collection.immutable.Set<Acl>> rules) {
-        // this cast fixes an error with VSCode compiler (using the Eclipse JDT Language Server)
-        // error details: The method iterator() is ambiguous for the type Map<Resource,Set<Acl>>
-        return ((scala.collection.GenIterableLike<Tuple2<Resource, scala.collection.immutable.Set<Acl>>, ?>) rules).iterator();
     }
 
     /**
@@ -229,45 +225,38 @@ public class SimpleAclOperator {
      * @return The set with all usernames which have some ACLs.
      */
     public Set<String> getUsersWithAcls()   {
-        Set<String> result = new HashSet<String>();
-        Set<String> ignored = new HashSet<String>(IGNORED_USERS.size());
+        Set<String> result = new HashSet<>();
+        Set<String> ignored = new HashSet<>(IGNORED_USERS.size());
 
         log.debug("Searching for Users with any ACL rules");
 
-        scala.collection.immutable.Map<Resource, scala.collection.immutable.Set<Acl>> rules;
-
+        Collection<AclBinding> aclBindings;
         try {
-            rules =  authorizer.getAcls();
-        } catch (Exception e)   {
+            aclBindings = adminClient.describeAcls(AclBindingFilter.ANY).values().get();
+        } catch (InterruptedException | ExecutionException e)   {
             log.error("Failed to get existing Acls rules all users", e);
             return result;
         }
 
-        Iterator<Tuple2<Resource, scala.collection.immutable.Set<Acl>>> iter = resourceAclsIterator(rules);
-        while (iter.hasNext())  {
-            scala.collection.immutable.Set<Acl> acls = iter.next()._2();
+        for (AclBinding aclBinding : aclBindings) {
+            KafkaPrincipal principal = SecurityUtils.parseKafkaPrincipal(aclBinding.entry().principal());
 
-            Iterator<Acl> iter2 = acls.iterator();
-            while (iter2.hasNext()) {
-                KafkaPrincipal principal = iter2.next().principal();
+            if (KafkaPrincipal.USER_TYPE.equals(principal.getPrincipalType()))  {
+                // Username in ACL might keep different format (for example based on user's subject) and need to be decoded
+                String username = KafkaUserModel.decodeUsername(principal.getName());
 
-                if (KafkaPrincipal.USER_TYPE.equals(principal.getPrincipalType()))  {
-                    // Username in ACL might keep different format (for example based on user's subject) and need to be decoded
-                    String username = KafkaUserModel.decodeUsername(principal.getName());
-
-                    if (IGNORED_USERS.contains(username))   {
-                        if (!ignored.contains(username)) {
-                            // This info message is loged only once per reocnciliation even if there are multiple rules
-                            log.info("Existing ACLs for user '{}' will be ignored.", username);
-                            ignored.add(username);
-                        }
-                    } else {
-                        if (log.isTraceEnabled()) {
-                            log.trace("Adding user {} to Set of users with ACLs", username);
-                        }
-
-                        result.add(username);
+                if (IGNORED_USERS.contains(username))   {
+                    if (!ignored.contains(username)) {
+                        // This info message is loged only once per reocnciliation even if there are multiple rules
+                        log.info("Existing ACLs for user '{}' will be ignored.", username);
+                        ignored.add(username);
                     }
+                } else {
+                    if (log.isTraceEnabled()) {
+                        log.trace("Adding user {} to Set of users with ACLs", username);
+                    }
+
+                    result.add(username);
                 }
             }
         }

@@ -18,6 +18,8 @@ import kafka.security.auth.ResourceType;
 import kafka.security.auth.Topic$;
 import kafka.security.auth.TransactionalId$;
 import org.apache.kafka.common.resource.PatternType;
+import org.apache.kafka.common.resource.ResourcePattern;
+import org.apache.kafka.common.resource.ResourcePatternFilter;
 
 /**
  * This class represents Kafka resource and is used in the SimpleAclRule objects.
@@ -96,6 +98,94 @@ public class SimpleAclRuleResource {
                 "pattern: " + pattern + ")";
     }
 
+    public ResourcePattern toKafkaResourcePattern() {
+        org.apache.kafka.common.resource.ResourceType kafkaType;
+        String kafkaName;
+        PatternType kafkaPattern = PatternType.LITERAL;
+
+        switch (type) {
+            case TOPIC:
+                kafkaType = org.apache.kafka.common.resource.ResourceType.TOPIC;
+                kafkaName = name;
+
+                if (AclResourcePatternType.PREFIX.equals(pattern))   {
+                    kafkaPattern = PatternType.PREFIXED;
+                }
+
+                break;
+            case GROUP:
+                kafkaType = org.apache.kafka.common.resource.ResourceType.GROUP;
+                kafkaName = name;
+
+                if (AclResourcePatternType.PREFIX.equals(pattern))   {
+                    kafkaPattern = PatternType.PREFIXED;
+                }
+
+                break;
+            case CLUSTER:
+                kafkaType = org.apache.kafka.common.resource.ResourceType.CLUSTER;
+                kafkaName = "kafka-cluster";
+                break;
+            case TRANSACTIONAL_ID:
+                kafkaType = org.apache.kafka.common.resource.ResourceType.TRANSACTIONAL_ID;
+                kafkaName = name;
+
+                if (AclResourcePatternType.PREFIX.equals(pattern))   {
+                    kafkaPattern = PatternType.PREFIXED;
+                }
+
+                break;
+            default:
+                throw new IllegalArgumentException("Invalid Acl resource type: " + type);
+        }
+
+        return new ResourcePattern(kafkaType, kafkaName, kafkaPattern);
+    }
+
+    public ResourcePatternFilter toKafkaResourcePatternFilter() {
+        org.apache.kafka.common.resource.ResourceType kafkaType;
+        String kafkaName;
+        PatternType kafkaPattern = PatternType.LITERAL;
+
+        switch (type) {
+            case TOPIC:
+                kafkaType = org.apache.kafka.common.resource.ResourceType.TOPIC;
+                kafkaName = name;
+
+                if (AclResourcePatternType.PREFIX.equals(pattern))   {
+                    kafkaPattern = PatternType.PREFIXED;
+                }
+
+                break;
+            case GROUP:
+                kafkaType = org.apache.kafka.common.resource.ResourceType.GROUP;
+                kafkaName = name;
+
+                if (AclResourcePatternType.PREFIX.equals(pattern))   {
+                    kafkaPattern = PatternType.PREFIXED;
+                }
+
+                break;
+            case CLUSTER:
+                kafkaType = org.apache.kafka.common.resource.ResourceType.CLUSTER;
+                kafkaName = "kafka-cluster";
+                break;
+            case TRANSACTIONAL_ID:
+                kafkaType = org.apache.kafka.common.resource.ResourceType.TRANSACTIONAL_ID;
+                kafkaName = name;
+
+                if (AclResourcePatternType.PREFIX.equals(pattern))   {
+                    kafkaPattern = PatternType.PREFIXED;
+                }
+
+                break;
+            default:
+                throw new IllegalArgumentException("Invalid Acl resource type: " + type);
+        }
+
+        return new ResourcePatternFilter(kafkaType, kafkaName, kafkaPattern);
+    }
+
     /**
      * Creates Kafka's Resource class from the current object
      *
@@ -143,6 +233,71 @@ public class SimpleAclRuleResource {
         }
 
         return new Resource(kafkaType, kafkaName, kafkaPattern);
+    }
+
+    public static SimpleAclRuleResource fromKafkaResourcePattern(ResourcePattern kafkaResourcePattern) {
+        String resourceName;
+        SimpleAclRuleResourceType resourceType;
+        AclResourcePatternType resourcePattern = null;
+
+        switch (kafkaResourcePattern.resourceType()) {
+            case TOPIC:
+                resourceName = kafkaResourcePattern.name();
+                resourceType = SimpleAclRuleResourceType.TOPIC;
+
+                switch (kafkaResourcePattern.patternType()) {
+                    case LITERAL:
+                        resourcePattern = AclResourcePatternType.LITERAL;
+                        break;
+                    case PREFIXED:
+                        resourcePattern = AclResourcePatternType.PREFIX;
+                        break;
+                    default:
+                        throw new IllegalArgumentException("Invalid Resource type: " + kafkaResourcePattern.resourceType());
+                }
+
+                break;
+            case GROUP:
+                resourceType = SimpleAclRuleResourceType.GROUP;
+                resourceName = kafkaResourcePattern.name();
+
+                switch (kafkaResourcePattern.patternType()) {
+                    case LITERAL:
+                        resourcePattern = AclResourcePatternType.LITERAL;
+                        break;
+                    case PREFIXED:
+                        resourcePattern = AclResourcePatternType.PREFIX;
+                        break;
+                    default:
+                        throw new IllegalArgumentException("Invalid Resource type: " + kafkaResourcePattern.resourceType());
+                }
+
+                break;
+            case CLUSTER:
+                resourceType = SimpleAclRuleResourceType.CLUSTER;
+                resourceName = "kafka-cluster";
+                resourcePattern = AclResourcePatternType.LITERAL;
+                break;
+            case TRANSACTIONAL_ID:
+                resourceType = SimpleAclRuleResourceType.TRANSACTIONAL_ID;
+                resourceName = kafkaResourcePattern.name();
+                switch (kafkaResourcePattern.patternType()) {
+                    case LITERAL:
+                        resourcePattern = AclResourcePatternType.LITERAL;
+                        break;
+                    case PREFIXED:
+                        resourcePattern = AclResourcePatternType.PREFIX;
+                        break;
+                    default:
+                        throw new IllegalArgumentException("Invalid Resource type: " + kafkaResourcePattern.resourceType());
+                }
+
+                break;
+            default:
+                throw new IllegalArgumentException("Invalid Resource type: " + kafkaResourcePattern.resourceType());
+        }
+
+        return new SimpleAclRuleResource(resourceName, resourceType, resourcePattern);
     }
 
     /**

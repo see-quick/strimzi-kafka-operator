@@ -136,7 +136,7 @@ public class BasicExternalKafkaClient extends AbstractKafkaClient implements Aut
 
     /**
      * Receive messages to external entrypoint of the cluster with PLAINTEXT security protocol setting
-     * @return
+     * @return future with received message count
      */
     @Override
     public Future<Integer> receiveMessagesPlain(long timeoutMs) {
