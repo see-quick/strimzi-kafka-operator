@@ -131,7 +131,7 @@ public class BasicExternalKafkaClient extends AbstractKafkaClient implements Kaf
 
     /**
      * Receive messages to external entrypoint of the cluster with PLAINTEXT security protocol setting
-     * @return
+     * @return future with received message count
      */
     public int receiveMessagesPlain(long timeoutMs) {
 
