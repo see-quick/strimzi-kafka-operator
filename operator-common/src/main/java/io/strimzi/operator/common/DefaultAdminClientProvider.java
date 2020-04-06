@@ -20,6 +20,27 @@ public class DefaultAdminClientProvider implements AdminClientProvider {
 
     private static final Logger LOGGER = LogManager.getLogger(DefaultAdminClientProvider.class);
 
+    /**
+     * Create a Kafka Admin interface instance handling the following different scenarios:
+     *
+     * 1. No TLS connection, no TLS client authentication:
+     *
+     * If {@code clusterCaCertSecret}, {@code keyCertSecret} and {@code keyCertName} are null, the returned Admin Client instance
+     * is configured to connect to the Apache Kafka bootstrap (defined via {@code hostname}) on plain connection with no
+     * TLS encryption and no TLS client authentication.
+     *
+     * 2. TLS connection, no TLS client authentication
+     *
+     * If only {@code clusterCaCertSecret} is provided as not null, the returned Admin Client instance is configured to
+     * connect to the Apache Kafka bootstrap (defined via {@code hostname}) on TLS encrypted connection but with no
+     * TLS authentication.
+     *
+     * 3. TLS connection and TLS client authentication
+     *
+     * If {@code clusterCaCertSecret}, {@code keyCertSecret} and {@code keyCertName} are provided as not null, the returned
+     * Admin Client instance is configured to connect to the Apache Kafka bootstrap (defined via {@code hostname}) on
+     * TLS encrypted connection and with TLS client authentication.
+     */
     @Override
     public Admin createAdminClient(String hostname, Secret clusterCaCertSecret, Secret keyCertSecret, String keyCertName) {
         Admin ac;
