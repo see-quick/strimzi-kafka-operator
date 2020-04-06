@@ -7,7 +7,6 @@ package io.strimzi.operator.user.operator;
 import io.strimzi.operator.common.operator.resource.ReconcileResult;
 import io.strimzi.operator.user.model.KafkaUserModel;
 import io.strimzi.operator.user.model.acl.SimpleAclRule;
-import io.strimzi.operator.user.model.acl.SimpleAclRuleResource;
 import io.vertx.core.CompositeFuture;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
@@ -18,7 +17,6 @@ import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.acl.AclPermissionType;
-import org.apache.kafka.common.resource.ResourcePattern;
 import org.apache.kafka.common.resource.ResourcePatternFilter;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.SecurityUtils;
@@ -155,8 +153,7 @@ public class SimpleAclOperator {
         KafkaPrincipal principal = new KafkaPrincipal("User", username);
         Collection<AclBindingFilter> aclBindingFilters = new ArrayList<>();
         for (SimpleAclRule rule: aclRules) {
-            ResourcePatternFilter resourcePatternFilter = rule.getResource().toKafkaResourcePatternFilter();
-            aclBindingFilters.add(new AclBindingFilter(resourcePatternFilter, rule.toKafkaAccessControlEntryFilter(principal)));
+            aclBindingFilters.add(rule.toKafkaAclBinding(principal).toFilter());
         }
         return aclBindingFilters;
     }
@@ -165,8 +162,7 @@ public class SimpleAclOperator {
         KafkaPrincipal principal = new KafkaPrincipal("User", username);
         Collection<AclBinding> aclBindings = new ArrayList<>();
         for (SimpleAclRule rule: aclRules) {
-            ResourcePattern resourcePattern = rule.getResource().toKafkaResourcePattern();
-            aclBindings.add(new AclBinding(resourcePattern, rule.toKafkaAccessControlEntry(principal)));
+            aclBindings.add(rule.toKafkaAclBinding(principal));
         }
         return aclBindings;
     }
@@ -211,8 +207,7 @@ public class SimpleAclOperator {
             log.debug("ACL rules for user {}", username);
             for (AclBinding aclBinding : aclBindings) {
                 log.debug("{}", aclBinding);
-                SimpleAclRuleResource resource = SimpleAclRuleResource.fromKafkaResourcePattern(aclBinding.pattern());
-                result.add(SimpleAclRule.fromKafkaAccessControlEntry(resource, aclBinding.entry()));
+                result.add(SimpleAclRule.fromAclBinding(aclBinding));
             }
         }
 
