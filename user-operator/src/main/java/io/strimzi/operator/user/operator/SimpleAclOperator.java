@@ -65,7 +65,7 @@ public class SimpleAclOperator {
      * @param desired   The list of desired Acl rules
      * @return
      */
-    Future<ReconcileResult<Set<SimpleAclRule>>> reconcile(String username, Set<SimpleAclRule> desired) {
+    public Future<ReconcileResult<Set<SimpleAclRule>>> reconcile(String username, Set<SimpleAclRule> desired) {
         Promise<ReconcileResult<Set<SimpleAclRule>>> promise = Promise.promise();
         vertx.createSharedWorkerExecutor("kubernetes-ops-pool").executeBlocking(
             future -> {
@@ -149,7 +149,7 @@ public class SimpleAclOperator {
         return promise.future();
     }
 
-    protected Collection<AclBindingFilter> getAclBindingFilters(String username, Set<SimpleAclRule> aclRules) {
+    private Collection<AclBindingFilter> getAclBindingFilters(String username, Set<SimpleAclRule> aclRules) {
         KafkaPrincipal principal = new KafkaPrincipal("User", username);
         Collection<AclBindingFilter> aclBindingFilters = new ArrayList<>();
         for (SimpleAclRule rule: aclRules) {
@@ -158,7 +158,7 @@ public class SimpleAclOperator {
         return aclBindingFilters;
     }
 
-    protected Collection<AclBinding> getAclBindings(String username, Set<SimpleAclRule> aclRules) {
+    private Collection<AclBinding> getAclBindings(String username, Set<SimpleAclRule> aclRules) {
         KafkaPrincipal principal = new KafkaPrincipal("User", username);
         Collection<AclBinding> aclBindings = new ArrayList<>();
         for (SimpleAclRule rule: aclRules) {
