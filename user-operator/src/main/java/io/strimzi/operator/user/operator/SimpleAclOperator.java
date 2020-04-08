@@ -63,7 +63,7 @@ public class SimpleAclOperator {
      *
      * @param username  User name of the reconciled user. When using TLS client auth, the username should be already in the Kafka format, e.g. CN=my-user
      * @param desired   The list of desired Acl rules
-     * @return
+     * @return the Future with reconcile result
      */
     public Future<ReconcileResult<Set<SimpleAclRule>>> reconcile(String username, Set<SimpleAclRule> desired) {
         Promise<ReconcileResult<Set<SimpleAclRule>>> promise = Promise.promise();
