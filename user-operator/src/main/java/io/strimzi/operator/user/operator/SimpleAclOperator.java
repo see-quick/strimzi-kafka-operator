@@ -19,6 +19,7 @@ import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.acl.AclPermissionType;
 import org.apache.kafka.common.errors.SecurityDisabledException;
+import org.apache.kafka.common.errors.UnknownServerException;
 import org.apache.kafka.common.resource.ResourcePatternFilter;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.SecurityUtils;
@@ -201,11 +202,13 @@ public class SimpleAclOperator {
         Collection<AclBinding> aclBindings = null;
         try {
             aclBindings = adminClient.describeAcls(aclBindingFilter).values().get();
-        } catch (InterruptedException | ExecutionException e)   {
+        } catch (InterruptedException | ExecutionException e) {
             log.error("Failed to get existing Acls rules for user {}", username, e);
             // Admin Client API needs authorizer enabled on the Kafka brokers
             if (e.getCause() instanceof SecurityDisabledException) {
                 throw new InvalidResourceException("Authorization needs to be enabled in the Kafka custom resource", e.getCause());
+            } else if (e.getCause() instanceof UnknownServerException) {
+                throw new InvalidResourceException("Simple ACL delegation needs to be enabled in the Kafka custom resource", e.getCause());
             }
         }
 
@@ -234,7 +237,7 @@ public class SimpleAclOperator {
         Collection<AclBinding> aclBindings;
         try {
             aclBindings = adminClient.describeAcls(AclBindingFilter.ANY).values().get();
-        } catch (InterruptedException | ExecutionException e)   {
+        } catch (InterruptedException | ExecutionException e) {
             return result;
         }
 
