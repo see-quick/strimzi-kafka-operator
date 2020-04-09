@@ -4,6 +4,7 @@
  */
 package io.strimzi.operator.user.operator;
 
+import io.strimzi.operator.cluster.model.InvalidResourceException;
 import io.strimzi.operator.common.operator.resource.ReconcileResult;
 import io.strimzi.operator.user.model.KafkaUserModel;
 import io.strimzi.operator.user.model.acl.SimpleAclRule;
@@ -17,6 +18,7 @@ import org.apache.kafka.common.acl.AclBinding;
 import org.apache.kafka.common.acl.AclBindingFilter;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.acl.AclPermissionType;
+import org.apache.kafka.common.errors.SecurityDisabledException;
 import org.apache.kafka.common.resource.ResourcePatternFilter;
 import org.apache.kafka.common.security.auth.KafkaPrincipal;
 import org.apache.kafka.common.utils.SecurityUtils;
@@ -201,6 +203,10 @@ public class SimpleAclOperator {
             aclBindings = adminClient.describeAcls(aclBindingFilter).values().get();
         } catch (InterruptedException | ExecutionException e)   {
             log.error("Failed to get existing Acls rules for user {}", username, e);
+            // Admin Client API needs authorizer enabled on the Kafka brokers
+            if (e.getCause() instanceof SecurityDisabledException) {
+                throw new InvalidResourceException("Authorization needs to be enabled in the Kafka custom resource", e.getCause());
+            }
         }
 
         if (aclBindings != null) {
@@ -229,7 +235,6 @@ public class SimpleAclOperator {
         try {
             aclBindings = adminClient.describeAcls(AclBindingFilter.ANY).values().get();
         } catch (InterruptedException | ExecutionException e)   {
-            log.error("Failed to get existing Acls rules all users", e);
             return result;
         }
 

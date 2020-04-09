@@ -73,9 +73,6 @@ public class DefaultAdminClientProvider implements AdminClientProvider {
                     p.setProperty(SslConfigs.SSL_TRUSTSTORE_LOCATION_CONFIG, truststoreFile.getAbsolutePath());
                     p.setProperty(SslConfigs.SSL_TRUSTSTORE_TYPE_CONFIG, "PKCS12");
                     p.setProperty(SslConfigs.SSL_TRUSTSTORE_PASSWORD_CONFIG, trustStorePassword);
-
-                    //TODO: remove, just for UO in debug from IDE
-                    p.setProperty(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG, "");
                 }
 
                 // configuring TLS client authentication
