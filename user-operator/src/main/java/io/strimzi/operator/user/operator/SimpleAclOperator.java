@@ -213,7 +213,7 @@ public class SimpleAclOperator {
             // Admin Client API needs authorizer enabled on the Kafka brokers
             if (e.getCause() instanceof SecurityDisabledException) {
                 throw new InvalidResourceException("Authorization needs to be enabled in the Kafka custom resource", e.getCause());
-            } else if (e.getCause() instanceof UnknownServerException) {
+            } else if (e.getCause() instanceof UnknownServerException && e.getMessage().contains("Simple ACL delegation not enabled")) {
                 throw new InvalidResourceException("Simple ACL delegation needs to be enabled in the Kafka custom resource", e.getCause());
             }
         }
