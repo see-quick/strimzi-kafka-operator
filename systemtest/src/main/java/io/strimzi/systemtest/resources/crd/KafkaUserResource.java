@@ -32,7 +32,7 @@ public class KafkaUserResource {
 
     public static DoneableKafkaUser tlsUser(String clusterName, String name) {
         return user(defaultUser(clusterName, name)
-            .editSpec()
+            .withNewSpec()
                 .withNewKafkaUserTlsClientAuthentication()
                 .endKafkaUserTlsClientAuthentication()
             .endSpec()
@@ -41,7 +41,7 @@ public class KafkaUserResource {
 
     public static DoneableKafkaUser scramShaUser(String clusterName, String name) {
         return user(defaultUser(clusterName, name)
-            .editSpec()
+            .withNewSpec()
                 .withNewKafkaUserScramSha512ClientAuthentication()
                 .endKafkaUserScramSha512ClientAuthentication()
             .endSpec()
@@ -49,8 +49,7 @@ public class KafkaUserResource {
     }
 
     public static KafkaUserBuilder defaultUser(String clusterName, String name) {
-        KafkaUser kafkaUser = getKafkaUserFromYaml(PATH_TO_KAFKA_USER_CONFIG);
-        return new KafkaUserBuilder(kafkaUser)
+        return new KafkaUserBuilder()
             .withNewMetadata()
                 .withClusterName(clusterName)
                 .withName(name)
