@@ -66,7 +66,7 @@ class UserST extends BaseST {
         KafkaUserUtils.waitForKafkaUserCreation(saslUserWithLongName);
 
         KafkaUserResource.kafkaUserWithoutWait(KafkaUserResource.defaultUser(CLUSTER_NAME, userWithLongName)
-            .editSpec()
+            .withNewSpec()
                 .withNewKafkaUserTlsClientAuthentication()
                 .endKafkaUserTlsClientAuthentication()
             .endSpec()
