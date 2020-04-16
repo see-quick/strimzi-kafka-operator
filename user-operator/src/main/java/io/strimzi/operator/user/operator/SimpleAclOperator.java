@@ -77,9 +77,16 @@ public class SimpleAclOperator {
                 try {
                     current = getAcls(username);
                 } catch (Exception e)   {
-                    log.error("Reconciliation failed for user {}", username, e);
-                    future.fail(e);
-                    return;
+                    // if authorization is not enabled in the Kafka resource, but the KafkaUser resource doesn't
+                    // have ACLs, the UO can just ignore the corresponding exception
+                    if (e instanceof InvalidResourceException && (desired == null || desired.isEmpty())) {
+                        future.complete();
+                        return;
+                    } else {
+                        log.error("Reconciliation failed for user {}", username, e);
+                        future.fail(e);
+                        return;
+                    }
                 }
 
                 if (desired == null || desired.isEmpty()) {
@@ -203,11 +210,10 @@ public class SimpleAclOperator {
         try {
             aclBindings = adminClient.describeAcls(aclBindingFilter).values().get();
         } catch (InterruptedException | ExecutionException e) {
-            log.error("Failed to get existing Acls rules for user {}", username, e);
             // Admin Client API needs authorizer enabled on the Kafka brokers
             if (e.getCause() instanceof SecurityDisabledException) {
                 throw new InvalidResourceException("Authorization needs to be enabled in the Kafka custom resource", e.getCause());
-            } else if (e.getCause() instanceof UnknownServerException) {
+            } else if (e.getCause() instanceof UnknownServerException && e.getMessage().contains("Simple ACL delegation not enabled")) {
                 throw new InvalidResourceException("Simple ACL delegation needs to be enabled in the Kafka custom resource", e.getCause());
             }
         }

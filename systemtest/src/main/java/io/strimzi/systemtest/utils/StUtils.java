@@ -6,12 +6,13 @@ package io.strimzi.systemtest.utils;
 
 import com.jayway.jsonpath.JsonPath;
 import io.fabric8.kubernetes.api.model.ConfigMap;
+import io.fabric8.kubernetes.client.CustomResource;
 import io.strimzi.api.kafka.model.ContainerEnvVar;
 import io.strimzi.api.kafka.model.ContainerEnvVarBuilder;
-import io.strimzi.systemtest.Constants;
+import io.strimzi.api.kafka.model.status.Condition;
+import io.strimzi.api.kafka.model.status.HasStatus;
 import io.strimzi.systemtest.Environment;
-import io.strimzi.test.TestUtils;
-import io.strimzi.test.timemeasuring.TimeMeasuringSystem;
+import io.strimzi.systemtest.utils.kubeUtils.objects.PodUtils;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import org.apache.logging.log4j.LogManager;
@@ -27,8 +28,8 @@ import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import static io.strimzi.test.k8s.KubeClusterResource.cmdKubeClient;
 import static io.strimzi.test.k8s.KubeClusterResource.kubeClient;
+import static java.util.Arrays.asList;
 
 public class StUtils {
 
@@ -41,14 +42,7 @@ public class StUtils {
 
     private static final Pattern VERSION_IMAGE_PATTERN = Pattern.compile("(?<version>[0-9.]+)=(?<image>[^\\s]*)");
 
-    private static TimeMeasuringSystem timeMeasuringSystem = TimeMeasuringSystem.getInstance();
-
     private StUtils() { }
-
-    public static void waitForRollingUpdateTimeout(String testClass, String testName, String logPattern, String operationID) {
-        TestUtils.waitFor("Wait till rolling update timeout", Constants.CO_OPERATION_TIMEOUT_POLL, Constants.CO_OPERATION_TIMEOUT_WAIT,
-            () -> !cmdKubeClient().searchInLog("deploy", "strimzi-cluster-operator", timeMeasuringSystem.getCurrentDuration(testClass, testName, operationID), logPattern).isEmpty());
-    }
 
     /**
      * Method for check if test is allowed on current Kubernetes version
@@ -228,5 +222,24 @@ public class StUtils {
             }
         }
         return isJSON;
+    }
+    /**
+     * Log actual status of custom resource with pods.
+     * @param customResource - Kafka, KafkaConnect etc. - every resource that HasMetadata and HasStatus (Strimzi status)
+     */
+    public static <T extends CustomResource & HasStatus> void logCurrentStatus(T customResource) {
+        String kind = customResource.getKind();
+        String name = customResource.getMetadata().getName();
+
+        List<String> log = new ArrayList<>(asList("\n", kind, " status:\n", "\nConditions:\n"));
+
+        for (Condition condition : customResource.getStatus().getConditions()) {
+            log.add("\tType: " + condition.getType() + "\n");
+            log.add("\tMessage: " + condition.getMessage() + "\n");
+        }
+
+        PodUtils.logCurrentPodStatus(kind, name, log);
+
+        LOGGER.info("{}", String.join("", log));
     }
 }

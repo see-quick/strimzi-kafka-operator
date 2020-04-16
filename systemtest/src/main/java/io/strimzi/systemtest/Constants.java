@@ -29,8 +29,6 @@ public interface Constants {
 
     long TIMEOUT_FOR_SEND_RECEIVE_MSG = Duration.ofSeconds(60).toMillis();
     long TIMEOUT_AVAILABILITY_TEST = Duration.ofMinutes(1).toMillis();
-    long TIMEOUT_SEND_MESSAGES = Duration.ofMinutes(1).toMillis();
-    long TIMEOUT_RECV_MESSAGES = Duration.ofMinutes(1).toMillis();
 
     long TIMEOUT_FOR_CLUSTER_STABLE = Duration.ofMinutes(20).toMillis();
     long TIMEOUT_FOR_ZK_CLUSTER_STABILIZATION = Duration.ofMinutes(7).toMillis();
@@ -64,6 +62,12 @@ public interface Constants {
     int GLOBAL_STABILITY_OFFSET_COUNT = 20;
     // it is replacement instead of checking logs for reconciliation using dynamic waiting on some change for some period of time
     int GLOBAL_RECONCILIATION_COUNT = (int) ((RECONCILIATION_INTERVAL / GLOBAL_POLL_INTERVAL) + GLOBAL_STABILITY_OFFSET_COUNT);
+
+    /**
+     * Constants for Kafka clients labels
+     */
+    String KAFKA_CLIENTS_LABEL_KEY = "user-test-app";
+    String KAFKA_CLIENTS_LABEL_VALUE = "kafka-clients";
 
     String KAFKA_CLIENTS = "kafka-clients";
     String STRIMZI_DEPLOYMENT_NAME = "strimzi-cluster-operator";
@@ -221,10 +225,4 @@ public interface Constants {
      * Tag for tests which use external Kafka clients (called from test code)
      */
     String EXTERNAL_CLIENTS_USED = "externalclients";
-
-    /**
-     * Constants for Kafka clients labels
-     */
-    String KAFKA_CLIENTS_LABEL_KEY = "user-test-app";
-    String KAFKA_CLIENTS_LABEL_VALUE = "kafka-clients";
 }

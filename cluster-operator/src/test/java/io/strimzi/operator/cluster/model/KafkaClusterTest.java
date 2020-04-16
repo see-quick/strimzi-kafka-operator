@@ -1312,10 +1312,15 @@ public class KafkaClusterTest {
 
     @Test
     public void testTemplate() {
-        Map<String, String> ssLabels = TestUtils.map("l1", "v1", "l2", "v2");
+        Map<String, String> ssLabels = TestUtils.map("l1", "v1", "l2", "v2",
+                Labels.KUBERNETES_PART_OF_LABEL, "custom-part",
+                Labels.KUBERNETES_MANAGED_BY_LABEL, "custom-managed-by");
+        Map<String, String> expectedStsLabels = new HashMap<>(ssLabels);
+        expectedStsLabels.remove(Labels.KUBERNETES_MANAGED_BY_LABEL);
         Map<String, String> ssAnots = TestUtils.map("a1", "v1", "a2", "v2");
 
         Map<String, String> podLabels = TestUtils.map("l3", "v3", "l4", "v4");
+
         Map<String, String> podAnots = TestUtils.map("a3", "v3", "a4", "v4");
 
         Map<String, String> svcLabels = TestUtils.map("l5", "v5", "l6", "v6");
@@ -1412,7 +1417,7 @@ public class KafkaClusterTest {
 
         // Check StatefulSet
         StatefulSet sts = kc.generateStatefulSet(true, null, null);
-        assertThat(sts.getMetadata().getLabels().entrySet().containsAll(ssLabels.entrySet()), is(true));
+        assertThat(sts.getMetadata().getLabels().entrySet().containsAll(expectedStsLabels.entrySet()), is(true));
         assertThat(sts.getMetadata().getAnnotations().entrySet().containsAll(ssAnots.entrySet()), is(true));
         assertThat(sts.getSpec().getTemplate().getSpec().getPriorityClassName(), is("top-priority"));
 
@@ -2287,7 +2292,7 @@ public class KafkaClusterTest {
                     .endKafka()
                     .endSpec()
                     .build();
-            KafkaCluster.fromCrd(kafkaAssembly, VERSIONS, oldStorage);
+            KafkaCluster.fromCrd(kafkaAssembly, VERSIONS, oldStorage, replicas);
         });
     }
 
@@ -2334,7 +2339,7 @@ public class KafkaClusterTest {
                 .endKafka()
                 .endSpec()
                 .build();
-        KafkaCluster kc = KafkaCluster.fromCrd(kafkaAssembly, VERSIONS, ephemeral);
+        KafkaCluster kc = KafkaCluster.fromCrd(kafkaAssembly, VERSIONS, ephemeral, replicas);
         assertThat(kc.getStorage(), is(ephemeral));
 
         kafkaAssembly = new KafkaBuilder(ResourceUtils.createKafkaCluster(namespace, cluster, replicas,
@@ -2345,7 +2350,7 @@ public class KafkaClusterTest {
                 .endKafka()
                 .endSpec()
                 .build();
-        kc = KafkaCluster.fromCrd(kafkaAssembly, VERSIONS, persistent);
+        kc = KafkaCluster.fromCrd(kafkaAssembly, VERSIONS, persistent, replicas);
         assertThat(kc.getStorage(), is(persistent));
 
         kafkaAssembly = new KafkaBuilder(ResourceUtils.createKafkaCluster(namespace, cluster, replicas,
@@ -2356,7 +2361,7 @@ public class KafkaClusterTest {
                 .endKafka()
                 .endSpec()
                 .build();
-        kc = KafkaCluster.fromCrd(kafkaAssembly, VERSIONS, jbod);
+        kc = KafkaCluster.fromCrd(kafkaAssembly, VERSIONS, jbod, replicas);
         assertThat(kc.getStorage(), is(jbod));
 
         kafkaAssembly = new KafkaBuilder(ResourceUtils.createKafkaCluster(namespace, cluster, replicas,
@@ -2367,7 +2372,7 @@ public class KafkaClusterTest {
                 .endKafka()
                 .endSpec()
                 .build();
-        kc = KafkaCluster.fromCrd(kafkaAssembly, VERSIONS, jbod);
+        kc = KafkaCluster.fromCrd(kafkaAssembly, VERSIONS, jbod, replicas);
         assertThat(kc.getStorage(), is(jbod));
     }
 

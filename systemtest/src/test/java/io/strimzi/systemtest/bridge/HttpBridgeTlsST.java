@@ -12,7 +12,6 @@ import io.strimzi.systemtest.kafkaclients.externalClients.BasicExternalKafkaClie
 import io.strimzi.systemtest.utils.kafkaUtils.KafkaBridgeUtils;
 import io.strimzi.systemtest.utils.HttpUtils;
 import io.strimzi.systemtest.utils.kafkaUtils.KafkaTopicUtils;
-import io.strimzi.systemtest.utils.kubeUtils.objects.SecretUtils;
 import io.strimzi.systemtest.utils.kubeUtils.objects.ServiceUtils;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
@@ -32,8 +31,6 @@ import io.strimzi.systemtest.resources.crd.KafkaTopicResource;
 import io.strimzi.systemtest.resources.crd.KafkaUserResource;
 
 import java.util.Random;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 
 import static io.strimzi.systemtest.Constants.ACCEPTANCE;
 import static io.strimzi.systemtest.Constants.BRIDGE;
@@ -77,8 +74,7 @@ class HttpBridgeTlsST extends HttpBridgeBaseST {
             .withConsumerGroupName(CONSUMER_GROUP_NAME + "-" + rng.nextInt(Integer.MAX_VALUE))
             .build();
 
-        Future<Integer> consumer = basicExternalKafkaClient.receiveMessagesTls();
-        assertThat(consumer.get(2, TimeUnit.MINUTES), is(MESSAGE_COUNT));
+        assertThat(basicExternalKafkaClient.receiveMessagesTls(), is(MESSAGE_COUNT));
     }
 
     @Test
@@ -116,8 +112,7 @@ class HttpBridgeTlsST extends HttpBridgeBaseST {
             .build();
 
 
-        Future<Integer> producer = basicExternalKafkaClient.sendMessagesTls();
-        assertThat(producer.get(Constants.GLOBAL_CLIENTS_TIMEOUT, TimeUnit.MILLISECONDS), is(MESSAGE_COUNT));
+        assertThat(basicExternalKafkaClient.sendMessagesTls(), is(MESSAGE_COUNT));
         // Try to consume messages
         JsonArray bridgeResponse = HttpUtils.receiveMessagesHttpRequest(bridgeHost, bridgePort, groupId, USER_NAME, client);
         if (bridgeResponse.size() == 0) {
@@ -148,7 +143,6 @@ class HttpBridgeTlsST extends HttpBridgeBaseST {
 
         // Create Kafka user
         KafkaUserResource.tlsUser(CLUSTER_NAME, USER_NAME).done();
-        SecretUtils.waitForSecretReady(USER_NAME);
 
         // Initialize CertSecretSource with certificate and secret names for consumer
         CertSecretSource certSecret = new CertSecretSource();

@@ -81,8 +81,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Random;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -99,7 +97,6 @@ import static io.strimzi.systemtest.utils.StUtils.configMap2Properties;
 import static io.strimzi.systemtest.utils.StUtils.stringToProperties;
 import static io.strimzi.test.TestUtils.fromYamlString;
 import static io.strimzi.test.TestUtils.map;
-import static io.strimzi.test.TestUtils.waitFor;
 import static io.strimzi.test.k8s.KubeClusterResource.cmdKubeClient;
 import static io.strimzi.test.k8s.KubeClusterResource.kubeClient;
 import static java.util.Collections.singletonMap;
@@ -529,7 +526,6 @@ class KafkaST extends BaseST {
     @Test
     @Tag(INTERNAL_CLIENTS_USED)
     void testSendMessagesPlainAnonymous() {
-        int messagesCount = 200;
         String topicName = TOPIC_NAME + "-" + rng.nextInt(Integer.MAX_VALUE);
 
         KafkaResource.kafkaEphemeral(CLUSTER_NAME, 3).done();
@@ -545,7 +541,7 @@ class KafkaST extends BaseST {
             .withTopicName(topicName)
             .withNamespaceName(NAMESPACE)
             .withClusterName(CLUSTER_NAME)
-            .withMessageCount(messagesCount)
+            .withMessageCount(MESSAGE_COUNT)
             .withConsumerGroupName(CONSUMER_GROUP_NAME + "-" + rng.nextInt(Integer.MAX_VALUE))
             .build();
 
@@ -623,7 +619,7 @@ class KafkaST extends BaseST {
     @Test
     @Tag(ACCEPTANCE)
     @Tag(INTERNAL_CLIENTS_USED)
-    void testSendMessagesPlainScramSha() throws InterruptedException {
+    void testSendMessagesPlainScramSha() {
         String kafkaUsername = "my-user";
         String topicName = TOPIC_NAME + "-" + rng.nextInt(Integer.MAX_VALUE);
 
@@ -1154,7 +1150,7 @@ class KafkaST extends BaseST {
     @Test
     @Tag(NODEPORT_SUPPORTED)
     @Tag(EXTERNAL_CLIENTS_USED)
-    void testNodePort() throws Exception {
+    void testNodePort() {
         KafkaResource.kafkaEphemeral(CLUSTER_NAME, 3, 1)
             .editSpec()
                 .editKafka()
@@ -1176,11 +1172,10 @@ class KafkaST extends BaseST {
             .withConsumerGroupName(CONSUMER_GROUP_NAME + "-" + rng.nextInt(Integer.MAX_VALUE))
             .build();
 
-        Future<Integer> producer = basicExternalKafkaClient.sendMessagesPlain();
-        Future<Integer> consumer = basicExternalKafkaClient.receiveMessagesPlain();
-
-        assertThat(producer.get(Constants.GLOBAL_CLIENTS_TIMEOUT, TimeUnit.MINUTES), is(MESSAGE_COUNT));
-        assertThat(consumer.get(Constants.GLOBAL_CLIENTS_TIMEOUT, TimeUnit.MINUTES), is(MESSAGE_COUNT));
+        basicExternalKafkaClient.verifyProducedAndConsumedMessages(
+            basicExternalKafkaClient.sendMessagesPlain(),
+            basicExternalKafkaClient.receiveMessagesPlain()
+        );
 
         // Check that Kafka status has correct addresses in NodePort external listener part
         for (ListenerStatus listenerStatus : KafkaResource.getKafkaStatus(CLUSTER_NAME, NAMESPACE).getListeners()) {
@@ -1204,7 +1199,7 @@ class KafkaST extends BaseST {
 
     @Test
     @Tag(NODEPORT_SUPPORTED)
-    void testOverrideNodePortConfiguration() throws Exception {
+    void testOverrideNodePortConfiguration() {
         int brokerNodePort = 32000;
         int brokerId = 0;
 
@@ -1250,18 +1245,17 @@ class KafkaST extends BaseST {
             .withConsumerGroupName(CONSUMER_GROUP_NAME + "-" + rng.nextInt(Integer.MAX_VALUE))
             .build();
 
-        Future<Integer> producer = basicExternalKafkaClient.sendMessagesPlain();
-        Future<Integer> consumer = basicExternalKafkaClient.receiveMessagesPlain();
-
-        assertThat(producer.get(Constants.GLOBAL_CLIENTS_TIMEOUT, TimeUnit.MILLISECONDS), is(MESSAGE_COUNT));
-        assertThat(consumer.get(Constants.GLOBAL_CLIENTS_TIMEOUT, TimeUnit.MILLISECONDS), is(MESSAGE_COUNT));
+        basicExternalKafkaClient.verifyProducedAndConsumedMessages(
+            basicExternalKafkaClient.sendMessagesPlain(),
+            basicExternalKafkaClient.receiveMessagesPlain()
+        );
     }
 
     @Test
     @Tag(ACCEPTANCE)
     @Tag(NODEPORT_SUPPORTED)
     @Tag(EXTERNAL_CLIENTS_USED)
-    void testNodePortTls() throws Exception {
+    void testNodePortTls() {
         KafkaResource.kafkaEphemeral(CLUSTER_NAME, 3, 1)
             .editSpec()
                 .editKafka()
@@ -1274,33 +1268,28 @@ class KafkaST extends BaseST {
             .endSpec()
             .done();
 
-        String userName = "alice";
-        KafkaUserResource.tlsUser(CLUSTER_NAME, userName).done();
-        waitFor("Wait for secrets became available", Constants.GLOBAL_POLL_INTERVAL, Constants.TIMEOUT_FOR_GET_SECRETS,
-            () -> kubeClient().getSecret("alice") != null,
-            () -> LOGGER.error("Couldn't find user secret {}", kubeClient().listSecrets()));
+        KafkaUserResource.tlsUser(CLUSTER_NAME, USER_NAME).done();
 
         BasicExternalKafkaClient basicExternalKafkaClient = new BasicExternalKafkaClient.Builder()
                 .withTopicName(TOPIC_NAME)
                 .withNamespaceName(NAMESPACE)
                 .withClusterName(CLUSTER_NAME)
                 .withMessageCount(MESSAGE_COUNT)
-                .withKafkaUsername(userName)
+                .withKafkaUsername(USER_NAME)
                 .withSecurityProtocol(SecurityProtocol.SSL)
                 .withConsumerGroupName(CONSUMER_GROUP_NAME + "-" + rng.nextInt(Integer.MAX_VALUE))
                 .build();
 
-        Future<Integer> producer = basicExternalKafkaClient.sendMessagesTls();
-        Future<Integer> consumer = basicExternalKafkaClient.receiveMessagesTls();
-
-        assertThat(producer.get(Constants.GLOBAL_CLIENTS_TIMEOUT, TimeUnit.MILLISECONDS), is(MESSAGE_COUNT));
-        assertThat(consumer.get(Constants.GLOBAL_CLIENTS_TIMEOUT, TimeUnit.MILLISECONDS), is(MESSAGE_COUNT));
+        basicExternalKafkaClient.verifyProducedAndConsumedMessages(
+            basicExternalKafkaClient.sendMessagesTls(),
+            basicExternalKafkaClient.receiveMessagesTls()
+        );
     }
 
     @Test
     @Tag(LOADBALANCER_SUPPORTED)
     @Tag(EXTERNAL_CLIENTS_USED)
-    void testLoadBalancer() throws Exception {
+    void testLoadBalancer() {
         KafkaResource.kafkaEphemeral(CLUSTER_NAME, 3)
             .editSpec()
                 .editKafka()
@@ -1324,18 +1313,17 @@ class KafkaST extends BaseST {
                 .withConsumerGroupName(CONSUMER_GROUP_NAME + "-" + rng.nextInt(Integer.MAX_VALUE))
                 .build();
 
-        Future<Integer> producer = basicExternalKafkaClient.sendMessagesPlain();
-        Future<Integer> consumer = basicExternalKafkaClient.receiveMessagesPlain();
-
-        assertThat(producer.get(Constants.GLOBAL_CLIENTS_TIMEOUT, TimeUnit.MILLISECONDS), is(MESSAGE_COUNT));
-        assertThat(consumer.get(Constants.GLOBAL_CLIENTS_TIMEOUT, TimeUnit.MILLISECONDS), is(MESSAGE_COUNT));
+        basicExternalKafkaClient.verifyProducedAndConsumedMessages(
+            basicExternalKafkaClient.sendMessagesPlain(),
+            basicExternalKafkaClient.receiveMessagesPlain()
+        );
     }
 
     @Test
     @Tag(ACCEPTANCE)
     @Tag(LOADBALANCER_SUPPORTED)
     @Tag(EXTERNAL_CLIENTS_USED)
-    void testLoadBalancerTls() throws Exception {
+    void testLoadBalancerTls() {
         KafkaResource.kafkaEphemeral(CLUSTER_NAME, 3)
             .editSpec()
                 .editKafka()
@@ -1348,11 +1336,7 @@ class KafkaST extends BaseST {
             .endSpec()
             .done();
 
-        String userName = "alice";
-        KafkaUserResource.tlsUser(CLUSTER_NAME, userName).done();
-        waitFor("Wait for secrets became available", Constants.GLOBAL_POLL_INTERVAL, Constants.TIMEOUT_FOR_GET_SECRETS,
-            () -> kubeClient().getSecret("alice") != null,
-            () -> LOGGER.error("Couldn't find user secret {}", kubeClient().listSecrets()));
+        KafkaUserResource.tlsUser(CLUSTER_NAME, USER_NAME).done();
 
         ServiceUtils.waitUntilAddressIsReachable(kubeClient().getService(KafkaResources.externalBootstrapServiceName(CLUSTER_NAME)).getStatus().getLoadBalancer().getIngress().get(0).getHostname());
 
@@ -1361,16 +1345,15 @@ class KafkaST extends BaseST {
                 .withNamespaceName(NAMESPACE)
                 .withClusterName(CLUSTER_NAME)
                 .withMessageCount(MESSAGE_COUNT)
-                .withKafkaUsername(userName)
+                .withKafkaUsername(USER_NAME)
                 .withSecurityProtocol(SecurityProtocol.SSL)
                 .withConsumerGroupName(CONSUMER_GROUP_NAME + "-" + rng.nextInt(Integer.MAX_VALUE))
                 .build();
 
-        Future<Integer> producer = basicExternalKafkaClient.sendMessagesTls();
-        Future<Integer> consumer = basicExternalKafkaClient.receiveMessagesTls();
-
-        assertThat(producer.get(1, TimeUnit.MINUTES), is(MESSAGE_COUNT));
-        assertThat(consumer.get(1, TimeUnit.MINUTES), is(MESSAGE_COUNT));
+        basicExternalKafkaClient.verifyProducedAndConsumedMessages(
+            basicExternalKafkaClient.sendMessagesTls(),
+            basicExternalKafkaClient.receiveMessagesTls()
+        );
     }
 
     @Test
@@ -1600,7 +1583,7 @@ class KafkaST extends BaseST {
 
     @Test
     @Tag(INTERNAL_CLIENTS_USED)
-    void testLabelModificationDoesNotBreakCluster() throws Exception {
+    void testLabelModificationDoesNotBreakCluster() {
         Map<String, String> labels = new HashMap<>();
         String[] labelKeys = {"label-name-1", "label-name-2", ""};
         String[] labelValues = {"name-of-the-label-1", "name-of-the-label-2", ""};
