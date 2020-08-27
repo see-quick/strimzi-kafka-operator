@@ -10,7 +10,7 @@ import io.strimzi.systemtest.AbstractST;
 import io.strimzi.systemtest.enums.DefaultNetworkPolicy;
 import io.strimzi.systemtest.keycloak.KeycloakInstance;
 import io.strimzi.systemtest.utils.kubeUtils.objects.SecretUtils;
-import io.strimzi.systemtest.utils.kubeUtils.objects.ServiceUtils;
+import io.strimzi.systemtest.utils.specific.KeycloakUtils;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.junit5.VertxExtension;
 import org.apache.logging.log4j.LogManager;
@@ -66,17 +66,7 @@ public class OauthAbstractST extends AbstractST {
 
         LOGGER.info("Deploying keycloak...");
 
-//        KeycloakUtils.deployKeycloak(NAMESPACE);
-
-        // https
-        Service keycloakService = KubernetesResource.createKeycloakNodePortService(NAMESPACE);
-        KubernetesResource.createServiceResource(keycloakService, NAMESPACE);
-        ServiceUtils.waitForNodePortService(keycloakService.getMetadata().getName());
-
-        // http
-        Service keycloakHttpService = KubernetesResource.createKeycloakNodePortHttpService(NAMESPACE);
-        KubernetesResource.createServiceResource(keycloakHttpService, NAMESPACE);
-        ServiceUtils.waitForNodePortService(keycloakHttpService.getMetadata().getName());
+        KeycloakUtils.deployKeycloak(NAMESPACE);
 
         String passwordEncoded = kubeClient().getSecret("credential-example-keycloak").getData().get("ADMIN_PASSWORD");
         String password = new String(Base64.getDecoder().decode(passwordEncoded.getBytes()));

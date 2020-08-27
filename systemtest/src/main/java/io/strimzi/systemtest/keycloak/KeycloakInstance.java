@@ -41,8 +41,6 @@ public class KeycloakInstance {
         this.username = username;
         this.password = password;
         this.namespace = namespace;
-//        this.httpsUri = ResourceManager.kubeClient().getNodeAddress() + ":" + Constants.HTTPS_KEYCLOAK_DEFAULT_NODE_PORT;
-//        this.httpUri = ResourceManager.kubeClient().getNodeAddress() + ":" + Constants.HTTP_KEYCLOAK_DEFAULT_NODE_PORT;
         this.httpsUri = "keycloak." + namespace + ".svc.cluster.local:8443";
         this.httpUri = "keycloak-discovery." + namespace + ".svc.cluster.local:8080";
         this.validIssuerUri = "https://" + httpsUri + "/auth/realms/internal";
