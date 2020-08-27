@@ -23,7 +23,7 @@ public class KafkaBridgeClientsResource extends KafkaClientsResource {
 
     public KafkaBridgeClientsResource(String producerName, String consumerName, String bootstrapServer, String topicName,
                                       int messageCount, String additionalConfig, String consumerGroup, int port, int sendInterval, int pollInterval) {
-        super(producerName, consumerName, bootstrapServer, topicName, messageCount, additionalConfig, consumerGroup);
+        super(producerName, consumerName, bootstrapServer, topicName, messageCount, additionalConfig, consumerGroup, sendInterval);
         this.port = port;
         this.sendInterval = sendInterval;
         this.pollInterval = pollInterval;
