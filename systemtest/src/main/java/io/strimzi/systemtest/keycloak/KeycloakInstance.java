@@ -16,8 +16,8 @@ import static io.strimzi.test.k8s.KubeClusterResource.kubeClient;
 public class KeycloakInstance {
 
     private static final Logger LOGGER = LogManager.getLogger(KeycloakInstance.class);
-    private static final String KEYCLOAK_SECRET_NAME = "sso-x509-https-secret";
-    private static final String KEYCLOAK_SECRET_CERT = "tls.crt";
+    public static final String KEYCLOAK_SECRET_NAME = "sso-x509-https-secret";
+    public static final String KEYCLOAK_SECRET_CERT = "tls.crt";
 
     private final int jwksExpireSeconds = 500;
     private final int jwksRefreshSeconds = 400;
@@ -153,14 +153,6 @@ public class KeycloakInstance {
     }
     public int getJwksRefreshSeconds() {
         return jwksRefreshSeconds;
-    }
-
-    public static String getKeycloakSecretName() {
-        return KEYCLOAK_SECRET_NAME;
-    }
-
-    public static String getKeycloakSecretCert() {
-        return KEYCLOAK_SECRET_CERT;
     }
 
     @Override

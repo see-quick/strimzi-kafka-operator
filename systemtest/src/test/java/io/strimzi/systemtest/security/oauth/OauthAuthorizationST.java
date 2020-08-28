@@ -70,7 +70,7 @@ public class OauthAuthorizationST extends OauthAbstractST {
     void smokeTestForClients() {
         teamAOauthClientJob.producerStrimziOauthTls(CLUSTER_NAME).done();
         ClientUtils.waitForClientSuccess(TEAM_A_PRODUCER_NAME, NAMESPACE, MESSAGE_COUNT);
-        teamBOauthClientJob.consumerStrimziOauthTls(CLUSTER_NAME).done();
+        teamAOauthClientJob.consumerStrimziOauthTls(CLUSTER_NAME).done();
         ClientUtils.waitForClientSuccess(TEAM_A_CONSUMER_NAME, NAMESPACE, MESSAGE_COUNT);
     }
 
@@ -118,8 +118,8 @@ public class OauthAuthorizationST extends OauthAbstractST {
 
         // TODO Comment
         teamAOauthClientJob = new KafkaOauthClientsResource(teamAOauthClientJob, TOPIC_A, "bad_consumer_group");
-        teamAOauthClientJob.producerStrimziOauthTls(CLUSTER_NAME).done();
-        assertThrows(WaitException.class, () -> ClientUtils.waitForClientFailure(TEAM_A_PRODUCER_NAME, NAMESPACE, 30_000));
+        teamAOauthClientJob.consumerStrimziOauthTls(CLUSTER_NAME).done();
+        assertThrows(WaitException.class, () -> ClientUtils.waitForClientFailure(TEAM_A_CONSUMER_NAME, NAMESPACE, 30_000));
         JobUtils.deleteJob(NAMESPACE, TEAM_A_PRODUCER_NAME);
 
         // TODO Comment
@@ -139,7 +139,7 @@ public class OauthAuthorizationST extends OauthAbstractST {
         JobUtils.deleteJob(NAMESPACE, TEAM_B_PRODUCER_NAME);
 
         LOGGER.info("Sending {} messages to broker with topic name {}", MESSAGE_COUNT, TOPIC_B);
-        teamBOauthClientJob = new KafkaOauthClientsResource(teamBOauthClientJob, TOPIC_B, "a-consumer_group");
+        teamBOauthClientJob = new KafkaOauthClientsResource(teamBOauthClientJob, TOPIC_B, "x-consumer_group_b");
         teamBOauthClientJob.producerStrimziOauthTls(CLUSTER_NAME).done();
         teamBOauthClientJob.consumerStrimziOauthTls(CLUSTER_NAME).done();
         ClientUtils.waitTillContinuousClientsFinish(TEAM_B_PRODUCER_NAME, TEAM_B_CONSUMER_NAME, NAMESPACE, MESSAGE_COUNT);
@@ -183,13 +183,12 @@ public class OauthAuthorizationST extends OauthAbstractST {
         LOGGER.info("Verifying that team A is not able read to topic starting with 'x-' because in kafka cluster" +
                 "does not have super-users to break authorization rules");
 
-        KafkaUserResource.tlsUser(CLUSTER_NAME, USER_NAME).done();
         teamAOauthClientJob = new KafkaOauthClientsResource(teamAOauthClientJob, TOPIC_X, "x-consumer_group_b1");
         teamAOauthClientJob = new KafkaOauthClientsResource(teamAOauthClientJob, USER_NAME);
 
-        teamBOauthClientJob.consumerStrimziOauthTls(CLUSTER_NAME).done();
+        teamAOauthClientJob.consumerStrimziOauthTls(CLUSTER_NAME).done();
         assertThrows(WaitException.class, () -> ClientUtils.waitForClientFailure(TEAM_A_CONSUMER_NAME, NAMESPACE, 30_000));
-        JobUtils.deleteJob(NAMESPACE, TEAM_B_PRODUCER_NAME);
+        JobUtils.deleteJob(NAMESPACE, TEAM_A_CONSUMER_NAME);
 
         Map<String, String> kafkaPods = StatefulSetUtils.ssSnapshot(KafkaResources.kafkaStatefulSetName(CLUSTER_NAME));
 
@@ -206,8 +205,8 @@ public class OauthAuthorizationST extends OauthAbstractST {
 
         LOGGER.info("Verifying that team B is able to write to topic starting with 'x-' and break authorization rule");
 
-        teamBOauthClientJob.consumerStrimziOauthTls(CLUSTER_NAME).done();
-        ClientUtils.waitForClientSuccess(TEAM_B_CONSUMER_NAME, NAMESPACE, MESSAGE_COUNT);
+        teamBOauthClientJob.producerStrimziOauthTls(CLUSTER_NAME).done();
+        ClientUtils.waitForClientSuccess(TEAM_B_PRODUCER_NAME, NAMESPACE, MESSAGE_COUNT);
 
         LOGGER.info("Verifying that team A is able to write to topic starting with 'x-' and break authorization rule");
         teamAOauthClientJob = new KafkaOauthClientsResource(teamAOauthClientJob, TOPIC_X, "x-consumer_group_b2");
@@ -246,8 +245,8 @@ public class OauthAuthorizationST extends OauthAbstractST {
                                 .withUserNameClaim(keycloakInstance.getUserNameClaim())
                                 .withTlsTrustedCertificates(
                                     new CertSecretSourceBuilder()
-                                        .withSecretName(KeycloakInstance.getKeycloakSecretName())
-                                        .withCertificate(KeycloakInstance.getKeycloakSecretCert())
+                                        .withSecretName(KeycloakInstance.KEYCLOAK_SECRET_NAME)
+                                        .withCertificate(KeycloakInstance.KEYCLOAK_SECRET_CERT)
                                         .build())
                                 .withDisableTlsHostnameVerification(true)
                             .endKafkaListenerAuthenticationOAuth()
@@ -260,8 +259,8 @@ public class OauthAuthorizationST extends OauthAbstractST {
                         // ca.crt a tls.crt
                         .withTlsTrustedCertificates(
                             new CertSecretSourceBuilder()
-                                .withSecretName(KeycloakInstance.getKeycloakSecretName())
-                                .withCertificate(KeycloakInstance.getKeycloakSecretCert())
+                                .withSecretName(KeycloakInstance.KEYCLOAK_SECRET_NAME)
+                                .withCertificate(KeycloakInstance.KEYCLOAK_SECRET_CERT)
                                 .build()
                         )
                         .withTokenEndpointUri(keycloakInstance.getOauthTokenEndpointUri())
@@ -294,7 +293,7 @@ public class OauthAuthorizationST extends OauthAbstractST {
                 TOPIC_A,
                 MESSAGE_COUNT,
                 "",
-                "a-consumer_group",
+                "x-" + ClientUtils.generateRandomConsumerGroup(),
                 TEAM_B_CLIENT,
                 TEAM_B_CLIENT_SECRET,
                 keycloakInstance.getOauthTokenEndpointUri());
