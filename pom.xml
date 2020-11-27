@@ -162,6 +162,7 @@
         <module>kafka-init</module>
         <module>certificate-manager</module>
         <module>systemtest</module>
+        <module>explore-test</module>
     </modules>
 
     <dependencyManagement>
