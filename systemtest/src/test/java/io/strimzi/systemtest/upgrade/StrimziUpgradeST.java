@@ -13,6 +13,7 @@ import io.strimzi.api.kafka.model.KafkaUser;
 import io.strimzi.systemtest.Constants;
 import io.strimzi.systemtest.kafkaclients.internalClients.InternalKafkaClient;
 import io.strimzi.systemtest.resources.ResourceManager;
+import io.strimzi.systemtest.resources.ResourceOperation;
 import io.strimzi.systemtest.resources.crd.KafkaResource;
 import io.strimzi.systemtest.resources.crd.KafkaTopicResource;
 import io.strimzi.systemtest.resources.operator.BundleResource;
