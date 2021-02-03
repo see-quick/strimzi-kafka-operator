@@ -16,6 +16,9 @@ import io.strimzi.systemtest.resources.ResourceManager;
 import io.strimzi.systemtest.resources.crd.KafkaResource;
 import io.strimzi.systemtest.resources.crd.KafkaTopicResource;
 import io.strimzi.systemtest.resources.operator.BundleResource;
+import io.strimzi.systemtest.templates.KafkaClientsTemplates;
+import io.strimzi.systemtest.templates.KafkaTemplates;
+import io.strimzi.systemtest.templates.KafkaTopicTemplates;
 import io.strimzi.systemtest.utils.ClientUtils;
 import io.strimzi.systemtest.utils.FileUtils;
 import io.strimzi.systemtest.utils.StUtils;
@@ -29,9 +32,12 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.core.json.JsonArray;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -73,17 +79,17 @@ public class StrimziUpgradeST extends AbstractUpgradeST {
     @ParameterizedTest(name = "testUpgradeStrimziVersion-{0}-{1}")
     @MethodSource("loadJsonUpgradeData")
     @Tag(INTERNAL_CLIENTS_USED)
-    void testUpgradeStrimziVersion(String from, String to, JsonObject parameters) throws Exception {
-
+    void testUpgradeStrimziVersion(String from, String to, JsonObject parameters, ExtensionContext extensionContext) throws Exception {
         assumeTrue(StUtils.isAllowOnCurrentEnvironment(parameters.getJsonObject("environmentInfo").getString("flakyEnvVariable")));
         assumeTrue(StUtils.isAllowedOnCurrentK8sVersion(parameters.getJsonObject("environmentInfo").getString("maxK8sVersion")));
+
 
         LOGGER.debug("Running upgrade test from version {} to {}", from, to);
         performUpgrade(parameters, MESSAGE_COUNT, MESSAGE_COUNT);
     }
 
     @Test
-    void testUpgradeKafkaWithoutVersion() throws IOException {
+    void testUpgradeKafkaWithoutVersion(ExtensionContext extensionContext) throws IOException {
         File dir = FileUtils.downloadAndUnzip(strimziReleaseWithOlderKafka);
         File previousKafkaPersistent = new File(dir, "strimzi-" + strimziReleaseWithOlderKafkaVersion + "/examples/kafka/kafka-persistent.yaml");
         File previousKafkaVersionsYaml = FileUtils.downloadYaml("https://raw.githubusercontent.com/strimzi/strimzi-kafka-operator/" + strimziReleaseWithOlderKafkaVersion + "/kafka-versions.yaml");
@@ -96,7 +102,7 @@ public class StrimziUpgradeST extends AbstractUpgradeST {
         // Modify + apply installation files
         copyModifyApply(coDir, NAMESPACE);
         // Apply Kafka Persistent without version
-        KafkaResource.createAndWaitForReadiness(KafkaResource.kafkaFromYaml(previousKafkaPersistent, clusterName, 3, 3)
+        resourceManager.createResource(extensionContext, KafkaTemplates.kafkaFromYaml(previousKafkaPersistent, kafkaClusterName, 3, 3)
             .editSpec()
                 .editKafka()
                     .withVersion(null)
@@ -115,7 +121,7 @@ public class StrimziUpgradeST extends AbstractUpgradeST {
 
         // Update CRDs, CRB, etc.
         applyClusterOperatorInstallFiles(NAMESPACE);
-        applyBindings(NAMESPACE);
+        applyBindings(extensionContext, NAMESPACE);
 
         kubeClient().getClient().apps().deployments().inNamespace(NAMESPACE).withName(ResourceManager.getCoDeploymentName()).delete();
         kubeClient().getClient().apps().deployments().inNamespace(NAMESPACE).withName(ResourceManager.getCoDeploymentName()).create(BundleResource.defaultClusterOperator(NAMESPACE).build());
@@ -252,7 +258,7 @@ public class StrimziUpgradeST extends AbstractUpgradeST {
         DeploymentUtils.waitForDeploymentDeletion(clusterName + "-" + Constants.KAFKA_CLIENTS);
 
         KafkaUser kafkaUser = TestUtils.fromYamlString(cmdKubeClient().getResourceAsYaml("kafkauser", userName), KafkaUser.class);
-        deployClients(testParameters.getJsonObject("client").getString("afterKafkaUpgradeDowngrade"), kafkaUser);
+        deployClients(extensionContext, testParameters.getJsonObject("client").getString("afterKafkaUpgradeDowngrade"), kafkaUser);
 
         final String afterUpgradeKafkaClientsPodName =
                 kubeClient().listPodsByPrefixInName(clusterName + "-" + Constants.KAFKA_CLIENTS).get(0).getMetadata().getName();
@@ -330,7 +336,7 @@ public class StrimziUpgradeST extends AbstractUpgradeST {
         cluster.createNamespace(NAMESPACE);
     }
 
-    @Override
+    @AfterEach
     protected void tearDownEnvironmentAfterEach() {
         deleteInstalledYamls(coDir, NAMESPACE);
         cluster.deleteNamespaces();
@@ -338,7 +344,6 @@ public class StrimziUpgradeST extends AbstractUpgradeST {
 
     // There is no value of having teardown logic for class resources due to the fact that
     // CO was deployed by method StrimziUpgradeST.copyModifyApply() and removed by method StrimziUpgradeST.deleteInstalledYamls()
-    @Override
-    protected void tearDownEnvironmentAfterAll() {
-    }
+    @AfterAll
+    protected void tearDownEnvironmentAfterAll() { }
 }
