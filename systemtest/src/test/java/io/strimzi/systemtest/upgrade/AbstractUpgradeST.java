@@ -13,7 +13,6 @@ import io.strimzi.systemtest.Constants;
 import io.strimzi.systemtest.kafkaclients.internalClients.InternalKafkaClient;
 import io.strimzi.systemtest.resources.ResourceManager;
 import io.strimzi.systemtest.resources.ResourceOperation;
-import io.strimzi.systemtest.resources.crd.KafkaClientsResource;
 import io.strimzi.systemtest.resources.crd.KafkaResource;
 import io.strimzi.systemtest.resources.crd.KafkaTopicResource;
 import io.strimzi.systemtest.resources.crd.KafkaUserResource;
@@ -313,7 +312,7 @@ public class AbstractUpgradeST extends AbstractST {
         LOGGER.info("Deploying Kafka clients with image {}", image);
 
         // Deploy new clients
-        resourceManager.createResource(extensionContext, KafkaClientsTemplates.kafkaClients(true,clusterName + "-" + Constants.KAFKA_CLIENTS, kafkaUser)
+        resourceManager.createResource(extensionContext, KafkaClientsTemplates.kafkaClients(true, clusterName + "-" + Constants.KAFKA_CLIENTS, kafkaUser)
             .editSpec()
                 .editTemplate()
                     .editSpec()
