@@ -24,6 +24,7 @@ import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtensionContext;
 
 import java.io.File;
 import java.io.IOException;
@@ -61,7 +62,7 @@ public class OlmUpgradeST extends AbstractUpgradeST {
         .build();
 
     @Test
-    void testStrimziUpgrade() throws IOException {
+    void testStrimziUpgrade(ExtensionContext extensionContext) throws IOException {
         JsonArray upgradeData = readUpgradeJson(UPGRADE_JSON_FILE);
         JsonObject latestUpgradeData = upgradeData.getJsonObject(upgradeData.size() - 1);
 
@@ -76,10 +77,10 @@ public class OlmUpgradeST extends AbstractUpgradeST {
         latestUpgradeData.put("proceduresAfterOperatorUpgrade", procedures);
 
         // perform verification of to version
-        performUpgradeVerification(latestUpgradeData);
+        performUpgradeVerification(extensionContext, latestUpgradeData);
     }
 
-    private void performUpgradeVerification(JsonObject testParameters) throws IOException {
+    private void performUpgradeVerification(ExtensionContext extensionContext, JsonObject testParameters) throws IOException {
         LOGGER.info("Upgrade data: {}", testParameters.toString());
         String fromVersion = testParameters.getString("fromVersion");
         LOGGER.info("====================================================================================");

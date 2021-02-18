@@ -18,12 +18,15 @@ import io.strimzi.systemtest.resources.crd.KafkaResource;
 import io.strimzi.systemtest.resources.crd.KafkaTopicResource;
 import io.strimzi.systemtest.resources.crd.KafkaUserResource;
 import io.strimzi.systemtest.resources.crd.kafkaclients.KafkaBasicExampleClients;
+import io.strimzi.systemtest.templates.crd.KafkaClientsTemplates;
+import io.strimzi.systemtest.templates.crd.KafkaTopicTemplates;
+import io.strimzi.systemtest.templates.crd.KafkaUserTemplates;
 import io.strimzi.systemtest.utils.ClientUtils;
 import io.strimzi.systemtest.utils.FileUtils;
 import io.strimzi.systemtest.utils.StUtils;
 import io.strimzi.systemtest.utils.TestKafkaVersion;
 import io.strimzi.systemtest.utils.kafkaUtils.KafkaUtils;
-import io.strimzi.systemtest.templates.KafkaTemplates;
+import io.strimzi.systemtest.templates.crd.KafkaTemplates;
 import io.strimzi.systemtest.utils.kubeUtils.controllers.DeploymentUtils;
 import io.strimzi.systemtest.utils.kubeUtils.controllers.StatefulSetUtils;
 import io.strimzi.systemtest.utils.kubeUtils.objects.SecretUtils;
@@ -33,6 +36,7 @@ import io.vertx.core.json.JsonObject;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.core.util.IOUtils;
+import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.params.provider.Arguments;
 
 import java.io.File;
@@ -301,7 +305,7 @@ public class AbstractUpgradeST extends AbstractST {
         }
     }
 
-    protected void deployClients(String image, KafkaUser kafkaUser) {
+    protected void deployClients(ExtensionContext extensionContext, String image, KafkaUser kafkaUser) {
         if (image.contains(":latest"))  {
             image = StUtils.changeOrgAndTag(image);
         }
@@ -309,7 +313,7 @@ public class AbstractUpgradeST extends AbstractST {
         LOGGER.info("Deploying Kafka clients with image {}", image);
 
         // Deploy new clients
-        KafkaClientsResource.createAndWaitForReadiness(KafkaClientsResource.deployKafkaClients(true, clusterName + "-" + Constants.KAFKA_CLIENTS, kafkaUser)
+        resourceManager.createResource(extensionContext, KafkaClientsTemplates.kafkaClients(true,clusterName + "-" + Constants.KAFKA_CLIENTS, kafkaUser)
             .editSpec()
                 .editTemplate()
                     .editSpec()
@@ -322,10 +326,14 @@ public class AbstractUpgradeST extends AbstractST {
             .build());
     }
 
-    protected void setupEnvAndUpgradeClusterOperator(JsonObject testParameters, int produceMessagesCount, int consumeMessagesCount,
+    protected void setupEnvAndUpgradeClusterOperator(ExtensionContext extensionContext, JsonObject testParameters, int produceMessagesCount, int consumeMessagesCount,
                                                    String producerName, String consumerName,
                                                    String continuousTopicName, String continuousConsumerGroup,
                                                    String kafkaVersion, String namespace) throws IOException {
+        String clusterName = mapTestWithClusterNames.get(extensionContext.getDisplayName());
+        String topicName = mapTestWithTestTopics.get(extensionContext.getDisplayName());
+        String userName = mapTestWithTestUsers.get(extensionContext.getDisplayName());
+
         int continuousClientsMessageCount = testParameters.getJsonObject("client").getInteger("continuousClientsMessages");
 
         LOGGER.info("Going to test upgrade of Cluster Operator from version {} to version {}", testParameters.getString("fromVersion"), testParameters.getString("toVersion"));
@@ -353,7 +361,7 @@ public class AbstractUpgradeST extends AbstractST {
         if (KafkaResource.kafkaClient().inNamespace(namespace).withName(clusterName).get() == null) {
             // Deploy a Kafka cluster
             if ("HEAD".equals(testParameters.getString("fromVersion"))) {
-                KafkaResource.createAndWaitForReadiness(KafkaResource.kafkaPersistent(clusterName, 3, 3).build());
+                resourceManager.createResource(extensionContext, KafkaTemplates.kafkaPersistent(clusterName, 3, 3).build());
             } else {
                 kafkaYaml = new File(dir, testParameters.getString("fromExamples") + "/examples/kafka/kafka-persistent.yaml");
                 LOGGER.info("Going to deploy Kafka from: {}", kafkaYaml.getPath());
@@ -366,7 +374,7 @@ public class AbstractUpgradeST extends AbstractST {
         // We don't need to update KafkaUser during chain upgrade this way
         if (KafkaUserResource.kafkaUserClient().inNamespace(namespace).withName(userName).get() == null) {
             if ("HEAD".equals(testParameters.getString("fromVersion"))) {
-                KafkaUserResource.createAndWaitForReadiness(KafkaUserResource.tlsUser(clusterName, userName).build());
+                resourceManager.createResource(extensionContext, KafkaUserTemplates.tlsUser(clusterName, userName).build());
             } else {
                 kafkaUserYaml = new File(dir, testParameters.getString("fromExamples") + "/examples/user/kafka-user.yaml");
                 LOGGER.info("Going to deploy KafkaUser from: {}", kafkaUserYaml.getPath());
@@ -376,7 +384,7 @@ public class AbstractUpgradeST extends AbstractST {
         // We don't need to update KafkaTopic during chain upgrade this way
         if (KafkaTopicResource.kafkaTopicClient().inNamespace(namespace).withName(topicName).get() == null) {
             if ("HEAD".equals(testParameters.getString("fromVersion"))) {
-                KafkaTopicResource.createAndWaitForReadiness(KafkaTopicResource.topic(clusterName, topicName).build());
+                resourceManager.createResource(extensionContext, KafkaTopicTemplates.topic(clusterName, userName).build());
             } else {
                 kafkaTopicYaml = new File(dir, testParameters.getString("fromExamples") + "/examples/topic/kafka-topic.yaml");
                 LOGGER.info("Going to deploy KafkaTopic from: {}", kafkaTopicYaml.getPath());
@@ -386,7 +394,7 @@ public class AbstractUpgradeST extends AbstractST {
         // Create bunch of topics for upgrade if it's specified in configuration
         if (testParameters.getBoolean("generateTopics")) {
             for (int x = 0; x < upgradeTopicCount; x++) {
-                KafkaTopicResource.topicWithoutWait(KafkaTopicResource.defaultTopic(clusterName, topicName + "-" + x, 1, 1, 1)
+                resourceManager.createResource(extensionContext, false, KafkaTopicTemplates.topic(clusterName, topicName + "-" + x, 1, 1, 1)
                     .editSpec()
                         .withTopicName(topicName + "-" + x)
                     .endSpec()
@@ -400,7 +408,7 @@ public class AbstractUpgradeST extends AbstractST {
             // ##############################
             // Setup topic, which has 3 replicas and 2 min.isr to see if producer will be able to work during rolling update
             if (KafkaTopicResource.kafkaTopicClient().inNamespace(namespace).withName(continuousTopicName).get() == null) {
-                KafkaTopicResource.createAndWaitForReadiness(KafkaTopicResource.topic(clusterName, continuousTopicName, 3, 3, 2).build());
+                resourceManager.createResource(extensionContext, KafkaTopicTemplates.topic(clusterName, continuousTopicName, 3, 3, 2).build());
             }
 
             String producerAdditionConfiguration = "delivery.timeout.ms=20000\nrequest.timeout.ms=20000";
@@ -416,8 +424,8 @@ public class AbstractUpgradeST extends AbstractST {
                 .withDelayMs(1000)
                 .build();
 
-            kafkaBasicClientJob.createAndWaitForReadiness(kafkaBasicClientJob.producerStrimzi().build());
-            kafkaBasicClientJob.createAndWaitForReadiness(kafkaBasicClientJob.consumerStrimzi().build());
+            resourceManager.createResource(extensionContext, kafkaBasicClientJob.producerStrimzi().build());
+            resourceManager.createResource(extensionContext, kafkaBasicClientJob.consumerStrimzi().build());
             // ##############################
         }
 
@@ -429,7 +437,7 @@ public class AbstractUpgradeST extends AbstractST {
 
         // Deploy clients and exchange messages
         KafkaUser kafkaUser = TestUtils.fromYamlString(cmdKubeClient().getResourceAsYaml("kafkauser", userName), KafkaUser.class);
-        deployClients(testParameters.getJsonObject("client").getString("beforeKafkaUpgradeDowngrade"), kafkaUser);
+        deployClients(extensionContext, testParameters.getJsonObject("client").getString("beforeKafkaUpgradeDowngrade"), kafkaUser);
 
         final String defaultKafkaClientsPodName =
                 kubeClient().listPodsByPrefixInName(clusterName + "-" + Constants.KAFKA_CLIENTS).get(0).getMetadata().getName();
@@ -456,7 +464,7 @@ public class AbstractUpgradeST extends AbstractST {
         logPodImages(clusterName);
     }
 
-    protected void verifyProcedure(JsonObject testParameters, int produceMessagesCount, int consumeMessagesCount,
+    protected void verifyProcedure(ExtensionContext extensionContext, JsonObject testParameters, int produceMessagesCount, int consumeMessagesCount,
                                  String producerName, String consumerName, String namespace) {
         int continuousClientsMessageCount = testParameters.getJsonObject("client").getInteger("continuousClientsMessages");
 
@@ -465,7 +473,7 @@ public class AbstractUpgradeST extends AbstractST {
         DeploymentUtils.waitForDeploymentDeletion(clusterName + "-" + Constants.KAFKA_CLIENTS);
 
         KafkaUser kafkaUser = TestUtils.fromYamlString(cmdKubeClient().getResourceAsYaml("kafkauser", userName), KafkaUser.class);
-        deployClients(testParameters.getJsonObject("client").getString("afterKafkaUpgradeDowngrade"), kafkaUser);
+        deployClients(extensionContext, testParameters.getJsonObject("client").getString("afterKafkaUpgradeDowngrade"), kafkaUser);
 
         final String afterUpgradeKafkaClientsPodName =
                 kubeClient().listPodsByPrefixInName(clusterName + "-" + Constants.KAFKA_CLIENTS).get(0).getMetadata().getName();

@@ -8,8 +8,11 @@ import io.strimzi.systemtest.utils.StUtils;
 import io.vertx.core.json.JsonObject;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -34,24 +37,24 @@ public class StrimziDowngradeST extends AbstractUpgradeST {
     @ParameterizedTest(name = "testDowngradeStrimziVersion-{0}-{1}")
     @MethodSource("loadJsonDowngradeData")
     @Tag(INTERNAL_CLIENTS_USED)
-    void testDowngradeStrimziVersion(String from, String to, JsonObject parameters) throws Exception {
+    void testDowngradeStrimziVersion(ExtensionContext extensionContext, String from, String to, JsonObject parameters) throws Exception {
 
         assumeTrue(StUtils.isAllowOnCurrentEnvironment(parameters.getJsonObject("environmentInfo").getString("flakyEnvVariable")));
         assumeTrue(StUtils.isAllowedOnCurrentK8sVersion(parameters.getJsonObject("environmentInfo").getString("maxK8sVersion")));
 
         LOGGER.debug("Running downgrade test from version {} to {}", from, to);
-        performDowngrade(parameters, MESSAGE_COUNT, MESSAGE_COUNT);
+        performDowngrade(extensionContext, parameters, MESSAGE_COUNT, MESSAGE_COUNT);
     }
 
     @SuppressWarnings("MethodLength")
-    private void performDowngrade(JsonObject testParameters, int produceMessagesCount, int consumeMessagesCount) throws IOException {
+    private void performDowngrade(ExtensionContext extensionContext, JsonObject testParameters, int produceMessagesCount, int consumeMessagesCount) throws IOException {
         String continuousTopicName = "continuous-topic";
         String producerName = "hello-world-producer";
         String consumerName = "hello-world-consumer";
         String continuousConsumerGroup = "continuous-consumer-group";
 
         // Setup env
-        setupEnvAndUpgradeClusterOperator(testParameters, produceMessagesCount, consumeMessagesCount, producerName, consumerName, continuousTopicName, continuousConsumerGroup, "", NAMESPACE);
+        setupEnvAndUpgradeClusterOperator(extensionContext, testParameters, produceMessagesCount, consumeMessagesCount, producerName, consumerName, continuousTopicName, continuousConsumerGroup, "", NAMESPACE);
         logPodImages(clusterName);
         //  Upgrade kafka
         changeKafkaAndLogFormatVersion(testParameters.getJsonObject("proceduresBeforeOperatorDowngrade"), clusterName, NAMESPACE);
@@ -62,7 +65,7 @@ public class StrimziDowngradeST extends AbstractUpgradeST {
         logPodImages(clusterName);
         checkAllImages(testParameters.getJsonObject("imagesAfterOperatorDowngrade"));
         // Verify upgrade
-        verifyProcedure(testParameters, produceMessagesCount, consumeMessagesCount, producerName, consumerName, NAMESPACE);
+        verifyProcedure(extensionContext, testParameters, produceMessagesCount, consumeMessagesCount, producerName, consumerName, NAMESPACE);
         // Check errors in CO log
         assertNoCoErrorsLogged(0);
     }
@@ -72,15 +75,14 @@ public class StrimziDowngradeST extends AbstractUpgradeST {
         cluster.createNamespace(NAMESPACE);
     }
 
-    @Override
-    protected void tearDownEnvironmentAfterEach() {
+    @AfterEach
+    void afterEach() {
         deleteInstalledYamls(coDir, NAMESPACE);
         cluster.deleteNamespaces();
     }
 
     // There is no value of having teardown logic for class resources due to the fact that
     // CO was deployed by method StrimziUpgradeST.copyModifyApply() and removed by method StrimziUpgradeST.deleteInstalledYamls()
-    @Override
-    protected void tearDownEnvironmentAfterAll() {
-    }
+    @AfterAll
+    protected void tearDownEnvironmentAfterAll() { }
 }

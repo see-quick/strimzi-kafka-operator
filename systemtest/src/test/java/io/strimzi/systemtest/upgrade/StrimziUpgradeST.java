@@ -86,11 +86,12 @@ public class StrimziUpgradeST extends AbstractUpgradeST {
 
 
         LOGGER.debug("Running upgrade test from version {} to {}", from, to);
-        performUpgrade(parameters, MESSAGE_COUNT, MESSAGE_COUNT);
+        performUpgrade(extensionContext, parameters, MESSAGE_COUNT, MESSAGE_COUNT);
     }
 
     @Test
     void testUpgradeKafkaWithoutVersion(ExtensionContext extensionContext) throws IOException {
+        String clusterName = mapTestWithClusterNames.get(extensionContext.getDisplayName());
         File dir = FileUtils.downloadAndUnzip(strimziReleaseWithOlderKafka);
         File previousKafkaPersistent = new File(dir, "strimzi-" + strimziReleaseWithOlderKafkaVersion + "/examples/kafka/kafka-persistent.yaml");
         File previousKafkaVersionsYaml = FileUtils.downloadYaml("https://raw.githubusercontent.com/strimzi/strimzi-kafka-operator/" + strimziReleaseWithOlderKafkaVersion + "/kafka-versions.yaml");
@@ -103,7 +104,7 @@ public class StrimziUpgradeST extends AbstractUpgradeST {
         // Modify + apply installation files
         copyModifyApply(coDir, NAMESPACE);
         // Apply Kafka Persistent without version
-        resourceManager.createResource(extensionContext, KafkaTemplates.kafkaFromYaml(previousKafkaPersistent, kafkaClusterName, 3, 3)
+        resourceManager.createResource(extensionContext, KafkaTemplates.kafkaFromYaml(previousKafkaPersistent, clusterName, 3, 3)
             .editSpec()
                 .editKafka()
                     .withVersion(null)
@@ -136,8 +137,9 @@ public class StrimziUpgradeST extends AbstractUpgradeST {
     }
 
     @Test
-    void testUpgradeAcrossVersionsWithUnsupportedKafkaVersion() throws IOException {
+    void testUpgradeAcrossVersionsWithUnsupportedKafkaVersion(ExtensionContext extensionContext) throws IOException {
         JsonObject acrossUpgradeData = buildDataForUpgradeAcrossVersions();
+        String clusterName = mapTestWithClusterNames.get(extensionContext.getDisplayName());
 
         String continuousTopicName = "continuous-topic";
         String producerName = "hello-world-producer";
@@ -145,7 +147,7 @@ public class StrimziUpgradeST extends AbstractUpgradeST {
         String continuousConsumerGroup = "continuous-consumer-group";
 
         // Setup env
-        setupEnvAndUpgradeClusterOperator(acrossUpgradeData, MESSAGE_COUNT, MESSAGE_COUNT, producerName, consumerName, continuousTopicName, continuousConsumerGroup, acrossUpgradeData.getString("startingKafkaVersion"), NAMESPACE);
+        setupEnvAndUpgradeClusterOperator(extensionContext, acrossUpgradeData, MESSAGE_COUNT, MESSAGE_COUNT, producerName, consumerName, continuousTopicName, continuousConsumerGroup, acrossUpgradeData.getString("startingKafkaVersion"), NAMESPACE);
         // Make snapshots of all pods
         makeSnapshots(clusterName);
         // Upgrade CO
@@ -158,14 +160,15 @@ public class StrimziUpgradeST extends AbstractUpgradeST {
         // Verify that pods are stable
         PodUtils.verifyThatRunningPodsAreStable(clusterName);
         // Verify upgrade
-        verifyUpgradeProcedure(acrossUpgradeData, MESSAGE_COUNT, MESSAGE_COUNT, producerName, consumerName);
+        verifyUpgradeProcedure(extensionContext, acrossUpgradeData, MESSAGE_COUNT, MESSAGE_COUNT, producerName, consumerName);
         // Check errors in CO log
         assertNoCoErrorsLogged(0);
     }
 
     @Test
-    void testUpgradeAcrossVersionsWithNoKafkaVersion() throws IOException {
+    void testUpgradeAcrossVersionsWithNoKafkaVersion(ExtensionContext extensionContext) throws IOException {
         JsonObject acrossUpgradeData = buildDataForUpgradeAcrossVersions();
+        String clusterName = mapTestWithClusterNames.get(extensionContext.getDisplayName());
 
         String continuousTopicName = "continuous-topic";
         String producerName = "hello-world-producer";
@@ -173,7 +176,7 @@ public class StrimziUpgradeST extends AbstractUpgradeST {
         String continuousConsumerGroup = "continuous-consumer-group";
 
         // Setup env
-        setupEnvAndUpgradeClusterOperator(acrossUpgradeData, MESSAGE_COUNT, MESSAGE_COUNT, producerName, consumerName, continuousTopicName, continuousConsumerGroup, null, NAMESPACE);
+        setupEnvAndUpgradeClusterOperator(extensionContext, acrossUpgradeData, MESSAGE_COUNT, MESSAGE_COUNT, producerName, consumerName, continuousTopicName, continuousConsumerGroup, null, NAMESPACE);
         // Upgrade CO
         changeClusterOperator(acrossUpgradeData, NAMESPACE);
         // Wait till first upgrade finished
@@ -190,7 +193,7 @@ public class StrimziUpgradeST extends AbstractUpgradeST {
         // Verify that pods are stable
         PodUtils.verifyThatRunningPodsAreStable(clusterName);
         // Verify upgrade
-        verifyUpgradeProcedure(acrossUpgradeData, MESSAGE_COUNT, MESSAGE_COUNT, producerName, consumerName);
+        verifyUpgradeProcedure(extensionContext, acrossUpgradeData, MESSAGE_COUNT, MESSAGE_COUNT, producerName, consumerName);
 
         // Check errors in CO log
         assertNoCoErrorsLogged(0);
@@ -250,9 +253,10 @@ public class StrimziUpgradeST extends AbstractUpgradeST {
         return kafkaVersionNode.get(field).asText();
     }
 
-    private void verifyUpgradeProcedure(JsonObject testParameters, int produceMessagesCount, int consumeMessagesCount,
+    private void verifyUpgradeProcedure(ExtensionContext extensionContext, JsonObject testParameters, int produceMessagesCount, int consumeMessagesCount,
                                         String producerName, String consumerName) {
         int continuousClientsMessageCount = testParameters.getJsonObject("client").getInteger("continuousClientsMessages");
+        String clusterName = mapTestWithClusterNames.get(extensionContext.getDisplayName());
 
         // Delete old clients
         kubeClient().deleteDeployment(clusterName + "-" + Constants.KAFKA_CLIENTS);
@@ -304,14 +308,15 @@ public class StrimziUpgradeST extends AbstractUpgradeST {
 
     }
 
-    private void performUpgrade(JsonObject testParameters, int produceMessagesCount, int consumeMessagesCount) throws IOException {
+    private void performUpgrade(ExtensionContext extensionContext, JsonObject testParameters, int produceMessagesCount, int consumeMessagesCount) throws IOException {
         String continuousTopicName = "continuous-topic";
         String producerName = "hello-world-producer";
         String consumerName = "hello-world-consumer";
         String continuousConsumerGroup = "continuous-consumer-group";
+        String clusterName = mapTestWithClusterNames.get(extensionContext.getDisplayName());
 
         // Setup env
-        setupEnvAndUpgradeClusterOperator(testParameters, produceMessagesCount, consumeMessagesCount, producerName, consumerName, continuousTopicName, continuousConsumerGroup, "", NAMESPACE);
+        setupEnvAndUpgradeClusterOperator(extensionContext, testParameters, produceMessagesCount, consumeMessagesCount, producerName, consumerName, continuousTopicName, continuousConsumerGroup, "", NAMESPACE);
         // Upgrade CO
         changeClusterOperator(testParameters, NAMESPACE);
         // Wait for Kafka cluster rolling update
@@ -324,7 +329,7 @@ public class StrimziUpgradeST extends AbstractUpgradeST {
         checkAllImages(testParameters.getJsonObject("imagesAfterKafkaUpgrade"));
 
         // Verify upgrade
-        verifyUpgradeProcedure(testParameters, produceMessagesCount, consumeMessagesCount, producerName, consumerName);
+        verifyUpgradeProcedure(extensionContext, testParameters, produceMessagesCount, consumeMessagesCount, producerName, consumerName);
         // Verify that pods are stable
         PodUtils.verifyThatRunningPodsAreStable(clusterName);
 
