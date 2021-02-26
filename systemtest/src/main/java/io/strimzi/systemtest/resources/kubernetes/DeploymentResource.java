@@ -11,10 +11,15 @@ import io.strimzi.systemtest.resources.ResourceManager;
 import io.strimzi.systemtest.resources.ResourceType;
 import io.strimzi.systemtest.utils.kubeUtils.controllers.DeploymentUtils;
 import io.strimzi.test.TestUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import static io.strimzi.systemtest.resources.ResourceManager.CR_CREATION_TIMEOUT;
 
 public class DeploymentResource implements ResourceType<Deployment> {
+
+    private static final Logger LOGGER = LogManager.getLogger(DeploymentResource.class);
+
 
     @Override
     public String getKind() {

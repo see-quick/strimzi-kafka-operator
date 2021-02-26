@@ -211,13 +211,15 @@ public class ResourceManager {
         while (!timeout.timeoutExpired()) {
             T res = type.get(resource.getMetadata().getNamespace(), resource.getMetadata().getName());
             if (condition.test(res)) {
-                LOGGER.info("Resource {} in namespace {} is ready!", resource.getMetadata().getName(), resource.getMetadata().getNamespace());
+                // TODO create toString for conditions and print there Readyu or NotReady
+                LOGGER.info("Resource {} in namespace {} is {}}!", resource.getMetadata().getName(), resource.getMetadata().getNamespace(), condition.toString());
                 return true;
             }
             try {
                 Thread.sleep(1000);
             } catch (InterruptedException e) {
-                LOGGER.info("Resource {} in namespace {} is not ready!", resource.getMetadata().getName(), resource.getMetadata().getNamespace());
+                // TODO create toString for conditions and print there Readyu or NotReady
+                LOGGER.info("Resource {} in namespace {} is not {}!", resource.getMetadata().getName(), resource.getMetadata().getNamespace(), condition.toString());
                 Thread.currentThread().interrupt();
                 return false;
             }
