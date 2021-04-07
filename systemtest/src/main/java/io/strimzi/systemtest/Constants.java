@@ -324,6 +324,14 @@ public interface Constants {
     /**
      * Auxiliary variables for storing data across our tests
      */
+    String TOPIC_NAME = "TOPIC_NAME";
     String CLUSTER_NAME_KEY = "CLUSTER_NAME";
-    String NAMESPACE_KEY = "NAMESPACE";
+    String SOURCE_CLUSTER_NAME_KEY = "SOURCE_CLUSTER_NAME";
+    String TARGET_CLUSTER_NAME_KEY = "TARGET_CLUSTER_NAME";
+    String TOPIC_NAME_KEY = "TOPIC_NAME";
+    String SOURCE_TOPIC_NAME_KEY = "SOURCE_TOPIC_NAME";
+    String TARGET_TOPIC_NAME_KEY = "TARGET_TOPIC_NAME";
+    String NAMESPACE_KEY = "NAMESPACE_NAME";
+    String KAFKA_USER_NAME_KEY = "KAFKA_USER_NAME";
+    String KAFKA_CLIENTS_NAME_KEY = "KAFKA_CLIENTS_NAME";
 }

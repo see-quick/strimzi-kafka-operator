@@ -788,12 +788,7 @@ public abstract class AbstractST implements TestSeparator {
             ResourceManager.getInstance().deleteResources(testContext);
 
             // if 'parallel namespace test' we are gonna delete namespace
-<<<<<<< Updated upstream
             if (testContext.getTags().contains(PARALLEL_NAMESPACE_TEST)) {
-=======
-            if (StUtils.isParallelNamespaceTest(testContext)) {
->>>>>>> Stashed changes
-
                 final String namespaceToDelete = mapWithNamespaces.get(testContext.getDisplayName());
 
                 LOGGER.info("Deleting namespace:{} for test case:{}", namespaceToDelete, testContext.getDisplayName());
@@ -832,6 +827,8 @@ public abstract class AbstractST implements TestSeparator {
             mapWithTestTopics.put(testName, KafkaTopicUtils.generateRandomNameOfTopic());
             mapWithTestUsers.put(testName, KafkaUserUtils.generateRandomNameOfKafkaUser());
             mapWithKafkaClientNames.put(testName, clusterName + "-" + Constants.KAFKA_CLIENTS);
+
+            storageMap.put(testName, new ExtensionContextStorage(extensionContext));
 
             LOGGER.debug("CLUSTER_NAMES_MAP: \n{}", mapWithClusterNames);
             LOGGER.debug("USERS_NAME_MAP: \n{}", mapWithTestUsers);

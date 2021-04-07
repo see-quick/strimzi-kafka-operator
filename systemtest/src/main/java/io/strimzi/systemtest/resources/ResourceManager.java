@@ -25,6 +25,8 @@ import io.strimzi.api.kafka.model.Spec;
 import io.strimzi.api.kafka.model.status.Condition;
 import io.strimzi.api.kafka.model.status.Status;
 import io.strimzi.systemtest.Constants;
+import io.strimzi.systemtest.enums.ExtensionContextStorageNamespace;
+import io.strimzi.systemtest.enums.ResourceWaitToBeReady;
 import io.strimzi.systemtest.enums.DeploymentTypes;
 import io.strimzi.systemtest.resources.crd.KafkaBridgeResource;
 import io.strimzi.systemtest.resources.crd.KafkaClientsResource;
@@ -44,6 +46,7 @@ import io.strimzi.systemtest.resources.kubernetes.NetworkPolicyResource;
 import io.strimzi.systemtest.resources.kubernetes.RoleBindingResource;
 import io.strimzi.systemtest.resources.kubernetes.ServiceResource;
 import io.strimzi.systemtest.resources.operator.BundleResource;
+import io.strimzi.systemtest.storage.ExtensionContextStorage;
 import io.strimzi.systemtest.time.TimeoutBudget;
 import io.strimzi.test.TestUtils;
 import io.strimzi.test.k8s.HelmClient;
@@ -127,33 +130,57 @@ public class ResourceManager {
     };
 
     @SafeVarargs
-    public final <T extends HasMetadata> void createResource(ExtensionContext testContext, T... resources) {
-        createResource(testContext, true, resources);
+    public final <T extends HasMetadata> void createResource(ExtensionContextStorage extensionContextStorage, T... resources) {
+        createResource(extensionContextStorage,
+            ResourceWaitToBeReady.WAIT,
+            ExtensionContextStorageNamespace.DO_NOT_USE, resources);
     }
 
     @SafeVarargs
-    public final <T extends HasMetadata> void createResource(ExtensionContext testContext, boolean waitReady, T... resources) {
+    public final <T extends HasMetadata> void createResource(ExtensionContextStorage extensionContextStorage, ExtensionContextStorageNamespace extensionContextStorageNamespace, T... resources) {
+        createResource(extensionContextStorage,
+            ResourceWaitToBeReady.WAIT, extensionContextStorageNamespace, resources);
+    }
+
+    @SafeVarargs
+    public final <T extends HasMetadata> void createResource(ExtensionContextStorage extensionContextStorage, ResourceWaitToBeReady resourceWaitToBeReady, T... resources) {
+        createResource(extensionContextStorage,
+            resourceWaitToBeReady, ExtensionContextStorageNamespace.DO_NOT_USE, resources);
+    }
+
+    @SafeVarargs
+    public final <T extends HasMetadata> void createResource(ExtensionContextStorage extensionContextStorage,
+                                                             ResourceWaitToBeReady resourceWaitToBeReady,
+                                                             ExtensionContextStorageNamespace extensionContextStorageNamespace, T... resources) {
         for (T resource : resources) {
             ResourceType<T> type = findResourceType(resource);
             // Convenience for tests that create resources in non-existing namespaces. This will create and clean them up.
             synchronized (this) {
                 if (resource.getMetadata().getNamespace() != null && !kubeClient().namespaceExists(resource.getMetadata().getNamespace())) {
-                    createResource(testContext, waitReady, new NamespaceBuilder().editOrNewMetadata().withName(resource.getMetadata().getNamespace()).endMetadata().build());
+                    createResource(extensionContextStorage, resourceWaitToBeReady, extensionContextStorageNamespace,
+                        new NamespaceBuilder().editOrNewMetadata().withName(resource.getMetadata().getNamespace()).endMetadata().build());
                 }
             }
 
             LOGGER.info("Create/Update of {} {} in namespace {}",
                 resource.getKind(), resource.getMetadata().getName(), resource.getMetadata().getNamespace() == null ? "(not set)" : resource.getMetadata().getNamespace());
 
+            if (ExtensionContextStorageNamespace.USE.equals(extensionContextStorageNamespace.name())) {
+                // overriding the namespace of the resource
+                LOGGER.info("We are gonna use extension context storage namespace:{} for resource", extensionContextStorage.getNamespaceName());
+                resource.getMetadata().setNamespace(extensionContextStorage.getNamespaceName());
+            }
+
             type.create(resource);
 
             synchronized (this) {
-                STORED_RESOURCES.computeIfAbsent(testContext.getDisplayName(), k -> new Stack<>());
-                STORED_RESOURCES.get(testContext.getDisplayName()).push(() -> deleteResource(resource));
+                STORED_RESOURCES.computeIfAbsent(extensionContextStorage.getExtensionContext().getDisplayName(), k -> new Stack<>());
+                STORED_RESOURCES.get(extensionContextStorage.getExtensionContext().getDisplayName()).push(() -> deleteResource(resource));
             }
         }
 
-        if (waitReady) {
+        // wait for resource to be ready
+        if (ResourceWaitToBeReady.WAIT.equals(resourceWaitToBeReady.name())) {
             for (T resource : resources) {
                 ResourceType<T> type = findResourceType(resource);
                 assertTrue(waitResourceCondition(resource, type::waitForReadiness),

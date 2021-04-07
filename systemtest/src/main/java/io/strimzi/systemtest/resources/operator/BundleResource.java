@@ -38,7 +38,7 @@ public class BundleResource implements ResourceType<Deployment> {
     }
     @Override
     public void create(Deployment resource) {
-        ResourceManager.kubeClient().createOrReplaceDeployment(resource);
+        ResourceManager.kubeClient().namespace(resource.getMetadata().getNamespace()).createOrReplaceDeployment(resource);
     }
     @Override
     public void delete(Deployment resource) throws Exception {

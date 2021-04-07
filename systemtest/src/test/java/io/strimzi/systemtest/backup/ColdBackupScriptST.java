@@ -12,6 +12,7 @@ import static org.hamcrest.CoreMatchers.is;
 
 import java.util.Map;
 
+import io.strimzi.systemtest.storage.ExtensionContextStorage;
 import io.strimzi.systemtest.templates.crd.KafkaClientsTemplates;
 import io.strimzi.systemtest.templates.crd.KafkaTemplates;
 import org.apache.logging.log4j.LogManager;
@@ -36,16 +37,18 @@ public class ColdBackupScriptST extends AbstractST {
     private static final String NAMESPACE = "cold-backup";
 
     @Test
-    void backupAndRestore(ExtensionContext context) {
+    void backupAndRestore(ExtensionContext extensionContext) {
+        ExtensionContextStorage context = storageMap.get(extensionContext.getDisplayName());
+
         String clusterName = mapWithClusterNames.get(context.getDisplayName());
         String groupName = "my-group", newGroupName = "new-group";
         int firstBatchSize = 100, secondBatchSize = 10;
         String backupFilePath = USER_PATH + "/target/" + clusterName + ".zip";
 
         // deploy a test cluster
-        installClusterOperator(context, NAMESPACE);
+        installClusterOperator(context.getExtensionContext(), NAMESPACE);
         resourceManager.createResource(context, KafkaTemplates.kafkaPersistent(clusterName, 1, 1).build());
-        String clientsPodName = deployAndGetInternalClientsPodName(context);
+        String clientsPodName = deployAndGetInternalClientsPodName(context.getExtensionContext());
         InternalKafkaClient clients = buildInternalClients(context, clientsPodName, groupName, firstBatchSize);
 
         // send messages and consume them
