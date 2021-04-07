@@ -23,6 +23,7 @@ import io.strimzi.systemtest.resources.operator.BundleResource;
 import io.strimzi.systemtest.resources.specific.HelmResource;
 import io.strimzi.systemtest.resources.specific.OlmResource;
 import io.strimzi.systemtest.resources.ResourceManager;
+import io.strimzi.systemtest.storage.ExtensionContextStorage;
 import io.strimzi.systemtest.templates.kubernetes.ClusterRoleBindingTemplates;
 import io.strimzi.systemtest.utils.StUtils;
 import io.strimzi.systemtest.utils.kafkaUtils.KafkaTopicUtils;
@@ -95,6 +96,8 @@ public abstract class AbstractST implements TestSeparator {
     private static final Logger LOGGER = LogManager.getLogger(AbstractST.class);
     private final Object lock = new Object();
     private final Object lockForTimeMeasuringSystem = new Object();
+
+    protected static Map<String, ExtensionContextStorage> storageMap;
 
     // maps for local variables {thread safe}
     protected static Map<String, String> mapWithClusterNames = new HashMap<>();
@@ -785,7 +788,11 @@ public abstract class AbstractST implements TestSeparator {
             ResourceManager.getInstance().deleteResources(testContext);
 
             // if 'parallel namespace test' we are gonna delete namespace
+<<<<<<< Updated upstream
             if (testContext.getTags().contains(PARALLEL_NAMESPACE_TEST)) {
+=======
+            if (StUtils.isParallelNamespaceTest(testContext)) {
+>>>>>>> Stashed changes
 
                 final String namespaceToDelete = mapWithNamespaces.get(testContext.getDisplayName());
 

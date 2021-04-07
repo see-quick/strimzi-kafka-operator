@@ -118,7 +118,7 @@ class ConnectST extends AbstractST {
                 "key.converter=org.apache.kafka.connect.json.JsonConverter\n" +
                 "value.converter=org.apache.kafka.connect.json.JsonConverter\n" +
                 "config.storage.replication.factor=-1\n" +
-                "offset.storage.replication.factor=-1\n" +
+                "offset.storage.replication.facgetImagesFromConfigtor=-1\n" +
                 "status.storage.replication.factor=-1\n" +
                 "config.storage.topic=" + KafkaConnectResources.metricsAndLogConfigMapName(clusterName) + "\n" +
                 "status.storage.topic=" + KafkaConnectResources.configStorageTopicStatus(clusterName) + "\n" +
