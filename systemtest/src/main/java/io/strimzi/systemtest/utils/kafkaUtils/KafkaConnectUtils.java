@@ -31,16 +31,24 @@ public class KafkaConnectUtils {
 
     /**
      * Wait until the given Kafka Connect is in desired state.
+     * @param namespaceName Namespace name
      * @param clusterName name of KafkaConnect cluster
      * @param status desired state
      */
-    public static boolean waitForConnectStatus(String clusterName, Enum<?>  status) {
+    public static boolean waitForConnectStatus(String namespaceName, String clusterName, Enum<?>  status) {
         KafkaConnect kafkaConnect = KafkaConnectResource.kafkaConnectClient().inNamespace(kubeClient().getNamespace()).withName(clusterName).get();
         return ResourceManager.waitForResourceStatus(KafkaConnectResource.kafkaConnectClient(), kafkaConnect, status);
     }
 
+    public static boolean waitForConnectStatus(String clusterName, Enum<?>  status) {
+        return waitForConnectStatus(kubeClient().getNamespace(), clusterName, status);
+    }
+    public static boolean waitForConnectReady(String namespaceName, String clusterName) {
+        return waitForConnectStatus(kubeClient().getNamespace(), clusterName, Ready);
+    }
+
     public static boolean waitForConnectReady(String clusterName) {
-        return waitForConnectStatus(clusterName, Ready);
+        return waitForConnectStatus(kubeClient().getNamespace(), clusterName, Ready);
     }
 
     public static void waitForConnectNotReady(String clusterName) {

@@ -212,13 +212,7 @@ public class ResourceManager {
         TestUtils.waitFor("Wait until resource condition:" + condition + " is fulfilled", Duration.ofSeconds(10).toMillis(), Duration.ofMinutes(16).toMillis(),
             () -> {
                 T res = type.get(resource.getMetadata().getNamespace(), resource.getMetadata().getName());
-
-                LOGGER.debug("This is resource:\n{}", res);
-
                 resourceReady[0] =  condition.test(res);
-
-                LOGGER.debug("Condition result:{}", resourceReady[0]);
-
                 return resourceReady[0];
 
             });
