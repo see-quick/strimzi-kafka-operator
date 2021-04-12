@@ -209,7 +209,9 @@ public class ResourceManager {
 
         boolean[] resourceReady = new boolean[1];
 
-        TestUtils.waitFor("Wait until resource condition:" + condition + " is fulfilled", Duration.ofSeconds(10).toMillis(), Duration.ofMinutes(16).toMillis(),
+        TestUtils.waitFor("Wait until resource:" + resource.getMetadata().getName() +
+                " in namespace:" + resource.getMetadata().getNamespace() +
+                " with condition :" + condition + " is fulfilled", Duration.ofSeconds(10).toMillis(), Duration.ofMinutes(16).toMillis(),
             () -> {
                 T res = type.get(resource.getMetadata().getNamespace(), resource.getMetadata().getName());
                 resourceReady[0] =  condition.test(res);
@@ -335,7 +337,6 @@ public class ResourceManager {
         LOGGER.info("{}: {} is in desired state: {}", kind, name, status);
         return true;
     }
-
 
     public static <T extends CustomResource<? extends Spec, ? extends Status>> boolean waitForResourceStatus(MixedOperation<T, ?, ?> operation, T resource, Enum<?> status) {
         long resourceTimeout = ResourceOperation.getTimeoutForResourceReadiness(resource.getKind());

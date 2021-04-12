@@ -10,6 +10,7 @@ import io.strimzi.api.kafka.model.status.Condition;
 import io.strimzi.systemtest.Constants;
 import io.strimzi.systemtest.kafkaclients.internalClients.InternalKafkaClient;
 import io.strimzi.systemtest.resources.ResourceManager;
+import io.strimzi.systemtest.resources.ResourceOperation;
 import io.strimzi.systemtest.resources.crd.KafkaConnectResource;
 import io.strimzi.test.TestUtils;
 import org.apache.logging.log4j.LogManager;
@@ -36,15 +37,16 @@ public class KafkaConnectUtils {
      * @param status desired state
      */
     public static boolean waitForConnectStatus(String namespaceName, String clusterName, Enum<?>  status) {
-        KafkaConnect kafkaConnect = KafkaConnectResource.kafkaConnectClient().inNamespace(kubeClient().getNamespace()).withName(clusterName).get();
-        return ResourceManager.waitForResourceStatus(KafkaConnectResource.kafkaConnectClient(), kafkaConnect, status);
+        KafkaConnect kafkaConnect = KafkaConnectResource.kafkaConnectClient().inNamespace(namespaceName).withName(clusterName).get();
+        return ResourceManager.waitForResourceStatus(KafkaConnectResource.kafkaConnectClient(),
+            kafkaConnect.getKind(), namespaceName, kafkaConnect.getMetadata().getName(), status, ResourceOperation.getTimeoutForResourceReadiness(kafkaConnect.getKind()));
     }
 
     public static boolean waitForConnectStatus(String clusterName, Enum<?>  status) {
         return waitForConnectStatus(kubeClient().getNamespace(), clusterName, status);
     }
     public static boolean waitForConnectReady(String namespaceName, String clusterName) {
-        return waitForConnectStatus(kubeClient().getNamespace(), clusterName, Ready);
+        return waitForConnectStatus(namespaceName, clusterName, Ready);
     }
 
     public static boolean waitForConnectReady(String clusterName) {
