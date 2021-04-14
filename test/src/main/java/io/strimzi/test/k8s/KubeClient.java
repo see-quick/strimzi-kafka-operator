@@ -372,7 +372,7 @@ public class KubeClient {
      * Gets stateful set selectors
      */
     public LabelSelector getStatefulSetSelectors(String statefulSetName) {
-        return getStatefulSetSelectors(kubeClient().getNamespace(), statefulSetName);
+        return getStatefulSetSelectors(getNamespace(), statefulSetName);
     }
 
     /**
@@ -719,7 +719,7 @@ public class KubeClient {
                 .collect(Collectors.toList());
     }
 
-    public List<Event> listEvents(String resourceUid) {
+    public List<Event> listEventsByResourceUid(String resourceUid) {
         return listEvents().stream()
                 .filter(event -> {
                     if (event.getInvolvedObject().getUid() == null) {

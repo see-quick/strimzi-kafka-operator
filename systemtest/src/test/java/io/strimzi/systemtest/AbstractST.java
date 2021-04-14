@@ -14,6 +14,8 @@ import io.strimzi.api.kafka.model.Kafka;
 import io.strimzi.api.kafka.model.KafkaResources;
 import io.strimzi.api.kafka.model.status.Condition;
 import io.strimzi.operator.common.model.Labels;
+import io.strimzi.systemtest.annotations.ParallelNamespaceTest;
+import io.strimzi.systemtest.annotations.ParallelTest;
 import io.strimzi.systemtest.interfaces.IndicativeSentences;
 import io.strimzi.systemtest.logs.TestExecutionWatcher;
 import io.strimzi.systemtest.resources.kubernetes.ClusterRoleBindingResource;
@@ -60,6 +62,7 @@ import java.util.Stack;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
+import static io.strimzi.systemtest.Constants.PARALLEL_NAMESPACE_TEST;
 import static io.strimzi.systemtest.matchers.Matchers.logHasNoUnexpectedErrors;
 import static io.strimzi.test.k8s.KubeClusterResource.cmdKubeClient;
 import static io.strimzi.test.k8s.KubeClusterResource.kubeClient;
@@ -156,7 +159,14 @@ public abstract class AbstractST implements TestSeparator {
             }
             // 060-Deployment
             ResourceManager.setCoDeploymentName(clusterOperatorName);
-            ResourceManager.getInstance().createResource(extensionContext, BundleResource.clusterOperator(clusterOperatorName, namespace, operationTimeout, reconciliationInterval).build());
+//            // parallel namespace test we are deploying cluster wide CO most of cases specific to @beforeAll
+//            if (extensionContext.getTags().contains(PARALLEL_NAMESPACE_TEST)) {
+//                System.out.println("============================================= HEREEREREE");
+//                ResourceManager.getInstance().createResource(extensionContext, BundleResource.clusterOperator(clusterOperatorName, namespace, "*", operationTimeout, reconciliationInterval).build());
+//            } else {
+//                // else normal one to watch to specific namespace
+//                ResourceManager.getInstance().createResource(extensionContext, BundleResource.clusterOperator(clusterOperatorName, namespace, namespace, operationTimeout, reconciliationInterval).build());
+//            }
         }
     }
 
