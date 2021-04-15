@@ -299,7 +299,7 @@ public class KubeClient {
     }
 
     public Pod getPod(String name) {
-        return getPod(kubeClient().getNamespace(), name);
+        return getPod(getNamespace(), name);
     }
 
     /**

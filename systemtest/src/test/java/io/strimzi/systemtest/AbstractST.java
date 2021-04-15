@@ -159,14 +159,7 @@ public abstract class AbstractST implements TestSeparator {
             }
             // 060-Deployment
             ResourceManager.setCoDeploymentName(clusterOperatorName);
-//            // parallel namespace test we are deploying cluster wide CO most of cases specific to @beforeAll
-//            if (extensionContext.getTags().contains(PARALLEL_NAMESPACE_TEST)) {
-//                System.out.println("============================================= HEREEREREE");
-//                ResourceManager.getInstance().createResource(extensionContext, BundleResource.clusterOperator(clusterOperatorName, namespace, "*", operationTimeout, reconciliationInterval).build());
-//            } else {
-//                // else normal one to watch to specific namespace
-//                ResourceManager.getInstance().createResource(extensionContext, BundleResource.clusterOperator(clusterOperatorName, namespace, namespace, operationTimeout, reconciliationInterval).build());
-//            }
+            ResourceManager.getInstance().createResource(extensionContext, BundleResource.clusterOperator(clusterOperatorName, namespace, namespace, operationTimeout, reconciliationInterval).build());
         }
     }
 
