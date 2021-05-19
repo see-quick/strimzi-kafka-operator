@@ -339,8 +339,6 @@ public abstract class AbstractST implements TestSeparator {
         RoleBindingResource.roleBinding(extensionContext, Constants.PATH_TO_PACKAGING_INSTALL_FILES + "/cluster-operator/020-RoleBinding-strimzi-cluster-operator.yaml", namespace, bindingsNamespace);
         // 031-RoleBinding
         RoleBindingResource.roleBinding(extensionContext, Constants.PATH_TO_PACKAGING_INSTALL_FILES + "/cluster-operator/031-RoleBinding-strimzi-cluster-operator-entity-operator-delegation.yaml", namespace, bindingsNamespace);
-        // 032-RoleBinding
-        RoleBindingResource.roleBinding(extensionContext, Constants.PATH_TO_PACKAGING_INSTALL_FILES + "/cluster-operator/032-RoleBinding-strimzi-cluster-operator-topic-operator-delegation.yaml", namespace, bindingsNamespace);
     }
 
     protected void assertResources(String namespace, String podName, String containerName, String memoryLimit, String cpuLimit, String memoryRequest, String cpuRequest) {
@@ -527,7 +525,7 @@ public abstract class AbstractST implements TestSeparator {
     protected void verifyLabelsForKafkaCluster(String clusterOperatorNamespaceName, String componentsNamespaceName, String clusterName, String appName) {
         verifyLabelsOnPods(componentsNamespaceName, clusterName, "zookeeper", appName, Kafka.RESOURCE_KIND);
         verifyLabelsOnPods(componentsNamespaceName, clusterName, "kafka", appName, Kafka.RESOURCE_KIND);
-        verifyLabelsOnCOPod(clusterOperatorNamespaceName, clusterName);
+        verifyLabelsOnCOPod(clusterOperatorNamespaceName);
         verifyLabelsOnPods(componentsNamespaceName, clusterName, "entity-operator", appName, Kafka.RESOURCE_KIND);
         verifyLabelsForCRDs(componentsNamespaceName);
         verifyLabelsForKafkaAndZKServices(componentsNamespaceName, clusterName, appName);
@@ -537,16 +535,12 @@ public abstract class AbstractST implements TestSeparator {
         verifyLabelsForServiceAccounts(componentsNamespaceName, clusterName, appName);
     }
 
-    void verifyLabelsOnCOPod(String namespaceName, String clusterName) {
+    void verifyLabelsOnCOPod(String namespaceName) {
         LOGGER.info("Verifying labels for cluster-operator pod");
 
-        Map<String, String> coLabels = kubeClient(namespaceName).listPods(namespaceName, clusterName, "name", ResourceManager.getCoDeploymentName()).get(0).getMetadata().getLabels();
+        Map<String, String> coLabels = kubeClient(namespaceName).listPods("name", ResourceManager.getCoDeploymentName()).get(0).getMetadata().getLabels();
         assertThat(coLabels.get("name"), is(ResourceManager.getCoDeploymentName()));
         assertThat(coLabels.get(Labels.STRIMZI_KIND_LABEL), is("cluster-operator"));
-    }
-
-    void verifyLabelsOnCOPod(String clusterName) {
-        verifyLabelsOnCOPod(kubeClient().getNamespace(), clusterName);
     }
 
     protected void verifyLabelsOnPods(String clusterName, String podType, String appName, String kind) {

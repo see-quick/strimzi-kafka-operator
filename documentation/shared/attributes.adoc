@@ -13,23 +13,23 @@
 :toclevels: 3
 
 //Latest Strimzi version
-:ProductVersion: 0.23.0
+:ProductVersion: 0.24.0
 
 // Kubernetes and OpenShift versions
 :OpenShiftVersion: 4.3 and later
 :KubernetesVersion: 1.16 and later
 
 // Kafka upgrade attributes used in kafka upgrades section
-:DefaultKafkaVersion: 2.7.0
-:KafkaVersionLower: 2.6.1
-:KafkaVersionHigher: 2.7.0
+:DefaultKafkaVersion: 2.8.0
+:KafkaVersionLower: 2.7.0
+:KafkaVersionHigher: 2.8.0
 :ExampleImageTagUpgrades: quay.io/strimzi/kafka:{ProductVersion}-kafka-{KafkaVersionHigher}
 
 //log message format version and inter-broker protocol version
-:LogMsgVersLower: 2.6
-:LogMsgVersHigher: 2.7
-:InterBrokVersLower: 2.6
-:InterBrokVersHigher: 2.7
+:LogMsgVersLower: 2.7
+:LogMsgVersHigher: 2.8
+:InterBrokVersLower: 2.7
+:InterBrokVersHigher: 2.8
 
 // Source and download links
 :ReleaseDownload: https://github.com/strimzi/strimzi-kafka-operator/releases[GitHub^]
@@ -108,6 +108,7 @@
 :OpenTracingDocs: link:https://opentracing.io/docs/overview/[OpenTracing documentation^]
 :LatestBridgeAPIDocs: link:https://strimzi.io/docs/bridge/latest/[Kafka Bridge API reference^]
 :external-cors-link: https://www.w3.org/TR/cors/
+:HelmCustomResourceDefinitions: link:https://helm.sh/docs/chart_best_practices/custom_resource_definitions/[Custom Resource Definitions for Helm^]
 
 // Container image names and repositories
 :DockerOrg: quay.io/strimzi
