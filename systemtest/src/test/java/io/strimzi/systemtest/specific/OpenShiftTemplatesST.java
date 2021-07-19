@@ -17,6 +17,7 @@ import io.strimzi.systemtest.resources.crd.KafkaConnectResource;
 import io.strimzi.systemtest.resources.crd.KafkaResource;
 import io.strimzi.systemtest.resources.crd.KafkaTopicResource;
 import io.strimzi.test.TestUtils;
+import io.strimzi.test.annotations.IsolatedSuite;
 import io.strimzi.test.k8s.cmdClient.Oc;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -41,6 +42,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
  */
 @OpenShiftOnly
 @Tag(REGRESSION)
+@IsolatedSuite
 public class OpenShiftTemplatesST extends AbstractST {
 
     private static final Logger LOGGER = LogManager.getLogger(OpenShiftTemplatesST.class);

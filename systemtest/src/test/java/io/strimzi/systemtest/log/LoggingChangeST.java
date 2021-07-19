@@ -1223,9 +1223,4 @@ class LoggingChangeST extends AbstractST {
             .createInstallation()
             .runInstallation();
     }
-
-    @AfterAll
-    protected void tearDownEnvironmentAfterAll() {
-        teardownEnvForOperator();
-    }
 }

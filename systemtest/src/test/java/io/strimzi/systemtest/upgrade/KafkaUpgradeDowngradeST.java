@@ -20,6 +20,7 @@ import io.strimzi.systemtest.utils.TestKafkaVersion;
 import io.strimzi.systemtest.utils.kafkaUtils.KafkaUtils;
 import io.strimzi.systemtest.utils.kubeUtils.controllers.StatefulSetUtils;
 import io.strimzi.systemtest.utils.kubeUtils.objects.PodUtils;
+import io.strimzi.test.annotations.IsolatedSuite;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.BeforeAll;
@@ -42,6 +43,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
  * Metadata for upgrade/downgrade procedure are loaded from kafka-versions.yaml in root dir of this repository.
  */
 @Tag(UPGRADE)
+@IsolatedSuite
 public class KafkaUpgradeDowngradeST extends AbstractST {
 
     private static final Logger LOGGER = LogManager.getLogger(KafkaUpgradeDowngradeST.class);
