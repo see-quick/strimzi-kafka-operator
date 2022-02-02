@@ -17,8 +17,10 @@ import io.strimzi.api.kafka.model.ContainerEnvVar;
 import io.strimzi.api.kafka.model.ContainerEnvVarBuilder;
 import io.strimzi.systemtest.Constants;
 import io.strimzi.systemtest.Environment;
+import io.strimzi.systemtest.exceptions.ClusterApiNotHealthyException;
 import io.strimzi.test.TestUtils;
 import io.strimzi.test.k8s.KubeClusterResource;
+import io.strimzi.test.k8s.cluster.KubeCluster;
 import io.vertx.core.json.DecodeException;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
@@ -65,6 +67,16 @@ public class StUtils {
                 .contains(annotationName)).count() >= 1;
 
     private StUtils() { }
+
+    public static void healthCheckClusterApi(KubeCluster cluster, ExtensionContext extensionContext) {
+        if (!cluster.isApiHealthy()) {
+            final String errorMessage = KubeClusterResource.cmdKubeClient().exec("get", "--raw=/readyz?verbose").err();
+            throw new ClusterApiNotHealthyException(cluster.toString() + " API is not ready before test suite - " +
+                extensionContext.getRequiredTestClass().getSimpleName() + " with error:\n" + errorMessage);
+        } else {
+            LOGGER.debug("Cluster API server is healthy. Running in {}.", extensionContext.getRequiredTestClass().getSimpleName());
+        }
+    }
 
     /**
      * Method for check if test is allowed on specific testing environment

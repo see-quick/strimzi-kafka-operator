@@ -13,6 +13,7 @@ import io.strimzi.api.kafka.model.Kafka;
 import io.strimzi.api.kafka.model.KafkaResources;
 import io.strimzi.api.kafka.model.status.Condition;
 import io.strimzi.operator.common.model.Labels;
+import io.strimzi.systemtest.exceptions.ClusterApiNotHealthyException;
 import io.strimzi.systemtest.interfaces.IndicativeSentences;
 import io.strimzi.systemtest.listeners.ExecutionListener;
 import io.strimzi.systemtest.logs.TestExecutionWatcher;
@@ -27,6 +28,7 @@ import io.strimzi.systemtest.utils.kafkaUtils.KafkaTopicUtils;
 import io.strimzi.systemtest.utils.kafkaUtils.KafkaUserUtils;
 import io.strimzi.systemtest.utils.kubeUtils.objects.PodUtils;
 import io.strimzi.test.TestUtils;
+import io.strimzi.test.executor.Exec;
 import io.strimzi.test.interfaces.TestSeparator;
 import io.strimzi.test.k8s.KubeClusterResource;
 import org.apache.logging.log4j.LogManager;
@@ -603,6 +605,9 @@ public abstract class AbstractST implements TestSeparator {
     }
 
     private final void beforeAllMustExecute(ExtensionContext extensionContext) {
+        // try health check of Kubernetes API
+        StUtils.healthCheckClusterApi(cluster.cluster(), extensionContext);
+
         try {
             clusterOperator = SetupClusterOperator.getInstanceHolder();
         } finally {

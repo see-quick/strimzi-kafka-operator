@@ -43,6 +43,10 @@ public class Minikube implements KubeCluster {
         }
     }
 
+    public boolean isApiHealthy() {
+        return Exec.exec(Arrays.asList("kubectl", "get", "--raw=/readyz")).exitStatus();
+    }
+
     @Override
     public KubeCmdClient defaultCmdClient() {
         return new Kubectl();

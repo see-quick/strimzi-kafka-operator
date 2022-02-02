@@ -45,6 +45,10 @@ public class Kubernetes implements KubeCluster {
         }
     }
 
+    public boolean isApiHealthy() {
+        return Exec.exec(Arrays.asList(CMD, "get", "--raw=/readyz")).exitStatus();
+    }
+
     @Override
     public KubeCmdClient defaultCmdClient() {
         return new Kubectl();

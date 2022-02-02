@@ -29,6 +29,9 @@ public interface KubeCluster {
     /** Return true iff this kind of cluster is running on the local machine */
     boolean isClusterUp();
 
+    /** Return true iff this kind of cluster API is alive (i.e., nodes/node API are without any problems) */
+    boolean isApiHealthy();
+
     /** Return a default CMD cmdClient for this kind of cluster. */
     KubeCmdClient defaultCmdClient();
 
