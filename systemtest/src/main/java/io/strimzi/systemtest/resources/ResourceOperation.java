@@ -74,7 +74,7 @@ public class ResourceOperation {
      *  scale up or create
      */
     public static long timeoutForPodsOperation(int numberOfPods) {
-        return Duration.ofMinutes(5).toMillis() * Math.max(1, numberOfPods);
+        return Duration.ofMinutes(10).toMillis() * Math.max(1, numberOfPods);
     }
 
     public static long getTimeoutForResourceDeletion() {

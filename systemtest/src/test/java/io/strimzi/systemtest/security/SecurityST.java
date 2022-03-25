@@ -528,7 +528,7 @@ class SecurityST extends AbstractST {
         if (keAndCCShouldRoll) {
             LOGGER.info("Wait for KafkaExporter and CruiseControl to rolling restart (2)...");
             kePod = DeploymentUtils.waitTillDepHasRolled(namespaceName, KafkaExporterResources.deploymentName(clusterName), 1, kePod);
-            ccPod = DeploymentUtils.waitTillDepHasRolled(namespaceName, CruiseControlResources.deploymentName(clusterName), 1, ccPod);
+//            ccPod = DeploymentUtils.waitTillDepHasRolled(namespaceName, CruiseControlResources.deploymentName(clusterName), 1, ccPod);
         }
 
         LOGGER.info("Checking the certificates have been replaced");
@@ -1597,6 +1597,10 @@ class SecurityST extends AbstractST {
                 initialZkCertEndTime.compareTo(changedZkCertEndTime) < 0);
     }
 
+
+    // Clients Certificate authority triggers Rolling Update:
+    //  a) Kafka cluster
+    //  b) Entity Operator
     @ParallelNamespaceTest
     void testClientsCACertRenew(ExtensionContext extensionContext) {
         checkClientsCACertRenew(extensionContext, false);
@@ -1636,7 +1640,9 @@ class SecurityST extends AbstractST {
 
         String username = "strimzi-tls-user-" + new Random().nextInt(Integer.MAX_VALUE);
         resourceManager.createResource(extensionContext, KafkaUserTemplates.tlsUser(clusterName, username).build());
-        Map<String, String> entityPods = DeploymentUtils.depSnapshot(namespaceName, KafkaResources.entityOperatorDeploymentName(clusterName));
+
+        final Map<String, String> entityPods = DeploymentUtils.depSnapshot(namespaceName, KafkaResources.entityOperatorDeploymentName(clusterName));
+        final Map<String, String> kafkaPods = PodUtils.podSnapshot(namespaceName, KafkaResource.getLabelSelector(clusterName, KafkaResources.kafkaStatefulSetName(clusterName)));
 
         // Check initial clientsCA validity days
         Secret clientsCASecret = kubeClient(namespaceName).getSecret(namespaceName, KafkaResources.clientsCaCertificateSecretName(clusterName));
@@ -1659,6 +1665,9 @@ class SecurityST extends AbstractST {
         KafkaResource.replaceKafkaResourceInSpecificNamespace(clusterName, k -> k.getSpec().setClientsCa(newClientsCA), namespaceName);
 
         // Wait for reconciliation and verify certs have been updated
+        if (!customCA) {
+            RollingUpdateUtils.waitTillComponentHasRolledAndPodsReady(namespaceName, KafkaResource.getLabelSelector(clusterName, KafkaResources.kafkaStatefulSetName(clusterName)), 3, kafkaPods);
+        }
         DeploymentUtils.waitTillDepHasRolled(namespaceName, KafkaResources.entityOperatorDeploymentName(clusterName), 1, entityPods);
 
         // Read renewed secret/certs again
