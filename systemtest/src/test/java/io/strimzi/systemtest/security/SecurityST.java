@@ -507,7 +507,7 @@ class SecurityST extends AbstractST {
         if (keAndCCShouldRoll) {
             LOGGER.info("Wait for KafkaExporter and CruiseControl to rolling restart (1)...");
             kePod = DeploymentUtils.waitTillDepHasRolled(namespaceName, KafkaExporterResources.deploymentName(clusterName), 1, kePod);
-            ccPod = DeploymentUtils.waitTillDepHasRolled(namespaceName, CruiseControlResources.deploymentName(clusterName), 1, ccPod);
+//            ccPod = DeploymentUtils.waitTillDepHasRolled(namespaceName, CruiseControlResources.deploymentName(clusterName), 1, ccPod);
         }
 
         if (zkShouldRoll) {
