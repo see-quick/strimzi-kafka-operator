@@ -1484,11 +1484,23 @@ class SecurityST extends AbstractST {
         });
     }
 
+    /*
+        Here should,
+        1. ZooKeeper roll
+        2. Kafka roll
+        3. EO roll
+     */
     @ParallelNamespaceTest
     void testClusterCACertRenew(ExtensionContext extensionContext) {
         checkClusterCACertRenew(extensionContext, false);
     }
 
+    /*
+        Here should,
+        1. ZooKeeper roll
+        2. Kafka roll
+        3. EO roll
+     */
     @ParallelNamespaceTest
     void testCustomClusterCACertRenew(ExtensionContext extensionContext) {
         checkClusterCACertRenew(extensionContext, true);
@@ -1523,7 +1535,9 @@ class SecurityST extends AbstractST {
                 .build());
         }
 
-        Map<String, String> kafkaPods = PodUtils.podSnapshot(namespaceName, kafkaSelector);
+        final Map<String, String> zkPods = PodUtils.podSnapshot(namespaceName, zkSelector);
+        final Map<String, String> kafkaPods = PodUtils.podSnapshot(namespaceName, kafkaSelector);
+        final Map<String, String> entityPods = DeploymentUtils.depSnapshot(namespaceName, KafkaResources.entityOperatorDeploymentName(clusterName));
 
         Secret clusterCASecret = kubeClient(namespaceName).getSecret(namespaceName, KafkaResources.clusterCaCertificateSecretName(clusterName));
         X509Certificate cacert = SecretUtils.getCertificateFromSecret(clusterCASecret, "ca.crt");
@@ -1552,7 +1566,9 @@ class SecurityST extends AbstractST {
         KafkaResource.replaceKafkaResourceInSpecificNamespace(clusterName, k -> k.getSpec().setClusterCa(newClusterCA), namespaceName);
 
         // Wait for reconciliation and verify certs have been updated
+        RollingUpdateUtils.waitTillComponentHasRolled(namespaceName, zkSelector, 3, zkPods);
         RollingUpdateUtils.waitTillComponentHasRolled(namespaceName, kafkaSelector, 3, kafkaPods);
+        DeploymentUtils.waitTillDepHasRolled(namespaceName, KafkaResources.entityOperatorDeploymentName(clusterName), 1, entityPods);
 
         // Read renewed secret/certs again
         clusterCASecret = kubeClient(namespaceName).getSecret(namespaceName, KafkaResources.clusterCaCertificateSecretName(clusterName));
