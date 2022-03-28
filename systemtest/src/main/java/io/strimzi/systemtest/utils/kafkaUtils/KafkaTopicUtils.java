@@ -185,17 +185,13 @@ public class KafkaTopicUtils {
             .out();
     }
 
-    public static String describeTopicViaKafkaPod(String topicName, String kafkaPodName, String bootstrapServer) {
-        return describeTopicViaKafkaPod(kubeClient().getNamespace(), topicName, kafkaPodName, bootstrapServer);
-    }
-
     public static void waitForKafkaTopicSpecStability(final String namespaceName, String topicName, String podName, String bootstrapServer) {
         int[] stableCounter = {0};
 
         String oldSpec = describeTopicViaKafkaPod(namespaceName, topicName, podName, bootstrapServer);
 
         TestUtils.waitFor("KafkaTopic's spec will be stable", Constants.GLOBAL_POLL_INTERVAL, Constants.GLOBAL_STATUS_TIMEOUT, () -> {
-            if (oldSpec.equals(describeTopicViaKafkaPod(topicName, podName, bootstrapServer))) {
+            if (oldSpec.equals(describeTopicViaKafkaPod(namespaceName, topicName, podName, bootstrapServer))) {
                 stableCounter[0]++;
                 if (stableCounter[0] == Constants.GLOBAL_STABILITY_OFFSET_COUNT) {
                     LOGGER.info("KafkaTopic's spec is stable for {} polls intervals", stableCounter[0]);
@@ -209,10 +205,6 @@ public class KafkaTopicUtils {
             LOGGER.info("KafkaTopic's spec gonna be stable in {} polls", Constants.GLOBAL_STABILITY_OFFSET_COUNT - stableCounter[0]);
             return false;
         });
-    }
-
-    public static void waitForKafkaTopicSpecStability(String topicName, String podName, String bootstrapServer) {
-        waitForKafkaTopicSpecStability(kubeClient().getNamespace(), topicName, podName, bootstrapServer);
     }
 
     public static List<KafkaTopic> getAllKafkaTopicsWithPrefix(String namespace, String prefix) {
