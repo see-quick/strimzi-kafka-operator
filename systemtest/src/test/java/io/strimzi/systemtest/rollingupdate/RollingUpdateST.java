@@ -365,7 +365,7 @@ class RollingUpdateST extends AbstractST {
             .filter(pvc -> pvc.getMetadata().getName().contains("data-" + KafkaResources.kafkaStatefulSetName(clusterName))).collect(Collectors.toList()).size(), is(initialReplicas));
 
         // Create new topic to ensure, that ZK is working properly
-        String newTopicName = KafkaTopicUtils.generateRandomNameOfTopic();
+        final String newTopicName = topicName + "-new";
 
         resourceManager.createResource(extensionContext, KafkaTopicTemplates.topic(clusterName, newTopicName).build());
 

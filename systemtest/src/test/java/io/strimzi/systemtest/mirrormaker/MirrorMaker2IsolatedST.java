@@ -323,7 +323,7 @@ class MirrorMaker2IsolatedST extends AbstractST {
             .build();
 
         // Check brokers availability
-        ClientUtils.waitUntilProducerAndConsumerSuccessfullySendAndReceiveMessages(extensionContext, internalKafkaClient);
+//        ClientUtils.waitUntilProducerAndConsumerSuccessfullySendAndReceiveMessages(extensionContext, internalKafkaClient);
 
         LOGGER.info("Setting topic to {}, cluster to {} and changing user to {}",
             topicTestName2, kafkaClusterTargetName, userTarget.getMetadata().getName());
