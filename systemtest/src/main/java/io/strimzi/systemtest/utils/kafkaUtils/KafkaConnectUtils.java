@@ -83,7 +83,7 @@ public class KafkaConnectUtils {
 
     public static void waitForMessagesInKafkaConnectFileSink(String kafkaConnectPodName, String sinkFileName) {
         waitForMessagesInKafkaConnectFileSink(kubeClient().getNamespace(), kafkaConnectPodName, sinkFileName,
-                "\"Hello-world - 99\"");
+            "\"Hello-world - 99\"");
     }
 
     public static void clearFileSinkFile(String namespaceName, String kafkaConnectPodName, String sinkFileName) {
@@ -118,7 +118,7 @@ public class KafkaConnectUtils {
      */
     public static void waitForKafkaConnectCondition(String conditionReason, String conditionType, String namespace, String clusterName) {
         TestUtils.waitFor("Wait for KafkaConnect '" + conditionReason + "' condition with type '" + conditionType + "'.",
-                Constants.GLOBAL_POLL_INTERVAL, CO_OPERATION_TIMEOUT_SHORT * 2, () -> {
+            Constants.GLOBAL_POLL_INTERVAL, CO_OPERATION_TIMEOUT_SHORT * 2, () -> {
                 List<Condition> conditions = KafkaConnectResource.kafkaConnectClient().inNamespace(namespace).withName(clusterName).get().getStatus().getConditions();
                 for (Condition condition : conditions) {
                     if (condition.getReason().matches(conditionReason) && condition.getType().matches(conditionType)) {
@@ -146,27 +146,28 @@ public class KafkaConnectUtils {
      * Send and receive messages through file sink connector (using Kafka Connect).
      * @param connectPodName kafkaConnect pod name
      * @param topicName topic to be used
-     * @param kafkaClientsPodName kafkaClients pod name
+     * @param scraperPodName scraper pod name
      * @param namespace namespace name
      * @param clusterName cluster name
      */
-    public static void sendReceiveMessagesThroughConnect(String connectPodName, String topicName, String kafkaClientsPodName, String namespace, String clusterName) {
+    public static void sendReceiveMessagesThroughConnect(String connectPodName, String topicName, final String kafkaClientsPodName,
+                                                         final String scraperPodName, String namespace, String clusterName) {
         LOGGER.info("Send and receive messages through KafkaConnect");
         KafkaConnectUtils.waitUntilKafkaConnectRestApiIsAvailable(namespace, connectPodName);
-        KafkaConnectorUtils.createFileSinkConnector(namespace, kafkaClientsPodName, topicName, Constants.DEFAULT_SINK_FILE_PATH, KafkaConnectResources.url(clusterName, namespace, 8083));
+        KafkaConnectorUtils.createFileSinkConnector(namespace, scraperPodName, topicName, Constants.DEFAULT_SINK_FILE_PATH, KafkaConnectResources.url(clusterName, namespace, 8083));
 
         InternalKafkaClient internalKafkaClient = new InternalKafkaClient.Builder()
-                .withUsingPodName(kafkaClientsPodName)
-                .withTopicName(topicName)
-                .withNamespaceName(namespace)
-                .withClusterName(clusterName)
-                .withMessageCount(100)
-                .withListenerName(Constants.PLAIN_LISTENER_DEFAULT_NAME)
-                .build();
+            .withUsingPodName(kafkaClientsPodName)
+            .withTopicName(topicName)
+            .withNamespaceName(namespace)
+            .withClusterName(clusterName)
+            .withMessageCount(100)
+            .withListenerName(Constants.PLAIN_LISTENER_DEFAULT_NAME)
+            .build();
 
         internalKafkaClient.checkProducedAndConsumedMessages(
-                internalKafkaClient.sendMessagesPlain(),
-                internalKafkaClient.receiveMessagesPlain()
+            internalKafkaClient.sendMessagesPlain(),
+            internalKafkaClient.receiveMessagesPlain()
         );
         KafkaConnectUtils.waitForMessagesInKafkaConnectFileSink(namespace, connectPodName, Constants.DEFAULT_SINK_FILE_PATH, "99");
     }
