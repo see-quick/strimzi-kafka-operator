@@ -28,6 +28,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.extension.ExtensionContext;
 
@@ -121,6 +122,7 @@ public class DrainCleanerIsolatedST extends AbstractST {
         ClientUtils.waitForClientsSuccess(testStorage.getProducerName(), testStorage.getConsumerName(), Constants.DRAIN_CLEANER_NAMESPACE, 300);
     }
 
+    @Disabled("Currently is does not work on AWS or Openstack because it will be stuck on cordon/uncordon...")
     @IsolatedTest
     @MultiNodeClusterOnly
     void testDrainCleanerWithComponentsDuringNodeDraining(ExtensionContext extensionContext) {
