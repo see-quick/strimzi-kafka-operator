@@ -49,7 +49,7 @@ public class JmxUtils {
     }
 
     public static String collectJmxMetricsWithWait(String namespace, String serviceName, String secretName, String podName, String commands) {
-        Secret jmxSecret = kubeClient(namespace).getSecret(secretName);
+        Secret jmxSecret = kubeClient(namespace).getSecret(namespace, secretName);
 
         LOGGER.info("Getting username and password for service: {} and secret: {}", serviceName, secretName);
         String userName = new String(Base64.getDecoder().decode(jmxSecret.getData().get("jmx-username")), StandardCharsets.UTF_8);

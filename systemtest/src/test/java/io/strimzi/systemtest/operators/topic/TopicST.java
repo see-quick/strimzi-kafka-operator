@@ -32,6 +32,7 @@ import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.extension.ExtensionContext;
 
@@ -129,6 +130,7 @@ public class TopicST extends AbstractST {
 
     @IsolatedTest("Using more tha one Kafka cluster in one namespace")
     @Tag(NODEPORT_SUPPORTED)
+    @Disabled("This is working only for Minikube and not Openshift (i.e., AWS)...")
     void testCreateTopicViaAdminClient(ExtensionContext extensionContext) throws ExecutionException, InterruptedException, TimeoutException {
         String clusterName = mapWithClusterNames.get(extensionContext.getDisplayName());
         String topicName = mapWithTestTopics.get(extensionContext.getDisplayName());
@@ -187,6 +189,7 @@ public class TopicST extends AbstractST {
 
     @Tag(NODEPORT_SUPPORTED)
     @IsolatedTest("Using more tha one Kafka cluster in one namespace")
+    @Disabled("This is working only for Minikube and not Openshift (i.e., AWS)...")
     void testCreateDeleteCreate(ExtensionContext extensionContext) throws InterruptedException {
         String clusterName = mapWithClusterNames.get(extensionContext.getDisplayName());
 
