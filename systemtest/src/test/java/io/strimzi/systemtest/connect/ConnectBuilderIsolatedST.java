@@ -540,7 +540,7 @@ class ConnectBuilderIsolatedST extends AbstractST {
     void setup(ExtensionContext extensionContext) {
         clusterOperator.unInstall();
         clusterOperator = clusterOperator.defaultInstallation()
-            .withOperationTimeout(Constants.CO_OPERATION_TIMEOUT_SHORT)
+            .withOperationTimeout(Constants.CO_OPERATION_TIMEOUT_MEDIUM)
             .createInstallation()
             .runInstallation();
 

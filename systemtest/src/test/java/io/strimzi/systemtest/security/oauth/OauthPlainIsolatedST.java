@@ -284,10 +284,7 @@ public class OauthPlainIsolatedST extends OauthAbstractST {
         ClientUtils.waitForClientSuccess(consumerName, INFRA_NAMESPACE, MESSAGE_COUNT);
 
         resourceManager.createResource(extensionContext, KafkaClientsTemplates.kafkaClients(INFRA_NAMESPACE, false, kafkaClientsName).build());
-        resourceManager.createResource(extensionContext, KafkaConnectTemplates.kafkaConnect(extensionContext, clusterName, oauthClusterName, 1)
-            .editMetadata()
-                .withNamespace(INFRA_NAMESPACE)
-            .endMetadata()
+        resourceManager.createResource(extensionContext, KafkaConnectTemplates.kafkaConnect(extensionContext, clusterName, INFRA_NAMESPACE, oauthClusterName, 1)
             .withNewSpec()
                 .withReplicas(1)
                 .withBootstrapServers(KafkaResources.plainBootstrapAddress(oauthClusterName))
