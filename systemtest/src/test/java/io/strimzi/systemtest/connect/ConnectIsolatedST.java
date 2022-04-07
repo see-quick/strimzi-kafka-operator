@@ -884,7 +884,7 @@ class ConnectIsolatedST extends AbstractST {
         resourceManager.createResource(extensionContext, KafkaConnectTemplates.kafkaConnect(extensionContext, clusterName, 2, false).build());
 
         final String connectDeploymentName = KafkaConnectResources.deploymentName(clusterName);
-        List<Pod> connectPods = kubeClient(namespaceName).listPodsByPrefixInName(KafkaConnectResources.deploymentName(clusterName));
+        List<Pod> connectPods = kubeClient(namespaceName).listPodsByPrefixInName(namespaceName, KafkaConnectResources.deploymentName(clusterName));
 
         assertThat(connectPods.size(), is(2));
         //scale down
