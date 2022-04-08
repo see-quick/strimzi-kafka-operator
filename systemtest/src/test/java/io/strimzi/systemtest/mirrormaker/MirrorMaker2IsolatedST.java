@@ -1362,7 +1362,7 @@ class MirrorMaker2IsolatedST extends AbstractST {
         DeploymentUtils.waitTillDepHasRolled(testStorage.getNamespaceName(), kmm2DeploymentName, 1, mmSnapshot);
 
         LOGGER.info("Recreate kafkaClients pod with new passwords.");
-        resourceManager.deleteResource(kubeClient().namespace(testStorage.getNamespaceName()).getDeployment(testStorage.getKafkaClientsName()));
+        resourceManager.deleteResource(kubeClient().namespace(testStorage.getNamespaceName()).getDeployment(testStorage.getNamespaceName(), testStorage.getKafkaClientsName()));
         resourceManager.createResource(extensionContext, KafkaClientsTemplates.kafkaClients(testStorage.getNamespaceName(), true, testStorage.getKafkaClientsName(), userSource, userTarget).build());
         kafkaClientsPodName = kubeClient().listPodsByPrefixInName(testStorage.getNamespaceName(), testStorage.getKafkaClientsName()).get(0).getMetadata().getName();
 
