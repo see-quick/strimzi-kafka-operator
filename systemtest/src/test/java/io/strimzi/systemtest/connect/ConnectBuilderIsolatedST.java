@@ -26,8 +26,8 @@ import io.strimzi.operator.common.model.Labels;
 import io.strimzi.systemtest.AbstractST;
 import io.strimzi.systemtest.Constants;
 import io.strimzi.systemtest.annotations.IsolatedSuite;
-import io.strimzi.systemtest.annotations.IsolatedTest;
 import io.strimzi.systemtest.annotations.OpenShiftOnly;
+import io.strimzi.systemtest.annotations.ParallelTest;
 import io.strimzi.systemtest.kafkaclients.internalClients.KafkaClients;
 import io.strimzi.systemtest.kafkaclients.internalClients.KafkaClientsBuilder;
 import io.strimzi.systemtest.resources.crd.KafkaConnectResource;
@@ -154,7 +154,7 @@ class ConnectBuilderIsolatedST extends AbstractST {
         )
         .build();
 
-    @IsolatedTest
+    @ParallelTest
     void testBuildFailsWithWrongChecksumOfArtifact(ExtensionContext extensionContext) {
         TestStorage storage = new TestStorage(extensionContext, INFRA_NAMESPACE);
 
@@ -224,7 +224,7 @@ class ConnectBuilderIsolatedST extends AbstractST {
         assertTrue(kafkaConnect.getStatus().getConnectorPlugins().stream().anyMatch(connectorPlugin -> connectorPlugin.getConnectorClass().contains(ECHO_SINK_CLASS_NAME)));
     }
 
-    @IsolatedTest
+    @ParallelTest
     void testBuildWithJarTgzAndZip(ExtensionContext extensionContext) {
         TestStorage storage = new TestStorage(extensionContext, INFRA_NAMESPACE);
 
@@ -284,7 +284,7 @@ class ConnectBuilderIsolatedST extends AbstractST {
     }
 
     @OpenShiftOnly
-    @IsolatedTest
+    @ParallelTest
     void testPushIntoImageStream(ExtensionContext extensionContext) {
         TestStorage storage = new TestStorage(extensionContext, INFRA_NAMESPACE);
 
@@ -324,7 +324,7 @@ class ConnectBuilderIsolatedST extends AbstractST {
         assertTrue(kafkaConnect.getStatus().getConnectorPlugins().stream().anyMatch(connectorPlugin -> connectorPlugin.getConnectorClass().contains(ECHO_SINK_CLASS_NAME)));
     }
 
-    @IsolatedTest
+    @ParallelTest
     void testUpdateConnectWithAnotherPlugin(ExtensionContext extensionContext) {
         TestStorage storage = new TestStorage(extensionContext, INFRA_NAMESPACE);
 
@@ -415,7 +415,7 @@ class ConnectBuilderIsolatedST extends AbstractST {
         assertTrue(kafkaConnect.getStatus().getConnectorPlugins().stream().anyMatch(connectorPlugin -> connectorPlugin.getConnectorClass().contains(CAMEL_CONNECTOR_HTTP_SINK_CLASS_NAME)));
     }
 
-    @IsolatedTest
+    @ParallelTest
     void testBuildOtherPluginTypeWithAndWithoutFileName(ExtensionContext extensionContext) {
         TestStorage storage = new TestStorage(extensionContext, INFRA_NAMESPACE);
 
@@ -476,7 +476,7 @@ class ConnectBuilderIsolatedST extends AbstractST {
 
     @Tag(SANITY)
     @Tag(ACCEPTANCE)
-    @IsolatedTest
+    @ParallelTest
     void testBuildPluginUsingMavenCoordinatesArtifacts(ExtensionContext extensionContext) {
         TestStorage storage = new TestStorage(extensionContext, INFRA_NAMESPACE);
 
