@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## 0.20.0
+##ee 0.20.0
 
 * Add support for Kafka 2.5.1 and 2.6.0. Remove support for 2.4.0 and 2.4.1
 * Remove TLS sidecars from Kafka pods => Kafka now uses native TLS to connect to ZooKeeper
