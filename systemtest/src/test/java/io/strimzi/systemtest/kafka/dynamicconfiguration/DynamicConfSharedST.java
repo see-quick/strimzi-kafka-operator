@@ -94,86 +94,54 @@ public class DynamicConfSharedST extends AbstractST {
             Object stochasticChosenValue;
 
             switch (type) {
-                case STRING:
+                case STRING -> {
                     switch (key) {
-                        case "compression.type":
+                        case "compression.type" -> {
                             List<String> compressionTypes = Arrays.asList("snappy", "gzip", "lz4", "zstd");
-
                             stochasticChosenValue = compressionTypes.get(ThreadLocalRandom.current().nextInt(0, compressionTypes.size() - 1));
-                            break;
-                        case "log.message.timestamp.type":
-                            stochasticChosenValue = "LogAppendTime";
-                            break;
-                        case "ssl.protocol":
-                            stochasticChosenValue = "TLSv1.1";
-                            break;
-                        default:
-                            stochasticChosenValue = " ";
+                        }
+                        case "log.message.timestamp.type" -> stochasticChosenValue = "LogAppendTime";
+                        case "ssl.protocol" -> stochasticChosenValue = "TLSv1.1";
+                        default -> stochasticChosenValue = " ";
                     }
                     testCases.put(key, stochasticChosenValue);
-                    break;
-                case INT:
-                case LONG:
-                    switch (key) {
-                        case "num.recovery.threads.per.data.dir":
-                        case "log.cleaner.threads":
-                        case "num.network.threads":
-                        case "min.insync.replicas":
-                        case "num.replica.fetchers":
-                        case "num.partitions":
-                            stochasticChosenValue = ThreadLocalRandom.current().nextInt(2, 3);
-                            break;
-                        case "log.cleaner.io.buffer.load.factor":
-                        case "log.retention.ms":
-                        case "max.connections":
-                        case "max.connections.per.ip":
-                        case "background.threads":
-                            stochasticChosenValue = ThreadLocalRandom.current().nextInt(4, 20);
-                            break;
-                        default:
-                            stochasticChosenValue = ThreadLocalRandom.current().nextInt(100, 50_000);
-                    }
+                }
+                case INT, LONG -> {
+                    stochasticChosenValue = switch (key) {
+                        case "num.recovery.threads.per.data.dir", "log.cleaner.threads", "num.network.threads", "min.insync.replicas", "num.replica.fetchers", "num.partitions" ->
+                                ThreadLocalRandom.current().nextInt(2, 3);
+                        case "log.cleaner.io.buffer.load.factor", "log.retention.ms", "max.connections", "max.connections.per.ip", "background.threads" ->
+                                ThreadLocalRandom.current().nextInt(4, 20);
+                        default -> ThreadLocalRandom.current().nextInt(100, 50_000);
+                    };
                     testCases.put(key, stochasticChosenValue);
-                    break;
-                case DOUBLE:
-                    switch (key) {
-                        case "log.cleaner.min.cleanable.dirty.ratio":
-                        case "log.cleaner.min.cleanable.ratio":
-                            stochasticChosenValue = ThreadLocalRandom.current().nextDouble(0, 1);
-                            break;
-                        default:
-                            stochasticChosenValue = ThreadLocalRandom.current().nextDouble(1, 20);
-                    }
+                }
+                case DOUBLE -> {
+                    stochasticChosenValue = switch (key) {
+                        case "log.cleaner.min.cleanable.dirty.ratio", "log.cleaner.min.cleanable.ratio" ->
+                                ThreadLocalRandom.current().nextDouble(0, 1);
+                        default -> ThreadLocalRandom.current().nextDouble(1, 20);
+                    };
                     testCases.put(key, stochasticChosenValue);
-                    break;
-                case BOOLEAN:
-                    switch (key) {
-                        case "unclean.leader.election.enable":
-                        case "log.preallocate":
-                            stochasticChosenValue = true;
-                            break;
-                        case "log.message.downconversion.enable":
-                            stochasticChosenValue = false;
-                            break;
-                        default:
-                            stochasticChosenValue = ThreadLocalRandom.current().nextInt(2) == 0;
-                    }
+                }
+                case BOOLEAN -> {
+                    stochasticChosenValue = switch (key) {
+                        case "unclean.leader.election.enable", "log.preallocate" -> true;
+                        case "log.message.downconversion.enable" -> false;
+                        default -> ThreadLocalRandom.current().nextInt(2) == 0;
+                    };
                     testCases.put(key, stochasticChosenValue);
-                    break;
-                case LIST:
+                }
+                case LIST -> {
                     // metric.reporters has default empty '""'
                     // log.cleanup.policy = [delete, compact] -> default delete
-                    switch (key) {
-                        case "log.cleanup.policy":
-                            stochasticChosenValue = "compact";
-                            break;
-                        case "ssl.enabled.protocols":
-                            stochasticChosenValue = "TLSv1.1";
-                            break;
-                        default:
-                            stochasticChosenValue = " ";
-                    }
+                    stochasticChosenValue = switch (key) {
+                        case "log.cleanup.policy" -> "compact";
+                        case "ssl.enabled.protocols" -> "TLSv1.1";
+                        default -> " ";
+                    };
                     testCases.put(key, stochasticChosenValue);
+                }
             }
 
             // skipping these configuration, which doesn't work appear in the kafka pod (TODO: investigate why!)
