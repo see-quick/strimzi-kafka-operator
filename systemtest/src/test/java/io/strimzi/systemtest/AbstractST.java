@@ -505,7 +505,6 @@ public abstract class AbstractST implements TestSeparator {
         if (cluster.cluster().isClusterUp()) {
             if (StUtils.isParallelTest(extensionContext) ||
                 StUtils.isParallelNamespaceTest(extensionContext)) {
-                parallelSuiteController.notifyParallelTestToAllowExecution(extensionContext);
                 parallelSuiteController.removeParallelTest(extensionContext);
             }
         } else {
@@ -573,7 +572,6 @@ public abstract class AbstractST implements TestSeparator {
             if (StUtils.isParallelNamespaceTest(extensionContext) ||
                 StUtils.isParallelTest(extensionContext)) {
                 parallelSuiteController.addParallelTest(extensionContext);
-                parallelSuiteController.waitUntilAllowedNumberTestCasesParallel(extensionContext);
             }
         } else {
             throw new KubernetesClusterUnstableException("Cluster is not responding and its probably un-stable (i.e., caused by network, OOM problem)");
