@@ -147,6 +147,35 @@ public class KafkaUserUtils {
                 KafkaUserResource.kafkaUserClient().inNamespace(namespaceName).list().getItems().stream().filter(kafkaUser -> kafkaUser.getMetadata().getName().startsWith(usersPrefix)).toList()));
     }
 
+
+    /**
+     * Method which waits for a specific list of KafkaUsers to contain the desired KafkaUserSpec inside
+     * the KafkaUser CR.
+     *
+     * @param usersList             a list of KafkaUsers for which the KafkaUserSpec will be checked
+     * @param desiredUserSpec       the desired KafkaUserSpec for which we are waiting
+     */
+    public static void waitForConfigToBeChangedInSpecificUsers(List<KafkaUser> usersList, KafkaUserSpec desiredUserSpec) {
+        LOGGER.info("Waiting for specific users to contain desired config");
+
+        TestUtils.waitFor("specific users to become ready", TestConstants.GLOBAL_POLL_INTERVAL_MEDIUM, TestConstants.GLOBAL_TIMEOUT, () -> {
+            // Filter the users who do not have the desired spec
+            List<KafkaUser> notUpdatedUsers = usersList.stream()
+                .filter(kafkaUser -> !kafkaUser.getSpec().equals(desiredUserSpec)).toList();
+
+            if (!notUpdatedUsers.isEmpty()) {
+                LOGGER.warn("There are still {} specific users who do not contain the desired config", notUpdatedUsers.size());
+                return false;
+            }
+
+            LOGGER.info("All specific KafkaUsers are containing the desired config");
+            return true;
+        }, () -> LOGGER.error("Failed to wait for readiness state of these users: {}",
+            usersList.stream()
+                .filter(kafkaUser -> !kafkaUser.getSpec().equals(desiredUserSpec))
+                .collect(Collectors.toList())));
+    }
+
     /**
      * Method which waits for all KafkaUser with specific prefix will contain desired KafkaUserSpec inside the
      * KafkaUser CR in specified namespace.

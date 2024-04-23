@@ -51,7 +51,7 @@ public class UserScalabilityST extends AbstractST {
         List<KafkaUser> usersList = UserOperatorPerformanceUtils.getListOfKafkaUsers(sharedTestStorage, testStorage.getUsername(), numberOfUsers, authType);
 
         UserOperatorPerformanceUtils.createAllUsersInListWithWait(sharedTestStorage, usersList, testStorage.getUsername());
-        UserOperatorPerformanceUtils.alterAllUsersInList(sharedTestStorage, usersList, testStorage.getUsername());
+        UserOperatorPerformanceUtils.alterAllUsersInListWithWait(sharedTestStorage, usersList, testStorage.getUsername());
     }
 
     @BeforeAll

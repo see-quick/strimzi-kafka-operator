@@ -89,6 +89,7 @@ public interface PerformanceConstants {
     String USER_OPERATOR_IN_USER_OPERATIONS_THREAD_POOL_SIZE = "IN: USER_OPERATIONS_THREAD_POOL_SIZE";
     String USER_OPERATOR_OUT_CREATION_TIME = "OUT: Creation Time (ms)";
     String USER_OPERATOR_OUT_DELETION_TIME = "OUT: Deletion Time (ms)";
+    String USER_OPERATOR_OUT_UPDATE_TIME = "OUT: Update Time (ms)";
 
     String METRICS_HISTORY = "Metrics History";
 

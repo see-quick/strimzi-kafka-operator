@@ -31,7 +31,7 @@ public class UserOperatorPerformanceUtils {
 
     private static final Logger LOGGER = LogManager.getLogger(UserOperatorPerformanceUtils.class);
 
-    public static void alterAllUsersInList(final TestStorage testStorage, final List<KafkaUser> listOfUsers, final String usersPrefix) {
+    public static void alterAllUsersInListWithWait(final TestStorage testStorage, final List<KafkaUser> listOfUsers, final String usersPrefix) {
         LOGGER.info("Altering {} KafkaUsers", listOfUsers.size());
 
         KafkaUserQuotas kafkaUserQuotas = new KafkaUserQuotasBuilder()
@@ -61,24 +61,30 @@ public class UserOperatorPerformanceUtils {
         KafkaUserSpec kafkaUserSpec = listOfUsers.stream().findFirst().get().getSpec();
 
         ResourceManager.getInstance().updateResource(listOfUsers.toArray(new KafkaUser[listOfUsers.size()]));
-        KafkaUserUtils.waitForConfigToBeChangedInAllUsersWithPrefix(testStorage.getNamespaceName(), usersPrefix, kafkaUserSpec);
+        KafkaUserUtils.waitForConfigToBeChangedInSpecificUsers(listOfUsers, kafkaUserSpec);
         KafkaUserUtils.waitForAllUsersWithPrefixReady(testStorage.getNamespaceName(), usersPrefix);
     }
 
     public static List<KafkaUser> getListOfKafkaUsers(final TestStorage testStorage, final String userName,
                                                 final int numberOfUsers, final UserAuthType userAuthType) {
+        return getListOfKafkaUsers(testStorage, userName, 0, numberOfUsers, userAuthType);
+    }
+
+    public static List<KafkaUser> getListOfKafkaUsers(final TestStorage testStorage, final String userName,
+                                                      final int startPointer, final int endPointer, final UserAuthType userAuthType) {
         List<KafkaUser> usersList = new ArrayList<>();
 
         KafkaUserAuthorizationSimple usersAcl = new KafkaUserAuthorizationSimpleBuilder()
             .addNewAcl()
                 .withNewAclRuleTopicResource()
-                    .withName(testStorage.getTopicName())
+                .withName(testStorage.getTopicName())
                 .endAclRuleTopicResource()
                 .withOperations(AclOperation.WRITE, AclOperation.DESCRIBE)
             .endAcl()
             .build();
 
-        for (int i = 0; i < numberOfUsers; i++) {
+        // Loop over the specific range from startPointer to endPointer
+        for (int i = startPointer; i < endPointer; i++) {
             if (userAuthType.equals(UserAuthType.Tls)) {
                 usersList.add(
                     KafkaUserTemplates.tlsUser(testStorage.getNamespaceName(), testStorage.getClusterName(), userName + "-" + i)
@@ -97,9 +103,9 @@ public class UserOperatorPerformanceUtils {
                 );
             }
         }
-
         return usersList;
     }
+
 
     public static void createAllUsersInListWithWait(final TestStorage testStorage, final List<KafkaUser> listOfUsers, final String usersPrefix) {
         LOGGER.info("Creating {} KafkaUsers", listOfUsers.size());

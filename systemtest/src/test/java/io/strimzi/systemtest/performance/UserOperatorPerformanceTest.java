@@ -38,6 +38,8 @@ import java.time.temporal.TemporalAccessor;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
 import static io.strimzi.systemtest.TestConstants.PERFORMANCE;
@@ -138,9 +140,10 @@ public class UserOperatorPerformanceTest extends AbstractST {
                             .endUserOperator()
                             .editOrNewTemplate()
                                 .editOrNewUserOperatorContainer()
+                                    // default 300000ms
                                     .addNewEnv()
                                         .withName("STRIMZI_OPERATION_TIMEOUT_MS")
-                                        .withValue("300000")
+                                    .withValue("300000")
                                     .endEnv()
                                     .addNewEnv()
                                         .withName("STRIMZI_WORK_QUEUE_SIZE")
@@ -240,6 +243,241 @@ public class UserOperatorPerformanceTest extends AbstractST {
                 this.userOperatorPerformanceReporter.logPerformanceData(this.testStorage, performanceAttributes, UserOperatorPerformanceTest.REPORT_DIRECTORY + "/" + PerformanceConstants.USER_OPERATOR_ALICE_BULK_USE_CASE, ACTUAL_TIME, Environment.PERFORMANCE_DIR);
             }
         }
+    }
+
+    /**
+     * Provides a stream of configurations for parameterized testing of Kafka User Operator's bulk operations.
+     * This method tests different operational parameters to evaluate their impact on performance when creating
+     * and updating Kafka users. The configurations are designed to assess performance under various conditions,
+     * including different queue sizes, batch settings, and timeout durations.
+     *
+     * Configurations are designed for:
+     * 1. Bulk user creation with initial batch sizes ranging from low (100) to high (1000).
+     * 2. Subsequent updates on a smaller subset of these users (e.g., 10 users) measured multiple times.
+     *
+     * Each test configuration varies the following parameters:
+     * - Number of Kafka users to create
+     * - Number of Kafka users to update
+     * - Number of update iterations
+     * - Controller thread pool size
+     * - Cache refresh interval (ms)
+     * - Batch queue size
+     * - Maximum batch block size
+     * - Maximum batch block time (ms)
+     * - User operations thread pool size
+     *
+     * @return      a stream of {@link Arguments} instances, each representing a set of parameters for the test.
+     */
+    private static Stream<Arguments> provideConfigurationsForBobBatchUseCase() {
+        return Stream.of(
+            // Configurations for creation and update cycles
+            // Low
+            Arguments.of(1000, 10, 3, "50", "15000", "1024", "100", "100", "4"),  // Default configuration
+            Arguments.of(1000, 10, 3, "100", "10000", "2048", "200", "50", "10"), // High throughput configuration
+            Arguments.of(1000, 10, 3, "50", "15000", "1024", "100", "200", "4"),  // High batch time configuration
+            Arguments.of(1000, 10, 3,  "25", "30000", "1024", "50", "100", "2"),   // Lower performance, higher timeout
+            Arguments.of(1000, 10, 3, "100", "5000", "4096", "500", "10", "20"),  // Extremely high performance configuration
+
+            // Medium
+            Arguments.of(2000, 10, 3, "50", "15000", "1024", "100", "100", "4"),  // Default configuration
+            Arguments.of(2000, 10, 3, "100", "10000", "2048", "200", "50", "10"), // High throughput configuration
+            Arguments.of(2000, 10, 3, "50", "15000", "1024", "100", "200", "4"),  // High batch time configuration
+            Arguments.of(2000, 10, 3,  "25", "30000", "1024", "50", "100", "2"),   // Lower performance, higher timeout
+            Arguments.of(2000, 10, 3, "100", "5000", "4096", "500", "10", "20"),  // Extremely high performance configuration
+
+            // High
+            Arguments.of(5000, 10, 3, "50", "15000", "1024", "100", "100", "4"),  // Default configuration
+            Arguments.of(5000, 10, 3, "100", "10000", "2048", "200", "50", "10"), // High throughput configuration
+            Arguments.of(5000, 10, 3, "50", "15000", "1024", "100", "200", "4"),  // High batch time configuration
+            Arguments.of(5000, 10, 3,  "25", "30000", "1024", "50", "100", "2"),   // Lower performance, higher timeout
+            Arguments.of(5000, 10, 3, "100", "5000", "4096", "500", "10", "20")  // Extremely high performance configuration
+        );
+    }
+
+    @ParameterizedTest
+    @MethodSource("provideConfigurationsForBobBatchUseCase")
+    public void testBobAclsUpdateUseCase(int numberOfKafkaUsersToCreate, int numberOfKafkaUsersToUpdate, int numberOfUpdateIterations,
+                                      String operationTimeoutMs, String workQueueSize, String controllerThreadPoolSize,
+                                      String cacheRefreshIntervalMs, String batchQueueSize, String batchMaximumBlockSize,
+                                      String batchMaximumBlockTimeMs, String userOperationsThreadPoolSize) throws IOException, InterruptedException {
+        final int brokerReplicas = 3;
+        final int controllerReplicas = 3;
+        long creationUsersMs = 0;
+        long deletionUsersMs = 0;
+        long[] updateTimerMsArr = new long[numberOfUpdateIterations];
+
+        try {
+            resourceManager.createResourceWithWait(
+                NodePoolsConverter.convertNodePoolsIfNeeded(
+                    KafkaNodePoolTemplates.brokerPoolPersistentStorage(testStorage.getNamespaceName(), testStorage.getBrokerPoolName(), testStorage.getClusterName(), brokerReplicas)
+                        .editSpec()
+                            .withNewPersistentClaimStorage()
+                                .withSize("10Gi")
+                            .endPersistentClaimStorage()
+                        .endSpec()
+                        .build(),
+                    KafkaNodePoolTemplates.controllerPoolPersistentStorage(testStorage.getNamespaceName(), testStorage.getControllerPoolName(), testStorage.getClusterName(), controllerReplicas).build()
+                )
+            );
+            resourceManager.createResourceWithWait(
+                KafkaTemplates.kafkaMetricsConfigMap(testStorage.getNamespaceName(), testStorage.getClusterName()),
+                KafkaTemplates.kafkaWithMetrics(testStorage.getNamespaceName(), testStorage.getClusterName(), brokerReplicas, controllerReplicas)
+                    .editSpec()
+                        .editEntityOperator()
+                            .editUserOperator()
+                                .withReconciliationIntervalSeconds(10)
+                            .endUserOperator()
+                            .editOrNewTemplate()
+                                .editOrNewUserOperatorContainer()
+                                    // default 300000ms
+                                    .addNewEnv()
+                                        .withName("STRIMZI_OPERATION_TIMEOUT_MS")
+                                        .withValue("300000")
+                                    .endEnv()
+                                    .addNewEnv()
+                                        .withName("STRIMZI_WORK_QUEUE_SIZE")
+                                        .withValue(String.valueOf(Integer.MAX_VALUE))
+                                    .endEnv()
+                                    .addNewEnv()
+                                        .withName("STRIMZI_CONTROLLER_THREAD_POOL_SIZE")
+                                        .withValue(controllerThreadPoolSize)
+                                    .endEnv()
+                                    .addNewEnv()
+                                        .withName("STRIMZI_CACHE_REFRESH_INTERVAL_MS")
+                                        .withValue(cacheRefreshIntervalMs)
+                                    .endEnv()
+                                    .addNewEnv()
+                                        .withName("STRIMZI_BATCH_QUEUE_SIZE")
+                                        .withValue(batchQueueSize)
+                                    .endEnv()
+                                    .addNewEnv()
+                                        .withName("STRIMZI_BATCH_MAXIMUM_BLOCK_SIZE")
+                                        .withValue(batchMaximumBlockSize)
+                                    .endEnv()
+                                    .addNewEnv()
+                                        .withName("STRIMZI_BATCH_MAXIMUM_BLOCK_TIME_MS")
+                                        .withValue(batchMaximumBlockTimeMs)
+                                    .endEnv()
+                                        .addNewEnv()
+                                        .withName("STRIMZI_USER_OPERATIONS_THREAD_POOL_SIZE")
+                                        .withValue(userOperationsThreadPoolSize)
+                                    .endEnv()
+                                .endUserOperatorContainer()
+                            .endTemplate()
+                        .endEntityOperator()
+                        .editKafka()
+                            .withNewKafkaAuthorizationSimple()
+                            .endKafkaAuthorizationSimple()
+                        .endKafka()
+                    .endSpec()
+                    .build(),
+                ScraperTemplates.scraperPod(testStorage.getNamespaceName(), testStorage.getScraperName()).build()
+            );
+
+            this.testStorage.addToTestStorage(TestConstants.SCRAPER_POD_KEY,
+                kubeClient().listPodsByPrefixInName(this.testStorage.getNamespaceName(), testStorage.getScraperName()).get(0).getMetadata().getName());
+
+            // -- Metrics POLL --
+            // Assuming 'testStorage' contains necessary details like namespace and scraperPodName
+            this.userOperatorCollector = new UserOperatorMetricsCollector.Builder()
+                .withScraperPodName(this.testStorage.getScraperPodName())
+                .withNamespaceName(this.testStorage.getNamespaceName())
+                .withComponentType(ComponentType.UserOperator)
+                .withComponentName(this.testStorage.getClusterName())
+                .build();
+
+            this.userOperatorMetricsGatherer = new UserOperatorMetricsCollectionScheduler(this.userOperatorCollector, "strimzi.io/cluster=" + this.testStorage.getClusterName());
+            this.userOperatorMetricsGatherer.startCollecting();
+
+            creationUsersMs = OperationTimer.measureTimeInMillis(() -> {
+                List<KafkaUser> usersList = UserOperatorPerformanceUtils.getListOfKafkaUsers(this.testStorage, testStorage.getUsername(), numberOfKafkaUsersToCreate, UserAuthType.Tls); // TODO: check this with TLS, SCramsha nad external....
+
+                UserOperatorPerformanceUtils.createAllUsersInListWithWait(testStorage, usersList, testStorage.getUsername());
+            });
+
+            LOGGER.info("Time taken to create {} topics: {} ms", numberOfKafkaUsersToCreate, creationUsersMs);
+
+            // make an update
+            updateTimerMsArr = performUserUpdates(numberOfKafkaUsersToCreate, numberOfUpdateIterations, numberOfKafkaUsersToUpdate);
+
+            // Start measuring time for deletion of all users
+            LOGGER.info("Start deletion of {} KafkaUsers in namespace:{}", numberOfKafkaUsersToCreate, testStorage.getNamespaceName());
+
+            deletionUsersMs = OperationTimer.measureTimeInMillis(() -> {
+                resourceManager.deleteResourcesOfTypeWithoutWait(KafkaUser.RESOURCE_KIND);
+                KafkaUserUtils.waitForUserWithPrefixDeletion(testStorage.getNamespaceName(), testStorage.getUsername());
+            });
+
+            LOGGER.info("Time taken to delete {} topics: {} ms", numberOfKafkaUsersToCreate, deletionUsersMs);
+        } finally {
+            if (this.userOperatorMetricsGatherer != null) {
+                this.userOperatorMetricsGatherer.stopCollecting();
+
+                final Map<String, Object> performanceAttributes = new LinkedHashMap<>();
+                performanceAttributes.put(PerformanceConstants.USER_OPERATOR_IN_NUMBER_OF_KAFKA_USERS, numberOfKafkaUsersToCreate);
+                performanceAttributes.put(PerformanceConstants.USER_OPERATOR_IN_OPERATION_TIMEOUT_MS, operationTimeoutMs);
+                performanceAttributes.put(PerformanceConstants.USER_OPERATOR_IN_WORK_QUEUE_SIZE, workQueueSize);
+                performanceAttributes.put(PerformanceConstants.USER_OPERATOR_IN_CONTROLLER_THREAD_POOL_SIZE, controllerThreadPoolSize);
+                performanceAttributes.put(PerformanceConstants.USER_OPERATOR_IN_CACHE_REFRESH_INTERVAL_MS, cacheRefreshIntervalMs);
+                performanceAttributes.put(PerformanceConstants.USER_OPERATOR_IN_BATCH_QUEUE_SIZE, batchQueueSize);
+                performanceAttributes.put(PerformanceConstants.USER_OPERATOR_IN_BATCH_MAXIMUM_BLOCK_SIZE, batchMaximumBlockSize);
+                performanceAttributes.put(PerformanceConstants.USER_OPERATOR_IN_BATCH_MAXIMUM_BLOCK_TIME_MS, batchMaximumBlockTimeMs);
+                performanceAttributes.put(PerformanceConstants.USER_OPERATOR_IN_USER_OPERATIONS_THREAD_POOL_SIZE, userOperationsThreadPoolSize);
+
+                performanceAttributes.put(PerformanceConstants.USER_OPERATOR_OUT_CREATION_TIME, creationUsersMs);
+                performanceAttributes.put(PerformanceConstants.USER_OPERATOR_OUT_DELETION_TIME, deletionUsersMs);
+                performanceAttributes.put(PerformanceConstants.USER_OPERATOR_OUT_UPDATE_TIME, updateTimerMsArr);
+
+                // Handling complex objects
+                performanceAttributes.put(PerformanceConstants.METRICS_HISTORY, this.userOperatorMetricsGatherer.getMetricsStore()); // Map of metrics history
+
+                // Step 3: Now, it's safe to log performance data as the collection thread has been stopped
+                this.userOperatorPerformanceReporter.logPerformanceData(this.testStorage, performanceAttributes, UserOperatorPerformanceTest.REPORT_DIRECTORY + "/" + PerformanceConstants.USER_OPERATOR_ALICE_BULK_USE_CASE, ACTUAL_TIME, Environment.PERFORMANCE_DIR);
+            }
+        }
+    }
+
+    private long[] performUserUpdates(int totalUsers, int numberOfUpdateIterations, int usersPerBatch) {
+        AtomicReference<List<KafkaUser>> usersToUpdate = new AtomicReference<>();
+        long[] updateTimes = new long[numberOfUpdateIterations];
+
+        for (int round = 0; round < numberOfUpdateIterations; round++) {
+            int startPointer = round * usersPerBatch;
+            int endPointer = startPointer + usersPerBatch;
+
+            // Ensure that we do not exceed the total number of users available
+            if (startPointer >= totalUsers) {
+                LOGGER.error("Reached the limit of available users to update. Stopping at round {}", round);
+                break;
+            }
+
+            // Adjust endPointer if it exceeds the total number of users
+            if (endPointer > totalUsers) {
+                endPointer = totalUsers;
+            }
+
+            // Retrieve the list of users for this round
+            usersToUpdate.set(UserOperatorPerformanceUtils.getListOfKafkaUsers(this.testStorage, this.testStorage.getUsername(),
+                startPointer, endPointer, UserAuthType.Tls));
+
+            // Measure the time taken to update these users
+            long timeTakenForRound = OperationTimer.measureTimeInMillis(() -> {
+                // Add the logic to update Kafka users here, e.g., send update requests to Kafka
+                UserOperatorPerformanceUtils.alterAllUsersInListWithWait(this.testStorage, usersToUpdate.get(), testStorage.getUsername());
+            });
+
+            updateTimes[round] = timeTakenForRound; // Store the time taken for this round
+            LOGGER.info("Round {}: Time taken to update {} users: {} ms", round, usersToUpdate.get().size(), timeTakenForRound);
+
+            // Optionally pause between rounds, if required
+            try {
+                TimeUnit.MINUTES.sleep(1);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                LOGGER.error("Update was interrupted during the sleep interval between rounds", e);
+            }
+        }
+        return updateTimes;
     }
 
     @BeforeEach
