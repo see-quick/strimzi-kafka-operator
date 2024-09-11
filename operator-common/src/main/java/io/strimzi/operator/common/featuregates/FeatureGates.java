@@ -4,6 +4,11 @@
  */
 package io.strimzi.operator.common.featuregates;
 
+import dev.openfeature.contrib.providers.envvar.EnvVarProvider;
+import dev.openfeature.contrib.providers.flagd.FlagdProvider;
+import dev.openfeature.sdk.Client;
+import dev.openfeature.sdk.FeatureProvider;
+import dev.openfeature.sdk.OpenFeatureAPI;
 import io.strimzi.operator.common.InvalidConfigurationException;
 
 import java.util.ArrayList;
@@ -19,41 +24,58 @@ public class FeatureGates {
     /* test */ static final FeatureGates NONE = new FeatureGates("");
 
     private static final String CONTINUE_ON_MANUAL_RU_FAILURE = "ContinueReconciliationOnManualRollingUpdateFailure";
+    private static final String FEATURE_FLAG_PREFIX = "strimzi."; // Prefix for OpenFeature flags
+    private static final String FLAGD_ENABLED_ENV_VAR = "FLAGD_ENABLED"; // Environment variable to toggle FlagD
+
+    private final Client featureClient;
+    private final FeatureProvider provider;
 
     // When adding new feature gates, do not forget to add them to allFeatureGates(), toString(), equals(), and `hashCode() methods
-    private final FeatureGate continueOnManualRUFailure =
-        new FeatureGate(CONTINUE_ON_MANUAL_RU_FAILURE, true);
+    private FeatureGate continueOnManualRUFailure;
 
     /**
      * Constructs the feature gates configuration.
      *
-     * @param featureGateConfig String with comma separated list of enabled or disabled feature gates
+     * @param featureGateConfig String with a comma-separated list of enabled or disabled feature gates
      */
     public FeatureGates(String featureGateConfig) {
+        // Set the appropriate provider based on the environment variable
+        this.provider = isFlagDEnabled() ? new FlagdProvider() : new EnvVarProvider();
+        OpenFeatureAPI.getInstance().setProvider(this.provider);
+        this.featureClient = OpenFeatureAPI.getInstance().getClient();
+
+        // Validate and parse the featureGateConfig if it's provided
         if (featureGateConfig != null && !featureGateConfig.trim().isEmpty()) {
             List<String> featureGates;
 
+            // Validate the format of the feature gate configuration string
             if (featureGateConfig.matches("(\\s*[+-][a-zA-Z0-9]+\\s*,)*\\s*[+-][a-zA-Z0-9]+\\s*")) {
                 featureGates = asList(featureGateConfig.trim().split("\\s*,+\\s*"));
             } else {
                 throw new InvalidConfigurationException(featureGateConfig + " is not a valid feature gate configuration");
             }
 
+            // Validate each feature gate in the config to ensure it is recognized
             for (String featureGate : featureGates) {
-                boolean value = '+' == featureGate.charAt(0);
-                featureGate = featureGate.substring(1);
+                featureGate = featureGate.substring(1); // Remove the + or - sign
 
+                // Only validate feature gates but do not apply them manually
                 switch (featureGate) {
                     case CONTINUE_ON_MANUAL_RU_FAILURE:
-                        setValueOnlyOnce(continueOnManualRUFailure, value);
+                        // This is a valid feature gate; continue with processing
                         break;
                     default:
                         throw new InvalidConfigurationException("Unknown feature gate " + featureGate + " found in the configuration");
                 }
             }
-
-            validateInterDependencies();
         }
+
+        // Fetch feature gates using OpenFeature
+        boolean continueOnManualRUFailureValue = fetchFeatureFlag(CONTINUE_ON_MANUAL_RU_FAILURE, true, Boolean.class);
+        setValueOnlyOnce(continueOnManualRUFailure, continueOnManualRUFailureValue);
+
+        // Validate interdependencies (if any)
+        validateInterDependencies();
     }
 
     /**
@@ -63,6 +85,55 @@ public class FeatureGates {
     private void validateInterDependencies()    {
         // There are currently no interdependencies between different feature gates.
         // But we keep this method as these might happen again in the future.
+    }
+
+    /**
+     * Checks whether FlagD is enabled via environment variables.
+     *
+     * @return True if FLAGD_ENABLED is set to "true", otherwise false.
+     */
+    private boolean isFlagDEnabled() {
+        String flagDEnabled = System.getenv(FLAGD_ENABLED_ENV_VAR);
+        return flagDEnabled != null && flagDEnabled.equalsIgnoreCase("true");
+    }
+
+    /**
+     * Fetches the feature flag using OpenFeature and applies a default value if not present.
+     *
+     * @param flagName     The name of the feature flag
+     * @param defaultValue The default value if the flag isn't set
+     * @param <T>          The type of the feature flag (Boolean, String, Integer, etc.)
+     * @param returnType   The class of the return type for determining which get method to call
+     * @return The value of the feature flag
+     */
+    public <T> T fetchFeatureFlag(String flagName, T defaultValue, Class<T> returnType) {
+        try {
+            // Handle different types based on returnType
+            if (returnType == Boolean.class) {
+                return returnType.cast(featureClient.getBooleanValue(getPrefixedFlagName(flagName), (Boolean) defaultValue));
+            } else if (returnType == String.class) {
+                return returnType.cast(featureClient.getStringValue(getPrefixedFlagName(flagName), (String) defaultValue));
+            } else if (returnType == Integer.class) {
+                return returnType.cast(featureClient.getIntegerValue(getPrefixedFlagName(flagName), (Integer) defaultValue));
+            } else if (returnType == Double.class) {
+                return returnType.cast(featureClient.getDoubleValue(getPrefixedFlagName(flagName), (Double) defaultValue));
+            } else {
+                throw new IllegalArgumentException("Unsupported feature flag type: " + returnType.getSimpleName());
+            }
+        } catch (Exception e) {
+            // Fallback in case of any issues fetching the flag
+            return defaultValue;
+        }
+    }
+
+    /**
+     * Helper method to conditionally add a prefix to the flag name based on the provider.
+     *
+     * @param flagName The original flag name
+     * @return The prefixed flag name if the provider requires it
+     */
+    private String getPrefixedFlagName(String flagName) {
+        return this.provider instanceof FlagdProvider ? FEATURE_FLAG_PREFIX + flagName : flagName;
     }
 
     /**

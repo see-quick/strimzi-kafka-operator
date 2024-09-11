@@ -21,6 +21,7 @@ import io.strimzi.api.kafka.Crds;
 import io.strimzi.api.kafka.model.topic.KafkaTopic;
 import io.strimzi.operator.common.OperatorKubernetesClientBuilder;
 import io.strimzi.operator.common.ReconciliationLogger;
+import io.strimzi.operator.common.featuregates.FeatureGates;
 import io.strimzi.operator.common.http.HealthCheckAndMetricsServer;
 import io.strimzi.operator.common.http.Liveness;
 import io.strimzi.operator.common.http.Readiness;
@@ -154,6 +155,17 @@ public class TopicOperatorMain implements Liveness, Readiness {
      */
     public static void main(String[] args) throws Exception {
         var config = TopicOperatorConfig.buildFromMap(System.getenv());
+
+        // Initialize FeatureGates
+        FeatureGates featureGates = new FeatureGates(config.featureGates().toEnvironmentVariable());
+
+        // Fetch feature gate for TopicOperator specific feature
+        boolean featureAEnabled = featureGates.fetchFeatureFlag("feature_A", false, Boolean.class);
+
+        if (featureAEnabled) {
+            LOGGER.infoOp("Feature A is enabled for TopicOperator");
+        }
+
         var operator = operator(config, TopicOperatorUtil.createKafkaAdminClient(config));
         operator.start();
     }
