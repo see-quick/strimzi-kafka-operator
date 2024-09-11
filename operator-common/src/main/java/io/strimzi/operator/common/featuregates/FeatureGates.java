@@ -24,7 +24,6 @@ public class FeatureGates {
     /* test */ static final FeatureGates NONE = new FeatureGates("");
 
     private static final String CONTINUE_ON_MANUAL_RU_FAILURE = "ContinueReconciliationOnManualRollingUpdateFailure";
-    private static final String FEATURE_FLAG_PREFIX = "strimzi."; // Prefix for OpenFeature flags
     private static final String FLAGD_ENABLED_ENV_VAR = "FLAGD_ENABLED"; // Environment variable to toggle FlagD
 
     private final Client featureClient;
@@ -92,7 +91,7 @@ public class FeatureGates {
      *
      * @return True if FLAGD_ENABLED is set to "true", otherwise false.
      */
-    private boolean isFlagDEnabled() {
+    public boolean isFlagDEnabled() {
         String flagDEnabled = System.getenv(FLAGD_ENABLED_ENV_VAR);
         return flagDEnabled != null && flagDEnabled.equalsIgnoreCase("true");
     }
@@ -110,13 +109,13 @@ public class FeatureGates {
         try {
             // Handle different types based on returnType
             if (returnType == Boolean.class) {
-                return returnType.cast(featureClient.getBooleanValue(getPrefixedFlagName(flagName), (Boolean) defaultValue));
+                return returnType.cast(featureClient.getBooleanValue(flagName, (Boolean) defaultValue));
             } else if (returnType == String.class) {
-                return returnType.cast(featureClient.getStringValue(getPrefixedFlagName(flagName), (String) defaultValue));
+                return returnType.cast(featureClient.getStringValue(flagName, (String) defaultValue));
             } else if (returnType == Integer.class) {
-                return returnType.cast(featureClient.getIntegerValue(getPrefixedFlagName(flagName), (Integer) defaultValue));
+                return returnType.cast(featureClient.getIntegerValue(flagName, (Integer) defaultValue));
             } else if (returnType == Double.class) {
-                return returnType.cast(featureClient.getDoubleValue(getPrefixedFlagName(flagName), (Double) defaultValue));
+                return returnType.cast(featureClient.getDoubleValue(flagName, (Double) defaultValue));
             } else {
                 throw new IllegalArgumentException("Unsupported feature flag type: " + returnType.getSimpleName());
             }
@@ -127,13 +126,16 @@ public class FeatureGates {
     }
 
     /**
-     * Helper method to conditionally add a prefix to the flag name based on the provider.
-     *
-     * @param flagName The original flag name
-     * @return The prefixed flag name if the provider requires it
+     * Fetches and updates the feature gates state dynamically from the OpenFeature API.
      */
-    private String getPrefixedFlagName(String flagName) {
-        return this.provider instanceof FlagdProvider ? FEATURE_FLAG_PREFIX + flagName : flagName;
+    public void updateFeatureGateStates() {
+        if (isFlagDEnabled()) {
+            // Fetch dynamically from FlagD and update internal states
+            this.continueOnManualRUFailure.setValue(fetchFeatureFlag(CONTINUE_ON_MANUAL_RU_FAILURE, true, Boolean.class));
+        } else {
+            this.continueOnManualRUFailure.setValue(continueOnManualRUFailureEnabled());
+            // Fallback to static configuration if FlagD is not enabled
+        }
     }
 
     /**

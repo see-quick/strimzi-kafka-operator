@@ -20,6 +20,7 @@ import io.strimzi.operator.common.Util;
 import io.strimzi.operator.common.controller.AbstractControllerLoop;
 import io.strimzi.operator.common.controller.ControllerQueue;
 import io.strimzi.operator.common.controller.ReconciliationLockManager;
+import io.strimzi.operator.common.featuregates.FeatureGates;
 import io.strimzi.operator.common.metrics.ControllerMetricsHolder;
 import io.strimzi.operator.common.model.StatusDiff;
 import io.strimzi.operator.common.model.StatusUtils;
@@ -42,6 +43,7 @@ import java.util.concurrent.TimeoutException;
 public class UserControllerLoop extends AbstractControllerLoop {
     private static final ReconciliationLogger LOGGER = ReconciliationLogger.create(UserControllerLoop.class);
 
+    private final FeatureGates featureGates;  // Add this to handle feature gates
     private final Lister<KafkaUser> userLister;
     private final Lister<Secret> secretLister;
     private final CrdOperator<KubernetesClient, KafkaUser, KafkaUserList> userCrdOperator;
@@ -90,6 +92,8 @@ public class UserControllerLoop extends AbstractControllerLoop {
 
         this.secretPrefix = config.getSecretPrefix();
         this.operationTimeoutMs = config.getOperationTimeoutMs();
+
+        this.featureGates = new FeatureGates(config.featureGates().toEnvironmentVariable());
     }
 
     /**
@@ -100,6 +104,10 @@ public class UserControllerLoop extends AbstractControllerLoop {
     @Override
     protected void reconcile(Reconciliation reconciliation) {
         LOGGER.infoCr(reconciliation, "{} will be reconciled", reconciliation.kind());
+
+        //  update the state of feature gates dynamically from FlagD
+        featureGates.updateFeatureGateStates();
+        LOGGER.infoCr(reconciliation, "Fetching from FlagD: continueOnManualRUFailureEnabled is enabled: {}", featureGates.continueOnManualRUFailureEnabled());
 
         KafkaUser user = userLister.namespace(reconciliation.namespace()).get(reconciliation.name());
 
