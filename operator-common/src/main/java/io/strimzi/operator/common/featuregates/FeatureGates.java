@@ -4,15 +4,25 @@
  */
 package io.strimzi.operator.common.featuregates;
 
+import dev.openfeature.contrib.providers.configcat.ConfigCatProvider;
 import dev.openfeature.contrib.providers.envvar.EnvVarProvider;
 import dev.openfeature.contrib.providers.flagd.FlagdProvider;
+import dev.openfeature.contrib.providers.flagsmith.FlagsmithProvider;
+import dev.openfeature.contrib.providers.flipt.FliptProvider;
+import dev.openfeature.contrib.providers.gofeatureflag.GoFeatureFlagProvider;
+import dev.openfeature.contrib.providers.gofeatureflag.exception.InvalidOptions;
+import dev.openfeature.contrib.providers.jsonlogic.JsonlogicProvider;
+import dev.openfeature.contrib.providers.statsig.StatsigProvider;
+import dev.openfeature.contrib.providers.unleash.UnleashProvider;
 import dev.openfeature.sdk.Client;
 import dev.openfeature.sdk.FeatureProvider;
 import dev.openfeature.sdk.OpenFeatureAPI;
 import io.strimzi.operator.common.InvalidConfigurationException;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 import static java.util.Arrays.asList;
@@ -24,7 +34,7 @@ public class FeatureGates {
     /* test */ static final FeatureGates NONE = new FeatureGates("");
 
     private static final String CONTINUE_ON_MANUAL_RU_FAILURE = "ContinueReconciliationOnManualRollingUpdateFailure";
-    private static final String FLAGD_ENABLED_ENV_VAR = "FLAGD_ENABLED"; // Environment variable to toggle FlagD
+    private static final String OPEN_FEATURE_PROVIDER_NAME_ENV = "OPEN_FEATURE_PROVIDER_NAME"; // Environment variable to toggle provider
 
     private final Client featureClient;
     private final FeatureProvider provider;
@@ -38,35 +48,13 @@ public class FeatureGates {
      * @param featureGateConfig String with a comma-separated list of enabled or disabled feature gates
      */
     public FeatureGates(String featureGateConfig) {
-        // Set the appropriate provider based on the environment variable
-        this.provider = isFlagDEnabled() ? new FlagdProvider() : new EnvVarProvider();
+        this.provider = getProviderFromEnv();
         OpenFeatureAPI.getInstance().setProvider(this.provider);
         this.featureClient = OpenFeatureAPI.getInstance().getClient();
 
         // Validate and parse the featureGateConfig if it's provided
         if (featureGateConfig != null && !featureGateConfig.trim().isEmpty()) {
-            List<String> featureGates;
-
-            // Validate the format of the feature gate configuration string
-            if (featureGateConfig.matches("(\\s*[+-][a-zA-Z0-9]+\\s*,)*\\s*[+-][a-zA-Z0-9]+\\s*")) {
-                featureGates = asList(featureGateConfig.trim().split("\\s*,+\\s*"));
-            } else {
-                throw new InvalidConfigurationException(featureGateConfig + " is not a valid feature gate configuration");
-            }
-
-            // Validate each feature gate in the config to ensure it is recognized
-            for (String featureGate : featureGates) {
-                featureGate = featureGate.substring(1); // Remove the + or - sign
-
-                // Only validate feature gates but do not apply them manually
-                switch (featureGate) {
-                    case CONTINUE_ON_MANUAL_RU_FAILURE:
-                        // This is a valid feature gate; continue with processing
-                        break;
-                    default:
-                        throw new InvalidConfigurationException("Unknown feature gate " + featureGate + " found in the configuration");
-                }
-            }
+            parseFeatureGateConfig(featureGateConfig);
         }
 
         // Fetch feature gates using OpenFeature
@@ -78,22 +66,71 @@ public class FeatureGates {
     }
 
     /**
+     * Maps the value of OPEN_FEATURE_PROVIDER_NAME to the corresponding provider.
+     *
+     * @return The corresponding FeatureProvider instance based on the environment variable.
+     */
+    private FeatureProvider getProviderFromEnv() throws InvalidOptions {
+        String providerName = System.getenv(OPEN_FEATURE_PROVIDER_NAME_ENV);
+
+        // Default to EnvVarProvider if the environment variable is not set
+        if (providerName == null || providerName.trim().isEmpty()) {
+            return new EnvVarProvider();
+        }
+
+        // Create a mapping between the environment variable and providers
+        Map<String, FeatureProvider> providerMap = new HashMap<>();
+        providerMap.put("flagd", new FlagdProvider());
+        providerMap.put("env-var", new EnvVarProvider());
+//        providerMap.put("flagsmith", new FlagsmithProvider());
+//        providerMap.put("configcat", new ConfigCatProvider());
+//        providerMap.put("statsig", new StatsigProvider());
+//        providerMap.put("unleash", new UnleashProvider());
+//        providerMap.put("jsonlogic", new JsonlogicProvider());
+//        providerMap.put("flipt", new FliptProvider());
+//        providerMap.put("go-feature-flag", new GoFeatureFlagProvider());
+
+        // Return the corresponding provider or default to EnvVarProvider
+        return providerMap.getOrDefault(providerName.trim().toLowerCase(), new EnvVarProvider());
+    }
+
+    /**
+     * Validates and parses the feature gate configuration string.
+     *
+     * @param featureGateConfig The comma-separated feature gate config string.
+     */
+    private void parseFeatureGateConfig(String featureGateConfig) {
+        List<String> featureGates;
+
+        // Validate the format of the feature gate configuration string
+        if (featureGateConfig.matches("(\\s*[+-][a-zA-Z0-9]+\\s*,)*\\s*[+-][a-zA-Z0-9]+\\s*")) {
+            featureGates = asList(featureGateConfig.trim().split("\\s*,+\\s*"));
+        } else {
+            throw new InvalidConfigurationException(featureGateConfig + " is not a valid feature gate configuration");
+        }
+
+        // Validate each feature gate in the config to ensure it is recognized
+        for (String featureGate : featureGates) {
+            featureGate = featureGate.substring(1); // Remove the + or - sign
+
+            // Only validate feature gates but do not apply them manually
+            switch (featureGate) {
+                case CONTINUE_ON_MANUAL_RU_FAILURE:
+                    // This is a valid feature gate; continue with processing
+                    break;
+                default:
+                    throw new InvalidConfigurationException("Unknown feature gate " + featureGate + " found in the configuration");
+            }
+        }
+    }
+
+    /**
      * Validates any dependencies between various feature gates. When the dependencies are not satisfied,
      * InvalidConfigurationException is thrown.
      */
     private void validateInterDependencies()    {
         // There are currently no interdependencies between different feature gates.
         // But we keep this method as these might happen again in the future.
-    }
-
-    /**
-     * Checks whether FlagD is enabled via environment variables.
-     *
-     * @return True if FLAGD_ENABLED is set to "true", otherwise false.
-     */
-    public boolean isFlagDEnabled() {
-        String flagDEnabled = System.getenv(FLAGD_ENABLED_ENV_VAR);
-        return flagDEnabled != null && flagDEnabled.equalsIgnoreCase("true");
     }
 
     /**
@@ -129,13 +166,7 @@ public class FeatureGates {
      * Fetches and updates the feature gates state dynamically from the OpenFeature API.
      */
     public void updateFeatureGateStates() {
-        if (isFlagDEnabled()) {
-            // Fetch dynamically from FlagD and update internal states
-            this.continueOnManualRUFailure.setValue(fetchFeatureFlag(CONTINUE_ON_MANUAL_RU_FAILURE, true, Boolean.class));
-        } else {
-            this.continueOnManualRUFailure.setValue(continueOnManualRUFailureEnabled());
-            // Fallback to static configuration if FlagD is not enabled
-        }
+        this.continueOnManualRUFailure.setValue(fetchFeatureFlag(CONTINUE_ON_MANUAL_RU_FAILURE, true, Boolean.class));
     }
 
     /**

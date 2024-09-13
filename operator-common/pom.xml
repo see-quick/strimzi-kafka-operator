@@ -144,6 +144,34 @@
             <groupId>dev.openfeature.contrib.providers</groupId>
             <artifactId>flagd</artifactId>
         </dependency>
+        <dependency>
+            <groupId>dev.openfeature.contrib.providers</groupId>
+            <artifactId>flagsmith</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.openfeature.contrib.providers</groupId>
+            <artifactId>configcat</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.openfeature.contrib.providers</groupId>
+            <artifactId>statsig</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.openfeature.contrib.providers</groupId>
+            <artifactId>unleash</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.openfeature.contrib.providers</groupId>
+            <artifactId>jsonlogic-eval-provider</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.openfeature.contrib.providers</groupId>
+            <artifactId>flipt</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.openfeature.contrib.providers</groupId>
+            <artifactId>go-feature-flag</artifactId>
+        </dependency>
     </dependencies>
 
     <build>

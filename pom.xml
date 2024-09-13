@@ -150,8 +150,15 @@
         <registry.version>1.3.2.Final</registry.version>
         <commons-codec.version>1.13</commons-codec.version>
         <open-feature-sdk.version>1.10.0</open-feature-sdk.version>
+        <open-feature-flagd-provider.version>0.8.8</open-feature-flagd-provider.version>
         <open-feature-env-var-provider.version>0.0.6</open-feature-env-var-provider.version>
-        <open-feature-flagd-provider.version>0.8.7</open-feature-flagd-provider.version>
+        <open-feature-unleash-provider.version>0.0.4-alpha</open-feature-unleash-provider.version>
+        <open-feature-flagsmith-provider.version>0.0.8</open-feature-flagsmith-provider.version>
+        <open-feature-configcat-provider.version>0.1.0</open-feature-configcat-provider.version>
+        <open-feature-statsig-provider.version>0.0.4</open-feature-statsig-provider.version>
+        <open-feature-inline-evaluating-provider.version>1.1.0</open-feature-inline-evaluating-provider.version>
+        <open-feature-flipt-provider.version>0.1.0</open-feature-flipt-provider.version>
+        <open-feature-go-feature-flag-provider.version>0.2.23</open-feature-go-feature-flag-provider.version>
 
         <!-- Test only dependencies -->
         <hamcrest.version>2.2</hamcrest.version>
@@ -906,6 +913,47 @@
                 <artifactId>flagd</artifactId>
                 <version>${open-feature-flagd-provider.version}</version>
             </dependency>
+            <dependency>
+                <groupId>dev.openfeature.contrib.providers</groupId>
+                <artifactId>unleash</artifactId>
+                <version>${open-feature-unleash-provider.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>dev.openfeature.contrib.providers</groupId>
+                <artifactId>flagsmith</artifactId>
+                <version>${open-feature-flagsmith-provider.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>dev.openfeature.contrib.providers</groupId>
+                <artifactId>configcat</artifactId>
+                <version>${open-feature-configcat-provider.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>dev.openfeature.contrib.providers</groupId>
+                <artifactId>statsig</artifactId>
+                <version>${open-feature-statsig-provider.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>dev.openfeature.contrib.providers</groupId>
+                <artifactId>unleash</artifactId>
+                <version>${open-feature-unleash-provider.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>dev.openfeature.contrib.providers</groupId>
+                <artifactId>jsonlogic-eval-provider</artifactId>
+                <version>${open-feature-inline-evaluating-provider.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>dev.openfeature.contrib.providers</groupId>
+                <artifactId>flipt</artifactId>
+                <version>${open-feature-flipt-provider.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>dev.openfeature.contrib.providers</groupId>
+                <artifactId>go-feature-flag</artifactId>
+                <version>${open-feature-go-feature-flag-provider.version}</version>
+            </dependency>
+
         </dependencies>
     </dependencyManagement>
 
