@@ -1,0 +1,19 @@
+# Standalone flagd for serving UI
+apiVersion: core.openfeature.dev/v1beta1
+kind: Flagd
+metadata:
+  name: strimzi-feature-gates
+  namespace: myproject	
+spec:
+  replicas: 1
+  serviceAccountName: default
+  featureFlagSource: strimzi-feature-gates-source
+  ingress:
+    enabled: true
+    annotations:
+      nginx.ingress.kubernetes.io/force-ssl-redirect: 'false'
+    hosts:
+      - localhost
+      - ''
+    ingressClassName: nginx
+    pathType: Prefix

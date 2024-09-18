@@ -4,6 +4,8 @@
  */
 package io.strimzi.operator.cluster.operator.assembly;
 
+import dev.openfeature.sdk.EvaluationContext;
+import dev.openfeature.sdk.MutableContext;
 import io.fabric8.kubernetes.api.model.ConfigMap;
 import io.fabric8.kubernetes.api.model.LocalObjectReference;
 import io.fabric8.kubernetes.api.model.Node;
@@ -73,6 +75,7 @@ import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.ReconciliationLogger;
 import io.strimzi.operator.common.Util;
 import io.strimzi.operator.common.auth.TlsPemIdentity;
+import io.strimzi.operator.common.featuregates.FeatureGates;
 import io.strimzi.operator.common.model.Ca;
 import io.strimzi.operator.common.model.ClientsCa;
 import io.strimzi.operator.common.model.Labels;
@@ -151,6 +154,8 @@ public class KafkaReconciler {
     private final KubernetesRestartEventPublisher eventsPublisher;
     private final AdminClientProvider adminClientProvider;
     private final KafkaAgentClientProvider kafkaAgentClientProvider;
+    private final EvaluationContext evaluationContext;
+    private final FeatureGates featureGates;
 
     // State of the reconciliation => these objects might change during the reconciliation (the collection objects are
     // marked as final, but their contents is modified during the reconciliation)
@@ -235,6 +240,22 @@ public class KafkaReconciler {
         this.adminClientProvider = supplier.adminClientProvider;
         this.kafkaAgentClientProvider = supplier.kafkaAgentClientProvider;
         this.continueOnManualRUFailure = config.featureGates().continueOnManualRUFailureEnabled();
+
+        // context evaluator based on defined scheme in YAMLs (e.g., FeatureFlags in targeting section...)
+        this.evaluationContext = new MutableContext();
+
+        ((MutableContext) this.evaluationContext).add("clusterName", kafkaCr.getMetadata().getName());
+        ((MutableContext) this.evaluationContext).add("namespace", kafkaCr.getMetadata().getNamespace());
+
+        LOGGER.infoCr(reconciliation, "This is cluster name: {}", kafkaCr.getMetadata().getName());
+        LOGGER.infoCr(reconciliation, "This is namespace name: {}", kafkaCr.getMetadata().getNamespace());
+
+        LOGGER.infoCr(reconciliation, "This is cluster name from evaluation context: {}", this.evaluationContext.getValue("clusterName").asString());
+        LOGGER.infoCr(reconciliation, "This is namespace name from evaluation context: {}", this.evaluationContext.getValue("namespace").asString());
+
+        LOGGER.infoCr(reconciliation, "This is evaluation mutable context: {}", this.evaluationContext.asMap().toString());
+
+        this.featureGates = new FeatureGates(config.featureGates().toEnvironmentVariable(), this.evaluationContext);
     }
 
     /**
@@ -248,6 +269,11 @@ public class KafkaReconciler {
      * @return              Future which completes when the reconciliation completes
      */
     public Future<Void> reconcile(KafkaStatus kafkaStatus, Clock clock)    {
+        // update feature gates
+        LOGGER.infoCr(reconciliation, "Update Kafka feature gates: {}, and current value is: {}", this.featureGates.toEnvironmentVariable(), this.featureGates.continueOnManualRUFailureEnabled());
+        this.featureGates.updateFeatureGateStatesOfKafka(this.evaluationContext);
+        LOGGER.infoCr(reconciliation, "After update value is: {}", this.featureGates.continueOnManualRUFailureEnabled());
+
         return modelWarnings(kafkaStatus)
                 .compose(i -> initClientAuthenticationCertificates())
                 .compose(i -> manualPodCleaning())

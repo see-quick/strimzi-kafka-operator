@@ -1,0 +1,31 @@
+apiVersion: core.openfeature.dev/v1beta1
+kind: FeatureFlag
+metadata:
+  name: kafka-cluster-feature-flags
+spec:
+  flagSpec:
+    flags:
+      ContinueReconciliationOnManualRollingUpdateFailure:
+        state: "ENABLED"
+        variants:
+          "on": true
+          "off": false
+        defaultVariant: "off"
+        targeting:
+          rules:
+            - conditions:
+                clusterName: "kafka-cluster-a"
+                namespace: "namespace-1"
+              variant: "on"
+            - conditions:
+                clusterName: "kafka-cluster-a"
+                namespace: "namespace-2"
+              variant: "off"
+            - conditions:
+                clusterName: "kafka-cluster-b"
+                namespace: "namespace-1"
+              variant: "on"
+            - conditions:
+                clusterName: "kafka-cluster-b"
+                namespace: "namespace-3"
+              variant: "off"

@@ -278,6 +278,10 @@
             <version>${mockserver.version}</version>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>dev.openfeature</groupId>
+            <artifactId>sdk</artifactId>
+        </dependency>
     </dependencies>
 
     <build>

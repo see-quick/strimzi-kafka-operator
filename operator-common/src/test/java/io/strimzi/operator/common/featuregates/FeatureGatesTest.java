@@ -4,9 +4,12 @@
  */
 package io.strimzi.operator.common.featuregates;
 
+import dev.openfeature.sdk.EvaluationContext;
+import dev.openfeature.sdk.Value;
 import io.strimzi.operator.common.InvalidConfigurationException;
 import io.strimzi.test.annotations.ParallelSuite;
 import io.strimzi.test.annotations.ParallelTest;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -15,7 +18,13 @@ import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.not;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 @ParallelSuite
 public class FeatureGatesTest {
@@ -120,4 +129,35 @@ public class FeatureGatesTest {
         assertThat(new FeatureGates("-ContinueReconciliationOnManualRollingUpdateFailure").toEnvironmentVariable(), is("-ContinueReconciliationOnManualRollingUpdateFailure"));
         assertThat(new FeatureGates("+ContinueReconciliationOnManualRollingUpdateFailure").toEnvironmentVariable(), is(""));
     }
+
+    @ParallelTest
+    void testFeatureFlagWithDifferentContexts() {
+        // Mock the isEnvVarProvider method to return false
+        FeatureGates spyFeatureGates = Mockito.spy(new FeatureGates(""));
+        doReturn(false).when(spyFeatureGates).isEnvVarProvider();
+
+        // Create different EvaluationContexts
+        EvaluationContext contextA = mock(EvaluationContext.class);
+        when(contextA.getValue("clusterName")).thenReturn(new Value("kafka-cluster-a"));
+        when(contextA.getValue("namespace")).thenReturn(new Value("namespace-a"));
+
+        EvaluationContext contextB = mock(EvaluationContext.class);
+        when(contextB.getValue("clusterName")).thenReturn(new Value("kafka-cluster-c"));
+        when(contextB.getValue("namespace")).thenReturn(new Value("namespace-c"));
+
+        // Simulate flag values based on context
+        doReturn(true).when(spyFeatureGates)
+            .fetchFeatureFlag(eq("ContinueReconciliationOnManualRollingUpdateFailure"), eq(true), eq(Boolean.class), eq(contextA));
+        doReturn(false).when(spyFeatureGates)
+            .fetchFeatureFlag(eq("ContinueReconciliationOnManualRollingUpdateFailure"), eq(true), eq(Boolean.class), eq(contextB));
+
+        // Test with contextA where the flag should be enabled
+        spyFeatureGates.updateFeatureGateStatesOfKafka(contextA);
+        assertTrue(spyFeatureGates.continueOnManualRUFailureEnabled(), "Feature should be enabled for contextA.");
+
+        // Test with contextB where the flag should be disabled
+        spyFeatureGates.updateFeatureGateStatesOfKafka(contextB);
+        assertFalse(spyFeatureGates.continueOnManualRUFailureEnabled(), "Feature should be disabled for contextB.");
+    }
+
 }

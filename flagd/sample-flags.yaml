@@ -1,0 +1,52 @@
+apiVersion: core.openfeature.dev/v1beta1
+kind: FeatureFlag
+metadata:
+  name: sample-flags
+spec:
+  flagSpec:
+    flags:
+      foo:
+        state: "ENABLED"
+        variants:
+          "bar": "BAR"
+          "baz": "BAZ"
+        defaultVariant: "bar"
+        targeting:
+          if:
+            - and:
+                - "==":
+                    - var: clusterName
+                    - "kafka-cluster-a"
+                - "==":
+                    - var: namespace
+                    - "namespace-1"
+            - "bar"
+            - if:
+                - and:
+                    - "==":
+                        - var: clusterName
+                        - "kafka-cluster-a"
+                    - "==":
+                        - var: namespace
+                        - "namespace-2"
+                - "baz"
+                - if:
+                    - and:
+                        - "==":
+                            - var: clusterName
+                            - "kafka-cluster-b"
+                        - "==":
+                            - var: namespace
+                            - "namespace-1"
+                    - "baz"
+                    - if:
+                        - and:
+                            - "==":
+                                - var: clusterName
+                                - "kafka-cluster-b"
+                            - "==":
+                                - var: namespace
+                                - "namespace-3"
+                        - "bar"
+                        - "bar"  # Default variant if none of the conditions match
+

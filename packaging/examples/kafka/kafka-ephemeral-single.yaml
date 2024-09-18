@@ -29,5 +29,22 @@ spec:
     storage:
       type: ephemeral
   entityOperator:
-    topicOperator: {}
-    userOperator: {}
+    topicOperator:
+      imagePullPolicy: Never
+    userOperator:
+      imagePullPolicy: Never
+    template:
+      userOperatorContainer:
+        env:
+          - name: STRIMZI_FEATURE_GATES
+            value: "+ContinueReconciliationOnManualRollingUpdateFailure"
+          - name: OPEN_FEATURE_PROVIDER_NAME
+            value: "flagd"
+          - name: STRIMZI_IMAGE_PULL_POLICY
+            value: "Never"
+      topicOperatorContainer:
+        env:
+          - name: STRIMZI_IMAGE_PULL_POLICY
+            value: "Never"
+          - name: OPEN_FEATURE_PROVIDER_NAME
+            value: "flagd"

@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-flagd
+  namespace: myproject
+spec:
+  podSelector:
+    matchLabels:
+      app: strimzi-feature-gates
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              name: strimzi-cluster-operator
+              strimzi.io/kind: cluster-operator
+      ports:
+        - protocol: TCP
+          port: 8013
+

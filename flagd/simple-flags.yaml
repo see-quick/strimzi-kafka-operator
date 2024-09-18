@@ -1,0 +1,24 @@
+apiVersion: core.openfeature.dev/v1beta1
+kind: FeatureFlag
+metadata:
+  name: my-feature-flag
+spec:
+  flagSpec:
+    flags:
+      ContinueReconciliationOnManualRollingUpdateFailure:
+        state: "ENABLED"
+        variants:
+          "on": true
+          "off": false
+        defaultVariant: "off"
+        targeting:
+          if:
+            - and:
+               - "==":
+                 - var: clusterName
+                 - "my-cluster"
+               - "==":
+                 - var: namespace
+                 - "myproject"
+            - "on"
+            - "off"

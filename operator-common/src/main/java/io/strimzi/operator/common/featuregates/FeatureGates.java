@@ -4,17 +4,11 @@
  */
 package io.strimzi.operator.common.featuregates;
 
-import dev.openfeature.contrib.providers.configcat.ConfigCatProvider;
 import dev.openfeature.contrib.providers.envvar.EnvVarProvider;
+import dev.openfeature.contrib.providers.flagd.FlagdOptions;
 import dev.openfeature.contrib.providers.flagd.FlagdProvider;
-import dev.openfeature.contrib.providers.flagsmith.FlagsmithProvider;
-import dev.openfeature.contrib.providers.flipt.FliptProvider;
-import dev.openfeature.contrib.providers.gofeatureflag.GoFeatureFlagProvider;
-import dev.openfeature.contrib.providers.gofeatureflag.exception.InvalidOptions;
-import dev.openfeature.contrib.providers.jsonlogic.JsonlogicProvider;
-import dev.openfeature.contrib.providers.statsig.StatsigProvider;
-import dev.openfeature.contrib.providers.unleash.UnleashProvider;
 import dev.openfeature.sdk.Client;
+import dev.openfeature.sdk.EvaluationContext;
 import dev.openfeature.sdk.FeatureProvider;
 import dev.openfeature.sdk.OpenFeatureAPI;
 import io.strimzi.operator.common.InvalidConfigurationException;
@@ -35,6 +29,9 @@ public class FeatureGates {
 
     private static final String CONTINUE_ON_MANUAL_RU_FAILURE = "ContinueReconciliationOnManualRollingUpdateFailure";
     private static final String OPEN_FEATURE_PROVIDER_NAME_ENV = "OPEN_FEATURE_PROVIDER_NAME"; // Environment variable to toggle provider
+    private static final String FEATURE_GATES_SERVICE_NAME = "strimzi-feature-gates";
+
+    private static final FeatureProvider DEFAULT_PROVIDER = new EnvVarProvider();
 
     private final Client featureClient;
     private final FeatureProvider provider;
@@ -46,8 +43,9 @@ public class FeatureGates {
      * Constructs the feature gates configuration.
      *
      * @param featureGateConfig String with a comma-separated list of enabled or disabled feature gates
+     * @param evaluationContext EvaluationContext
      */
-    public FeatureGates(String featureGateConfig) {
+    public FeatureGates(final String featureGateConfig, final EvaluationContext evaluationContext) {
         this.provider = getProviderFromEnv();
         OpenFeatureAPI.getInstance().setProvider(this.provider);
         this.featureClient = OpenFeatureAPI.getInstance().getClient();
@@ -58,11 +56,23 @@ public class FeatureGates {
         }
 
         // Fetch feature gates using OpenFeature
-        boolean continueOnManualRUFailureValue = fetchFeatureFlag(CONTINUE_ON_MANUAL_RU_FAILURE, true, Boolean.class);
-        setValueOnlyOnce(continueOnManualRUFailure, continueOnManualRUFailureValue);
+        this.continueOnManualRUFailure = evaluationContext != null && !this.isEnvVarProvider() ?
+            new FeatureGate(CONTINUE_ON_MANUAL_RU_FAILURE, fetchFeatureFlag(CONTINUE_ON_MANUAL_RU_FAILURE, false, Boolean.class, evaluationContext)) :
+            new FeatureGate(CONTINUE_ON_MANUAL_RU_FAILURE, fetchFeatureFlag(CONTINUE_ON_MANUAL_RU_FAILURE, false, Boolean.class));
+
+        System.out.println("Constructor was called and value of ContinueReconciliationOnManualRollingUpdateFailure is: " + this.continueOnManualRUFailureEnabled());
 
         // Validate interdependencies (if any)
         validateInterDependencies();
+    }
+
+    /**
+     * Constructs the feature gates configuration.
+     *
+     * @param featureGateConfig String with a comma-separated list of enabled or disabled feature gates
+     */
+    public FeatureGates(String featureGateConfig) {
+        this(featureGateConfig, null);
     }
 
     /**
@@ -70,7 +80,7 @@ public class FeatureGates {
      *
      * @return The corresponding FeatureProvider instance based on the environment variable.
      */
-    private FeatureProvider getProviderFromEnv() throws InvalidOptions {
+    private FeatureProvider getProviderFromEnv() {
         String providerName = System.getenv(OPEN_FEATURE_PROVIDER_NAME_ENV);
 
         // Default to EnvVarProvider if the environment variable is not set
@@ -80,8 +90,12 @@ public class FeatureGates {
 
         // Create a mapping between the environment variable and providers
         Map<String, FeatureProvider> providerMap = new HashMap<>();
-        providerMap.put("flagd", new FlagdProvider());
-        providerMap.put("env-var", new EnvVarProvider());
+        providerMap.put("flagd", new FlagdProvider(
+            FlagdOptions.builder()
+                    .host(FEATURE_GATES_SERVICE_NAME)
+                    .tls(false)
+                    .build()));
+        providerMap.put("env-var", DEFAULT_PROVIDER);
 //        providerMap.put("flagsmith", new FlagsmithProvider());
 //        providerMap.put("configcat", new ConfigCatProvider());
 //        providerMap.put("statsig", new StatsigProvider());
@@ -91,7 +105,7 @@ public class FeatureGates {
 //        providerMap.put("go-feature-flag", new GoFeatureFlagProvider());
 
         // Return the corresponding provider or default to EnvVarProvider
-        return providerMap.getOrDefault(providerName.trim().toLowerCase(), new EnvVarProvider());
+        return providerMap.getOrDefault(providerName, DEFAULT_PROVIDER);
     }
 
     /**
@@ -138,26 +152,46 @@ public class FeatureGates {
      *
      * @param flagName     The name of the feature flag
      * @param defaultValue The default value if the flag isn't set
-     * @param <T>          The type of the feature flag (Boolean, String, Integer, etc.)
      * @param returnType   The class of the return type for determining which get method to call
+     * @param <T>          The type of the feature flag (Boolean, String, Integer, etc.)
      * @return The value of the feature flag
      */
     public <T> T fetchFeatureFlag(String flagName, T defaultValue, Class<T> returnType) {
+        return fetchFeatureFlag(flagName, defaultValue, returnType, null);
+    }
+
+    /**
+     * Fetches the feature flag using OpenFeature and applies a default value if not present.
+     *
+     * @param flagName          The name of the feature flag
+     * @param defaultValue      The default value if the flag isn't set
+     * @param returnType        The class of the return type for determining which get method to call
+     * @param evaluationContext The evaluation context containing additional information
+     * @param <T>               The type of the feature flag (Boolean, String, Integer, etc.)
+     * @return The value of the feature flag
+     */
+    public <T> T fetchFeatureFlag(String flagName, T defaultValue, Class<T> returnType, EvaluationContext evaluationContext) {
         try {
+            System.out.println("Fetching flagName: " + flagName);
             // Handle different types based on returnType
             if (returnType == Boolean.class) {
-                return returnType.cast(featureClient.getBooleanValue(flagName, (Boolean) defaultValue));
+                final boolean ret = featureClient.getBooleanValue(flagName, (Boolean) defaultValue, evaluationContext);
+
+                System.out.println("Returning: " + ret);
+
+                return returnType.cast(ret);
             } else if (returnType == String.class) {
-                return returnType.cast(featureClient.getStringValue(flagName, (String) defaultValue));
+                return returnType.cast(featureClient.getStringValue(flagName, (String) defaultValue, evaluationContext));
             } else if (returnType == Integer.class) {
-                return returnType.cast(featureClient.getIntegerValue(flagName, (Integer) defaultValue));
+                return returnType.cast(featureClient.getIntegerValue(flagName, (Integer) defaultValue, evaluationContext));
             } else if (returnType == Double.class) {
-                return returnType.cast(featureClient.getDoubleValue(flagName, (Double) defaultValue));
+                return returnType.cast(featureClient.getDoubleValue(flagName, (Double) defaultValue, evaluationContext));
             } else {
                 throw new IllegalArgumentException("Unsupported feature flag type: " + returnType.getSimpleName());
             }
         } catch (Exception e) {
             // Fallback in case of any issues fetching the flag
+            System.out.println("Fallback returning default value: " + defaultValue);
             return defaultValue;
         }
     }
@@ -166,7 +200,34 @@ public class FeatureGates {
      * Fetches and updates the feature gates state dynamically from the OpenFeature API.
      */
     public void updateFeatureGateStates() {
-        this.continueOnManualRUFailure.setValue(fetchFeatureFlag(CONTINUE_ON_MANUAL_RU_FAILURE, true, Boolean.class));
+        if (this.isEnvVarProvider()) {
+            System.out.println("This is ENV VAR provider which is set :))");
+            // TODO: set only once
+        } else {
+            System.out.println("Not an ENV VAR provider is set and it's FlagD :))");
+            // update multiple times cause
+            this.continueOnManualRUFailure.setValue(fetchFeatureFlag(CONTINUE_ON_MANUAL_RU_FAILURE, false, Boolean.class));
+        }
+    }
+
+    /**
+     * Fetches and updates the feature gates state dynamically from the OpenFeature API.
+     *
+     * @param evaluationContext evaluation context of the OpenFeature
+     */
+    public void updateFeatureGateStatesOfKafka(final EvaluationContext evaluationContext) {
+        if (this.isEnvVarProvider()) {
+            System.out.println("This is ENV VAR provider which is set in Kafka:))");
+        } else {
+            System.out.println("Not an ENV VAR provider is set and it's FlagD :))");
+            // update multiple times cause
+            this.continueOnManualRUFailure.setValue(
+                fetchFeatureFlag(
+                    CONTINUE_ON_MANUAL_RU_FAILURE,
+                    false,
+                    Boolean.class,
+                    evaluationContext));
+        }
     }
 
     /**
@@ -182,6 +243,10 @@ public class FeatureGates {
         }
 
         gate.setValue(value);
+    }
+
+    /* test */ boolean isEnvVarProvider() {
+        return this.provider instanceof EnvVarProvider;
     }
 
     /**

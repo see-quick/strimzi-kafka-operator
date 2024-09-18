@@ -1,0 +1,125 @@
+# Flags for our backend application
+apiVersion: core.openfeature.dev/v1beta1
+kind: FeatureFlag
+metadata:
+  name: app-flags
+  labels:
+    app: open-feature-demo
+spec:
+  flagSpec:
+    flags:
+      fib-algo:
+        variants:
+          recursive: recursive
+          memo: memo
+          loop: loop
+          binet: binet
+        defaultVariant: recursive
+        state: ENABLED
+      use-remote-fib-service:
+        state: ENABLED
+        variants:
+          'on': true
+          'off': false
+        defaultVariant: 'off'
+---
+# Feature flag source custom resource, configuring flagd to source flags from FeatureFlag CRDs
+apiVersion: core.openfeature.dev/v1beta1
+kind: FeatureFlagSource
+metadata:
+  name: app-flag-source
+  labels:
+    app: open-feature-demo
+spec:
+  sources:
+    - source: app-flags
+      provider: kubernetes
+---
+# Standalone flagd for serving in-process provider
+apiVersion: core.openfeature.dev/v1beta1
+kind: Flagd
+metadata:
+  name: flagd-in-process
+spec:
+  replicas: 1
+  serviceType: ClusterIP
+  serviceAccountName: default
+  featureFlagSource: app-flag-source
+---
+# In-process provider configuration
+apiVersion: core.openfeature.dev/v1beta1
+kind: InProcessConfiguration
+metadata:
+  name: in-process-config
+spec:
+  host: flagd-in-process
+---
+# Deployment of a demo-app using our custom resources
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: open-feature-demo-deployment
+  labels:
+    app: open-feature-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: open-feature-demo
+  template:
+    metadata:
+      labels:
+        app: open-feature-demo
+      annotations:
+        openfeature.dev/enabled: 'true'
+        openfeature.dev/inprocessconfiguration: 'in-process-config'
+    spec:
+      containers:
+        - name: open-feature-demo
+          image: ghcr.io/open-feature/playground-app:v0.16.0 # x-release-please-version
+          ports:
+            - containerPort: 30000
+          args:
+            - flagd
+          env:
+            - name: FLAGD_PORT_WEB
+              value: '80'
+            - name: FLAGD_PATH_PREFIX
+              value: 'flagd'
+            - name: FLAGD_OFREP_PORT_WEB
+              value: '80'
+---
+# Service to expose our application
+apiVersion: v1
+kind: Service
+metadata:
+  name: open-feature-demo-app-service
+  labels:
+    app: open-feature-demo
+spec:
+  type: NodePort
+  selector:
+    app: open-feature-demo
+  ports:
+    - port: 30000
+      targetPort: 30000
+      nodePort: 30000
+---
+# Ingress for our application
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: open-feature-demo-ingress
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: localhost
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: open-feature-demo-app-service
+                port:
+                  number: 30000

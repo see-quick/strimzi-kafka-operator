@@ -1,0 +1,18 @@
+# Feature flag source custom resource, configuring flagd to source flags from FeatureFlag CRDs
+apiVersion: core.openfeature.dev/v1beta1
+kind: FeatureFlagSource
+metadata:
+  name: strimzi-feature-gates-source
+  namespace: myproject
+  labels:
+    app: open-feature-demo
+spec:
+  sources:
+    - source: strimzi-feature-gates-flags
+      provider: kubernetes
+    - source: kafka-cluster-feature-flags
+      provider: kubernetes
+    - source: sample-flags
+      provider: kubernetes
+    - source: my-feature-flag
+      provider: kubernetes
