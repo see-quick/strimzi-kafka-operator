@@ -25,7 +25,9 @@ import static java.util.Arrays.asList;
  * Class for handling the configuration of feature gates
  */
 public class FeatureGates {
-    /* test */ static final FeatureGates NONE = new FeatureGates("");
+    /* test */ static final FeatureGates NONE = new FeatureGates();
+
+    public static final String STRIMZI_FEATURE_GATES_ENV = "STRIMZI_FEATURE_GATES";
 
     private static final String CONTINUE_ON_MANUAL_RU_FAILURE = "ContinueReconciliationOnManualRollingUpdateFailure";
     private static final String OPEN_FEATURE_PROVIDER_NAME_ENV = "OPEN_FEATURE_PROVIDER_NAME"; // Environment variable to toggle provider
@@ -42,23 +44,28 @@ public class FeatureGates {
     /**
      * Constructs the feature gates configuration.
      *
-     * @param featureGateConfig String with a comma-separated list of enabled or disabled feature gates
+     * @param featureGatesConfig config
      * @param evaluationContext EvaluationContext
      */
-    public FeatureGates(final String featureGateConfig, final EvaluationContext evaluationContext) {
+    public FeatureGates(String featureGatesConfig, final EvaluationContext evaluationContext) {
         this.provider = getProviderFromEnv();
         OpenFeatureAPI.getInstance().setProvider(this.provider);
         this.featureClient = OpenFeatureAPI.getInstance().getClient();
 
-        // Validate and parse the featureGateConfig if it's provided
-        if (featureGateConfig != null && !featureGateConfig.trim().isEmpty()) {
-            parseFeatureGateConfig(featureGateConfig);
-        }
+        if (this.isEnvVarProvider()) {
+            if (featureGatesConfig == null || featureGatesConfig.isEmpty()) {
+                // feature gates config is null or empty so we are gonna retrieve it from ENV VAR
+                featureGatesConfig = this.featureClient.getStringValue(STRIMZI_FEATURE_GATES_ENV, "");
+            }
 
-        // Fetch feature gates using OpenFeature
-        this.continueOnManualRUFailure = evaluationContext != null && !this.isEnvVarProvider() ?
-            new FeatureGate(CONTINUE_ON_MANUAL_RU_FAILURE, fetchFeatureFlag(CONTINUE_ON_MANUAL_RU_FAILURE, false, Boolean.class, evaluationContext)) :
-            new FeatureGate(CONTINUE_ON_MANUAL_RU_FAILURE, fetchFeatureFlag(CONTINUE_ON_MANUAL_RU_FAILURE, false, Boolean.class));
+            // parse the featureGateConfig if it's provided
+            validateFeatureGateConfig(featureGatesConfig);
+        } else {
+            // other providers (e.g., flagd)
+            this.continueOnManualRUFailure = evaluationContext != null ?
+                new FeatureGate(CONTINUE_ON_MANUAL_RU_FAILURE, fetchFeatureFlag(CONTINUE_ON_MANUAL_RU_FAILURE, false, Boolean.class, evaluationContext)) :
+                new FeatureGate(CONTINUE_ON_MANUAL_RU_FAILURE, fetchFeatureFlag(CONTINUE_ON_MANUAL_RU_FAILURE, false, Boolean.class));
+        }
 
         System.out.println("Constructor was called and value of ContinueReconciliationOnManualRollingUpdateFailure is: " + this.continueOnManualRUFailureEnabled());
 
@@ -69,10 +76,18 @@ public class FeatureGates {
     /**
      * Constructs the feature gates configuration.
      *
-     * @param featureGateConfig String with a comma-separated list of enabled or disabled feature gates
+     * @param featureGatesConfig config
      */
-    public FeatureGates(String featureGateConfig) {
-        this(featureGateConfig, null);
+    public FeatureGates(final String featureGatesConfig) {
+        this(featureGatesConfig, null);
+    }
+
+    /**
+     * Constructs the feature gates configuration.
+     *
+     */
+    public FeatureGates() {
+        this(null, null);
     }
 
     /**
@@ -109,11 +124,11 @@ public class FeatureGates {
     }
 
     /**
-     * Validates and parses the feature gate configuration string.
+     * Validates the feature gate configuration string.
      *
      * @param featureGateConfig The comma-separated feature gate config string.
      */
-    private void parseFeatureGateConfig(String featureGateConfig) {
+    private void validateFeatureGateConfig(String featureGateConfig) {
         List<String> featureGates;
 
         // Validate the format of the feature gate configuration string

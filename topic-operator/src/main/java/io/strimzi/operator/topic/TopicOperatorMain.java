@@ -157,7 +157,7 @@ public class TopicOperatorMain implements Liveness, Readiness {
         var config = TopicOperatorConfig.buildFromMap(System.getenv());
 
         // Initialize FeatureGates
-        FeatureGates featureGates = new FeatureGates(config.featureGates().toEnvironmentVariable());
+        FeatureGates featureGates = new FeatureGates(null);
 
         // Fetch feature gate for TopicOperator specific feature
         boolean featureAEnabled = featureGates.fetchFeatureFlag("feature_A", false, Boolean.class);

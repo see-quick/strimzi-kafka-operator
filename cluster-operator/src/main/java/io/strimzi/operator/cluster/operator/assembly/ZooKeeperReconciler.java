@@ -43,6 +43,7 @@ import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.ReconciliationLogger;
 import io.strimzi.operator.common.Util;
 import io.strimzi.operator.common.auth.TlsPemIdentity;
+import io.strimzi.operator.common.featuregates.FeatureGates;
 import io.strimzi.operator.common.model.Ca;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.operator.resource.ReconcileResult;
@@ -87,6 +88,7 @@ public class ZooKeeperReconciler {
     private final int adminSessionTimeoutMs;
     private final ImagePullPolicy imagePullPolicy;
     private final List<LocalObjectReference> imagePullSecrets;
+    private final FeatureGates featureGates;
 
     private final StatefulSetOperator stsOperator;
     private final StrimziPodSetOperator strimziPodSetOperator;
@@ -177,7 +179,10 @@ public class ZooKeeperReconciler {
         this.zooScalerProvider = supplier.zkScalerProvider;
         this.zooLeaderFinder = supplier.zookeeperLeaderFinder;
         this.zooKeeperAdminProvider = supplier.zooKeeperAdminProvider;
-        this.continueOnManualRUFailure = config.featureGates().continueOnManualRUFailureEnabled();
+
+        this.featureGates = new FeatureGates();
+        // TODO: add loggic to reconclier cause of flagD and other providers (this is just for env-var provider)
+        this.continueOnManualRUFailure = this.featureGates.continueOnManualRUFailureEnabled();
     }
 
     /**

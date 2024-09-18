@@ -12,7 +12,6 @@ import io.strimzi.operator.common.InvalidConfigurationException;
 import io.strimzi.operator.common.ReconciliationLogger;
 import io.strimzi.operator.common.config.ConfigParameter;
 import io.strimzi.operator.common.config.ConfigParameterParser;
-import io.strimzi.operator.common.featuregates.FeatureGates;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.model.cruisecontrol.CruiseControlApiProperties;
 import org.apache.kafka.clients.admin.AdminClientConfig;
@@ -50,7 +49,6 @@ import java.util.UUID;
  * @param maxBatchSize                          The maximum size of a reconciliation batch.
  * @param maxBatchLingerMs                      The maximum time to wait for a reconciliation batch to contain {@code maxBatchSize} items.
  * @param enableAdditionalMetrics               Whether to enable additional metrics.
- * @param featureGates                          Configured feature gates.
  * @param cruiseControlEnabled                  Whether Cruise Control integration is enabled.
  * @param cruiseControlRackEnabled              Whether the target Kafka cluster has rack awareness.
  * @param cruiseControlHostname                 Cruise Control hostname.
@@ -86,7 +84,6 @@ public record TopicOperatorConfig(
         int maxBatchSize,
         long maxBatchLingerMs,
         boolean enableAdditionalMetrics,
-        FeatureGates featureGates,
         boolean cruiseControlEnabled,
         boolean cruiseControlRackEnabled,
         String cruiseControlHostname,
@@ -151,8 +148,6 @@ public record TopicOperatorConfig(
     public static final ConfigParameter<String> ALTERABLE_TOPIC_CONFIG = new ConfigParameter<>("STRIMZI_ALTERABLE_TOPIC_CONFIG", ConfigParameterParser.STRING, "ALL", CONFIG_VALUES);
     /** Skip cluster level configuration checks. */
     public static final ConfigParameter<Boolean> SKIP_CLUSTER_CONFIG_REVIEW = new ConfigParameter<>("STRIMZI_SKIP_CLUSTER_CONFIG_REVIEW", ConfigParameterParser.BOOLEAN, "false", CONFIG_VALUES);
-    /** List of enabled and disabled feature gates. */
-    public static final ConfigParameter<FeatureGates> FEATURE_GATES = new ConfigParameter<>("STRIMZI_FEATURE_GATES", ConfigParameterParser.parseFeatureGates(), "", CONFIG_VALUES);
     /** Cruise Control: whether to enable configuration. */
     public static final ConfigParameter<Boolean> CRUISE_CONTROL_ENABLED = new ConfigParameter<>("STRIMZI_CRUISE_CONTROL_ENABLED", ConfigParameterParser.BOOLEAN, "false", CONFIG_VALUES);
     /** Cruise Control: whether rack awareness is enabled. */
@@ -227,7 +222,6 @@ public record TopicOperatorConfig(
                 get(map, MAX_BATCH_SIZE),
                 get(map, MAX_BATCH_LINGER_MS),
                 get(map, ENABLE_ADDITIONAL_METRICS),
-                get(map, FEATURE_GATES),
                 get(map, CRUISE_CONTROL_ENABLED),
                 get(map, CRUISE_CONTROL_RACK_ENABLED),
                 get(map, CRUISE_CONTROL_HOSTNAME),
@@ -391,7 +385,6 @@ public record TopicOperatorConfig(
                 "\n\tmaxBatchSize=" + maxBatchSize +
                 "\n\tmaxBatchLingerMs=" + maxBatchLingerMs +
                 "\n\tenableAdditionalMetrics=" + enableAdditionalMetrics +
-                "\n\tfeatureGates='" + featureGates + "'" +
                 "\n\tcruiseControlEnabled=" + cruiseControlEnabled +
                 "\n\tcruiseControlRackEnabled=" + cruiseControlRackEnabled +
                 "\n\tcruiseControlHostname=" + cruiseControlHostname +

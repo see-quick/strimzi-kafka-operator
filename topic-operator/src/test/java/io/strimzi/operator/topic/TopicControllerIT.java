@@ -16,7 +16,6 @@ import io.strimzi.api.kafka.model.common.Condition;
 import io.strimzi.api.kafka.model.topic.KafkaTopic;
 import io.strimzi.api.kafka.model.topic.KafkaTopicBuilder;
 import io.strimzi.api.kafka.model.topic.KafkaTopicStatus;
-import io.strimzi.operator.common.featuregates.FeatureGates;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.topic.model.KubeRef;
 import io.strimzi.operator.topic.model.TopicOperatorException;
@@ -1285,7 +1284,7 @@ class TopicControllerIT {
             false, "", "", "", "", "",
             false, "", "", "", "", "",
             useFinalizer,
-            100, 100, 10, false, new FeatureGates(""),
+            100, 100, 10, false,
             false, false, "", 9090, false, false, "", "", "",
             "all", false);
     }
@@ -2067,7 +2066,7 @@ class TopicControllerIT {
             false, "", "", "", "", "",
             false, "", "", "", "", "",
             true,
-            1, 100, 5_0000, false, new FeatureGates(""),
+            1, 100, 5_0000, false,
             false, false, "", 9090, false, false, "", "", "",
             "all", false);
 

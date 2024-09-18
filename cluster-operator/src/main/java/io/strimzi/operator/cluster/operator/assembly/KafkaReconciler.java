@@ -239,7 +239,6 @@ public class KafkaReconciler {
 
         this.adminClientProvider = supplier.adminClientProvider;
         this.kafkaAgentClientProvider = supplier.kafkaAgentClientProvider;
-        this.continueOnManualRUFailure = config.featureGates().continueOnManualRUFailureEnabled();
 
         // context evaluator based on defined scheme in YAMLs (e.g., FeatureFlags in targeting section...)
         this.evaluationContext = new MutableContext();
@@ -255,7 +254,9 @@ public class KafkaReconciler {
 
         LOGGER.infoCr(reconciliation, "This is evaluation mutable context: {}", this.evaluationContext.asMap().toString());
 
-        this.featureGates = new FeatureGates(config.featureGates().toEnvironmentVariable(), this.evaluationContext);
+        this.featureGates = new FeatureGates(null, this.evaluationContext);
+
+        this.continueOnManualRUFailure = this.featureGates.continueOnManualRUFailureEnabled();
     }
 
     /**

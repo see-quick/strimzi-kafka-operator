@@ -14,7 +14,6 @@ import io.strimzi.operator.common.InvalidConfigurationException;
 import io.strimzi.operator.common.Util;
 import io.strimzi.operator.common.config.ConfigParameter;
 import io.strimzi.operator.common.config.ConfigParameterParser;
-import io.strimzi.operator.common.featuregates.FeatureGates;
 import io.strimzi.operator.common.model.Labels;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -33,7 +32,6 @@ import static io.strimzi.operator.common.config.ConfigParameterParser.LOCAL_OBJE
 import static io.strimzi.operator.common.config.ConfigParameterParser.LONG;
 import static io.strimzi.operator.common.config.ConfigParameterParser.NAMESPACE_SET;
 import static io.strimzi.operator.common.config.ConfigParameterParser.STRING;
-import static io.strimzi.operator.common.config.ConfigParameterParser.parseFeatureGates;
 
 /**
  * Cluster Operator configuration
@@ -184,11 +182,6 @@ public class ClusterOperatorConfig {
      * Labels used to filter the custom resources seen by the cluster operator
      */
     public static final ConfigParameter<Labels> CUSTOM_RESOURCE_SELECTOR = new ConfigParameter<>("STRIMZI_CUSTOM_RESOURCE_SELECTOR", LABEL_PREDICATE, null, CONFIG_VALUES);
-
-    /**
-     * Configuration string with feature gates settings
-     */
-    public static final ConfigParameter<FeatureGates> FEATURE_GATES = new ConfigParameter<>("STRIMZI_FEATURE_GATES", parseFeatureGates(), "", CONFIG_VALUES);
 
     /**
      * The size of the thread pool used for various operations
@@ -539,13 +532,6 @@ public class ClusterOperatorConfig {
     }
 
     /**
-     * @return  Feature gates configuration
-     */
-    public FeatureGates featureGates()  {
-        return get(FEATURE_GATES);
-    }
-
-    /**
      * @return Thread Pool size to be used by the operator to do operations like reconciliation
      */
     public int getOperationsThreadPoolSize() {
@@ -612,7 +598,6 @@ public class ClusterOperatorConfig {
                 "\n\toperatorNamespace='" + getOperatorNamespace() + '\'' +
                 "\n\toperatorNamespaceLabels='" + getOperatorNamespaceLabels() + '\'' +
                 "\n\tcustomResourceSelector='" + getCustomResourceSelector() + '\'' +
-                "\n\tfeatureGates='" + featureGates() + '\'' +
                 "\n\tzkAdminSessionTimeoutMs=" + getZkAdminSessionTimeoutMs() +
                 "\n\tdnsCacheTtlSec=" + getDnsCacheTtlSec() +
                 "\n\tpodSetReconciliationOnly=" + isPodSetReconciliationOnly() +

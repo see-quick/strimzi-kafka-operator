@@ -93,7 +93,7 @@ public class UserControllerLoop extends AbstractControllerLoop {
         this.secretPrefix = config.getSecretPrefix();
         this.operationTimeoutMs = config.getOperationTimeoutMs();
 
-        this.featureGates = new FeatureGates(config.featureGates().toEnvironmentVariable());
+        this.featureGates = new FeatureGates();
     }
 
     /**

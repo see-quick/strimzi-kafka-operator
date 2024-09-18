@@ -135,7 +135,7 @@ public class EntityUserOperator extends AbstractModel implements SupportsLogging
             result.resources = userOperatorSpec.getResources();
             result.readinessProbeOptions = ProbeUtils.extractReadinessProbeOptionsOrDefault(userOperatorSpec, EntityOperator.DEFAULT_HEALTHCHECK_OPTIONS);
             result.livenessProbeOptions = ProbeUtils.extractLivenessProbeOptionsOrDefault(userOperatorSpec, EntityOperator.DEFAULT_HEALTHCHECK_OPTIONS);
-            result.featureGatesEnvVarValue = config.featureGates().toEnvironmentVariable();
+            result.featureGatesEnvVarValue = null; // config.featureGates().toEnvironmentVariable();
 
             if (kafkaAssembly.getSpec().getEntityOperator().getTemplate() != null)  {
                 result.templateRoleBinding = kafkaAssembly.getSpec().getEntityOperator().getTemplate().getUserOperatorRoleBinding();
@@ -212,7 +212,8 @@ public class EntityUserOperator extends AbstractModel implements SupportsLogging
 
         // Add feature gates configuration if not empty
         if (featureGatesEnvVarValue != null && !featureGatesEnvVarValue.isEmpty()) {
-            varList.add(ContainerUtils.createEnvVar(ClusterOperatorConfig.FEATURE_GATES.key(), featureGatesEnvVarValue));
+            // TODO: Disallowed import - io.strimzi.operator.common.featuregates.FeatureGates.
+            varList.add(ContainerUtils.createEnvVar("STRIMZI_FEATURE_GATES", featureGatesEnvVarValue));
         }
 
         // Add shared environment variables used for all containers

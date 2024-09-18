@@ -150,7 +150,9 @@ public abstract class AbstractConnectOperator<C extends KubernetesClient, T exte
         this.versions = config.versions();
         this.sharedEnvironmentProvider = supplier.sharedEnvironmentProvider;
         this.port = port;
-        this.continueOnManualRUFailure = config.featureGates().continueOnManualRUFailureEnabled();
+        // TODO: ConnectOperator using ClusterOperator config feature gates defined so basically here we can't use instance of FeatureGates
+        //  because it would use the new instance...we should have basically a singleton FeatureGates for ClusterOperator instance I think??
+        this.continueOnManualRUFailure = false; // config.featureGates().continueOnManualRUFailureEnabled();
     }
 
     @Override

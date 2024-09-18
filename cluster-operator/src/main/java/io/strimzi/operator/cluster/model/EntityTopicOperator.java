@@ -148,7 +148,8 @@ public class EntityTopicOperator extends AbstractModel implements SupportsLoggin
             
             result.cruiseControlEnabled = kafkaAssembly.getSpec().getCruiseControl() != null;
             result.rackAwarenessEnabled = result.cruiseControlEnabled && kafkaAssembly.getSpec().getKafka().getRack() != null;
-            result.featureGatesEnvVarValue = config.featureGates().toEnvironmentVariable();
+            // TODO: here ENtityTopicOperator inherits feature gates from ClusterOperator??? :)
+            result.featureGatesEnvVarValue = null; // config.featureGates().toEnvironmentVariable();
 
             return result;
         } else {
@@ -195,7 +196,8 @@ public class EntityTopicOperator extends AbstractModel implements SupportsLoggin
 
         // Add feature gates configuration if not empty
         if (featureGatesEnvVarValue != null && !featureGatesEnvVarValue.isEmpty()) {
-            varList.add(ContainerUtils.createEnvVar(ClusterOperatorConfig.FEATURE_GATES.key(), featureGatesEnvVarValue));
+            // TODO: Disallowed import - io.strimzi.operator.common.featuregates.FeatureGates.
+            varList.add(ContainerUtils.createEnvVar("STRIMZI_FEATURE_GATES", featureGatesEnvVarValue));
         }
 
         // Add environment variables required for Cruise Control integration
