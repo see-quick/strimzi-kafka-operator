@@ -43,7 +43,6 @@ import java.util.concurrent.TimeoutException;
 public class UserControllerLoop extends AbstractControllerLoop {
     private static final ReconciliationLogger LOGGER = ReconciliationLogger.create(UserControllerLoop.class);
 
-    private final FeatureGates featureGates;  // Add this to handle feature gates
     private final Lister<KafkaUser> userLister;
     private final Lister<Secret> secretLister;
     private final CrdOperator<KubernetesClient, KafkaUser, KafkaUserList> userCrdOperator;
@@ -92,8 +91,6 @@ public class UserControllerLoop extends AbstractControllerLoop {
 
         this.secretPrefix = config.getSecretPrefix();
         this.operationTimeoutMs = config.getOperationTimeoutMs();
-
-        this.featureGates = new FeatureGates();
     }
 
     /**
@@ -106,7 +103,7 @@ public class UserControllerLoop extends AbstractControllerLoop {
         LOGGER.infoCr(reconciliation, "{} will be reconciled", reconciliation.kind());
 
         //  update the state of feature gates dynamically from FlagD
-        featureGates.updateFeatureGateStates();
+        FeatureGates.getInstance().updateFeatureGateStates();
         LOGGER.infoCr(reconciliation, "Fetching from FlagD: continueOnManualRUFailureEnabled is enabled: {}", featureGates.continueOnManualRUFailureEnabled());
 
         KafkaUser user = userLister.namespace(reconciliation.namespace()).get(reconciliation.name());

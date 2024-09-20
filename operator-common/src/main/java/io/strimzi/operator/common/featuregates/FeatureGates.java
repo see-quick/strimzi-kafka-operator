@@ -22,7 +22,10 @@ import java.util.Objects;
 import static java.util.Arrays.asList;
 
 /**
- * Class for handling the configuration of feature gates
+ * Singleton class for handling the configuration of feature gates.
+ * By encapsulating the logic within the `FeatureGates` class and removing dependencies on configuration classes,
+ * we simplify the feature gate management and make it more maintainable.
+ * Making `FeatureGates` a singleton is beneficial because it is called from multiple parts of the code.
  */
 public class FeatureGates {
     /* test */ static final FeatureGates NONE = new FeatureGates();
@@ -35,6 +38,8 @@ public class FeatureGates {
 
     private static final FeatureProvider DEFAULT_PROVIDER = new EnvVarProvider();
 
+    private static FeatureGates instance;
+
     private final Client featureClient;
     private final FeatureProvider provider;
 
@@ -42,12 +47,51 @@ public class FeatureGates {
     private FeatureGate continueOnManualRUFailure;
 
     /**
+     * Returns the singleton instance of FeatureGates.
+     *
+     * @return FeatureGates singleton instance
+     */
+    public static synchronized FeatureGates getInstance() {
+        if (instance == null) {
+            instance = new FeatureGates();
+        }
+        return instance;
+    }
+
+    /**
+     * Returns the singleton instance of FeatureGates with specified configuration.
+     *
+     * @param featureGatesConfig config
+     * @return FeatureGates singleton instance
+     */
+    public static synchronized FeatureGates getInstance(String featureGatesConfig) {
+        if (instance == null) {
+            instance = new FeatureGates(featureGatesConfig);
+        }
+        return instance;
+    }
+
+    /**
+     * Returns the singleton instance of FeatureGates with specified configuration and evaluation context.
+     *
+     * @param featureGatesConfig config
+     * @param evaluationContext EvaluationContext
+     * @return FeatureGates singleton instance
+     */
+    public static synchronized FeatureGates getInstance(String featureGatesConfig, EvaluationContext evaluationContext) {
+        if (instance == null) {
+            instance = new FeatureGates(featureGatesConfig, evaluationContext);
+        }
+        return instance;
+    }
+
+    /**
      * Constructs the feature gates configuration.
      *
      * @param featureGatesConfig config
      * @param evaluationContext EvaluationContext
      */
-    public FeatureGates(String featureGatesConfig, final EvaluationContext evaluationContext) {
+    private FeatureGates(String featureGatesConfig, final EvaluationContext evaluationContext) {
         this.provider = getProviderFromEnv();
         OpenFeatureAPI.getInstance().setProvider(this.provider);
         this.featureClient = OpenFeatureAPI.getInstance().getClient();
@@ -78,7 +122,7 @@ public class FeatureGates {
      *
      * @param featureGatesConfig config
      */
-    public FeatureGates(final String featureGatesConfig) {
+    private FeatureGates(final String featureGatesConfig) {
         this(featureGatesConfig, null);
     }
 
@@ -86,7 +130,7 @@ public class FeatureGates {
      * Constructs the feature gates configuration.
      *
      */
-    public FeatureGates() {
+    private FeatureGates() {
         this(null, null);
     }
 
