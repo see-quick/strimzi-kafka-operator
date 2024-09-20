@@ -152,11 +152,11 @@ public class FeatureGatesTest {
             .fetchFeatureFlag(eq("ContinueReconciliationOnManualRollingUpdateFailure"), eq(true), eq(Boolean.class), eq(contextB));
 
         // Test with contextA where the flag should be enabled
-        spyFeatureGates.updateFeatureGateStatesOfKafka(contextA);
+        spyFeatureGates.maybeUpdateFeatureGateStatesOfKafka(contextA);
         assertTrue(spyFeatureGates.continueOnManualRUFailureEnabled(), "Feature should be enabled for contextA.");
 
         // Test with contextB where the flag should be disabled
-        spyFeatureGates.updateFeatureGateStatesOfKafka(contextB);
+        spyFeatureGates.maybeUpdateFeatureGateStatesOfKafka(contextB);
         assertFalse(spyFeatureGates.continueOnManualRUFailureEnabled(), "Feature should be disabled for contextB.");
     }
 

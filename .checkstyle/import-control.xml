@@ -77,6 +77,7 @@ We also control imports only in production classes and not in tests. This is con
         <allow class="io.strimzi.operator.common.Annotations" />
         <allow class="io.strimzi.operator.cluster.ClusterOperatorConfig" />
         <allow class="io.strimzi.operator.cluster.PlatformFeaturesAvailability" />
+        <allow class="io.strimzi.operator.common.featuregates.FeatureGates" />
 
         <!-- Other Strimzi projects -->
         <allow pkg="io.strimzi.kafka.oauth" />
@@ -100,5 +101,36 @@ We also control imports only in production classes and not in tests. This is con
         <allow class="io.strimzi.operator.common.Reconciliation" />
         <allow class="io.strimzi.operator.common.ReconciliationLogger" />
         <allow class="io.strimzi.operator.common.Util" />
+    </subpackage>
+
+    <subpackage name="operator.topic" strategyOnMismatch="disallowed">
+
+        <!-- Common libraries and Java classes -->
+        <allow pkg="java" />
+        <allow pkg="javax.naming" />
+        <allow pkg="javax.net.ssl" />
+        <allow pkg="org.apache.kafka.common" />
+        <allow pkg="org.apache.kafka.clients" />
+        <allow pkg="io.fabric8.kubernetes.api.model" />
+        <allow pkg="io.fabric8.kubernetes.client" />
+        <allow pkg="io.fabric8.kubernetes.client.admin" />
+        <allow pkg="io.fabric8.kubernetes.client.informers" />
+        <allow pkg="io.micrometer.core.instrument" />
+        <allow pkg="io.micrometer.prometheus" />
+        <allow pkg="edu.umd.cs.findbugs.annotations" />
+        <allow pkg="com.fasterxml.jackson" />
+        <allow pkg="org.apache.logging.log4j" />
+
+        <!-- Topic Operator pkg -->
+        <allow pkg="io.strimzi.operator.topic" />
+        <allow pkg="io.strimzi.operator.topic.model" />
+        <allow pkg="io.strimzi.operator.topic.metrics" />
+        <allow pkg="io.strimzi.operator.topic.cruisecontrol" />
+
+        <!-- Operator Common classes/pkg -->
+        <allow pkg="io.strimzi.operator.common" />
+        <allow pkg="io.strimzi.api.kafka.model" />
+        <allow pkg="io.strimzi.api.kafka" />
+        <allow class="io.strimzi.operator.common.featuregates.FeatureGates" />
     </subpackage>
 </import-control>

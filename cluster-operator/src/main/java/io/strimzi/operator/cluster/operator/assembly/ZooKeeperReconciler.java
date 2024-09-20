@@ -4,6 +4,7 @@
  */
 package io.strimzi.operator.cluster.operator.assembly;
 
+import dev.openfeature.sdk.MutableContext;
 import io.fabric8.kubernetes.api.model.ConfigMap;
 import io.fabric8.kubernetes.api.model.LocalObjectReference;
 import io.fabric8.kubernetes.api.model.PersistentVolumeClaim;
@@ -89,6 +90,8 @@ public class ZooKeeperReconciler {
     private final ImagePullPolicy imagePullPolicy;
     private final List<LocalObjectReference> imagePullSecrets;
     private final FeatureGates featureGates;
+    private final String clusterNamespace;
+    private final String clusterName;
 
     private final StatefulSetOperator stsOperator;
     private final StrimziPodSetOperator strimziPodSetOperator;
@@ -181,7 +184,8 @@ public class ZooKeeperReconciler {
         this.zooKeeperAdminProvider = supplier.zooKeeperAdminProvider;
 
         this.featureGates = FeatureGates.getInstance();
-        // TODO: add loggic to reconclier cause of flagD and other providers (this is just for env-var provider)
+        this.clusterNamespace = kafkaAssembly.getMetadata().getNamespace();
+        this.clusterName = kafkaAssembly.getMetadata().getName();
         this.continueOnManualRUFailure = this.featureGates.continueOnManualRUFailureEnabled();
     }
 
@@ -196,6 +200,26 @@ public class ZooKeeperReconciler {
      * @return              Future which completes when the reconciliation completes
      */
     public Future<Void> reconcile(KafkaStatus kafkaStatus, Clock clock)    {
+        // update feature gates
+        LOGGER.infoCr(reconciliation, "Update ZooKeeper feature gates: {}, and current value is: {}", this.featureGates.toEnvironmentVariable(), this.featureGates.continueOnManualRUFailureEnabled());
+
+        // context evaluator based on defined scheme in YAMLs (e.g., FeatureFlags in targeting section...)
+        final MutableContext evaluationContext = new MutableContext();
+
+        evaluationContext.add("clusterName", this.clusterName);
+        evaluationContext.add("namespace", this.clusterNamespace);
+
+        LOGGER.infoCr(reconciliation, "This is cluster name: {}", this.clusterName);
+        LOGGER.infoCr(reconciliation, "This is namespace name: {}", this.clusterNamespace);
+
+        LOGGER.infoCr(reconciliation, "This is cluster name from evaluation context: {}", evaluationContext.getValue("clusterName").asString());
+        LOGGER.infoCr(reconciliation, "This is namespace name from evaluation context: {}", evaluationContext.getValue("namespace").asString());
+
+        LOGGER.infoCr(reconciliation, "This is evaluation mutable context: {}", evaluationContext.asMap().toString());
+
+        this.featureGates.maybeUpdateFeatureGateStatesOfKafka(evaluationContext);
+        LOGGER.infoCr(reconciliation, "After update value is: {}", this.featureGates.continueOnManualRUFailureEnabled());
+
         return modelWarnings(kafkaStatus)
                 .compose(i -> initClientAuthenticationCertificates())
                 .compose(i -> jmxSecret())

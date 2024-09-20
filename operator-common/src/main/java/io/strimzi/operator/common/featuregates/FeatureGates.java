@@ -277,7 +277,7 @@ public class FeatureGates {
      *
      * @param evaluationContext evaluation context of the OpenFeature
      */
-    public void updateFeatureGateStatesOfKafka(final EvaluationContext evaluationContext) {
+    public void maybeUpdateFeatureGateStatesOfKafka(final EvaluationContext evaluationContext) {
         if (this.isEnvVarProvider()) {
             System.out.println("This is ENV VAR provider which is set in Kafka:))");
         } else {

@@ -9,6 +9,7 @@ import io.fabric8.kubernetes.client.informers.cache.ItemStore;
 import io.strimzi.api.kafka.model.topic.KafkaTopic;
 import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.ReconciliationLogger;
+import io.strimzi.operator.common.featuregates.FeatureGates;
 import io.strimzi.operator.topic.metrics.TopicOperatorMetricsHolder;
 import io.strimzi.operator.topic.model.KubeRef;
 import io.strimzi.operator.topic.model.ReconcilableTopic;
@@ -211,6 +212,10 @@ public class BatchingLoop {
                     // fill a new batch
                     fillBatch(batchId, batch);
                 }
+
+                // TODO: find a better place where to update
+                final FeatureGates featureGates = FeatureGates.getInstance();
+                featureGates.updateFeatureGateStates();
 
                 if (batch.size() > 0) {
                     LOGGER.infoOp("[Batch #{}] Reconciling batch of {} topics", batchId, batch.size());

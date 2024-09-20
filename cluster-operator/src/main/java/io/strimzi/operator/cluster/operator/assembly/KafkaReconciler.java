@@ -4,7 +4,6 @@
  */
 package io.strimzi.operator.cluster.operator.assembly;
 
-import dev.openfeature.sdk.EvaluationContext;
 import dev.openfeature.sdk.MutableContext;
 import io.fabric8.kubernetes.api.model.ConfigMap;
 import io.fabric8.kubernetes.api.model.LocalObjectReference;
@@ -132,6 +131,8 @@ public class KafkaReconciler {
     private final List<KafkaNodePool> kafkaNodePoolCrs;
     private final ClusterCa clusterCa;
     private final ClientsCa clientsCa;
+    private final String clusterNamespace;
+    private final String clusterName;
 
     // Tools for operating and managing various resources
     private final Vertx vertx;
@@ -154,7 +155,6 @@ public class KafkaReconciler {
     private final KubernetesRestartEventPublisher eventsPublisher;
     private final AdminClientProvider adminClientProvider;
     private final KafkaAgentClientProvider kafkaAgentClientProvider;
-    private final EvaluationContext evaluationContext;
     private final FeatureGates featureGates;
 
     // State of the reconciliation => these objects might change during the reconciliation (the collection objects are
@@ -240,22 +240,9 @@ public class KafkaReconciler {
         this.adminClientProvider = supplier.adminClientProvider;
         this.kafkaAgentClientProvider = supplier.kafkaAgentClientProvider;
 
-        // context evaluator based on defined scheme in YAMLs (e.g., FeatureFlags in targeting section...)
-        this.evaluationContext = new MutableContext();
-
-        ((MutableContext) this.evaluationContext).add("clusterName", kafkaCr.getMetadata().getName());
-        ((MutableContext) this.evaluationContext).add("namespace", kafkaCr.getMetadata().getNamespace());
-
-        LOGGER.infoCr(reconciliation, "This is cluster name: {}", kafkaCr.getMetadata().getName());
-        LOGGER.infoCr(reconciliation, "This is namespace name: {}", kafkaCr.getMetadata().getNamespace());
-
-        LOGGER.infoCr(reconciliation, "This is cluster name from evaluation context: {}", this.evaluationContext.getValue("clusterName").asString());
-        LOGGER.infoCr(reconciliation, "This is namespace name from evaluation context: {}", this.evaluationContext.getValue("namespace").asString());
-
-        LOGGER.infoCr(reconciliation, "This is evaluation mutable context: {}", this.evaluationContext.asMap().toString());
-
-        this.featureGates = FeatureGates.getInstance(null, this.evaluationContext);
-
+        this.featureGates = FeatureGates.getInstance();
+        this.clusterNamespace = kafkaCr.getMetadata().getNamespace();
+        this.clusterName = kafkaCr.getMetadata().getName();
         this.continueOnManualRUFailure = this.featureGates.continueOnManualRUFailureEnabled();
     }
 
@@ -272,7 +259,22 @@ public class KafkaReconciler {
     public Future<Void> reconcile(KafkaStatus kafkaStatus, Clock clock)    {
         // update feature gates
         LOGGER.infoCr(reconciliation, "Update Kafka feature gates: {}, and current value is: {}", this.featureGates.toEnvironmentVariable(), this.featureGates.continueOnManualRUFailureEnabled());
-        this.featureGates.updateFeatureGateStatesOfKafka(this.evaluationContext);
+
+        // context evaluator based on defined scheme in YAMLs (e.g., FeatureFlags in targeting section...)
+        final MutableContext evaluationContext = new MutableContext();
+
+        evaluationContext.add("clusterName", this.clusterName);
+        evaluationContext.add("namespace", this.clusterNamespace);
+
+        LOGGER.infoCr(reconciliation, "This is cluster name: {}", this.clusterName);
+        LOGGER.infoCr(reconciliation, "This is namespace name: {}", this.clusterNamespace);
+
+        LOGGER.infoCr(reconciliation, "This is cluster name from evaluation context: {}", evaluationContext.getValue("clusterName").asString());
+        LOGGER.infoCr(reconciliation, "This is namespace name from evaluation context: {}", evaluationContext.getValue("namespace").asString());
+
+        LOGGER.infoCr(reconciliation, "This is evaluation mutable context: {}", evaluationContext.asMap().toString());
+
+        this.featureGates.maybeUpdateFeatureGateStatesOfKafka(evaluationContext);
         LOGGER.infoCr(reconciliation, "After update value is: {}", this.featureGates.continueOnManualRUFailureEnabled());
 
         return modelWarnings(kafkaStatus)
