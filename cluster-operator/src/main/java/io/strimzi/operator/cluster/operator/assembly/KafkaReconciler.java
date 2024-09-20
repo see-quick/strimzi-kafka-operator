@@ -254,7 +254,7 @@ public class KafkaReconciler {
 
         LOGGER.infoCr(reconciliation, "This is evaluation mutable context: {}", this.evaluationContext.asMap().toString());
 
-        this.featureGates = new FeatureGates(null, this.evaluationContext);
+        this.featureGates = FeatureGates.getInstance(null, this.evaluationContext);
 
         this.continueOnManualRUFailure = this.featureGates.continueOnManualRUFailureEnabled();
     }

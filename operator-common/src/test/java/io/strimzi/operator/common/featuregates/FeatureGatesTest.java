@@ -31,8 +31,8 @@ public class FeatureGatesTest {
     @ParallelTest
     public void testIndividualFeatureGates() {
         for (FeatureGates.FeatureGate gate : FeatureGates.NONE.allFeatureGates()) {
-            FeatureGates enabled = new FeatureGates("+" + gate.getName());
-            FeatureGates disabled = new FeatureGates("-" + gate.getName());
+            FeatureGates enabled = FeatureGates.getInstance("+" + gate.getName());
+            FeatureGates disabled = FeatureGates.getInstance("-" + gate.getName());
 
             assertThat(enabled.allFeatureGates().stream().filter(g -> gate.getName().equals(g.getName())).findFirst().orElseThrow().isEnabled(), is(true));
             assertThat(disabled.allFeatureGates().stream().filter(g -> gate.getName().equals(g.getName())).findFirst().orElseThrow().isEnabled(), is(false));
@@ -49,12 +49,12 @@ public class FeatureGatesTest {
             allDisabled.add("-" + gate.getName());
         }
 
-        FeatureGates enabled = new FeatureGates(String.join(",", allEnabled));
+        FeatureGates enabled = FeatureGates.getInstance(String.join(",", allEnabled));
         for (FeatureGates.FeatureGate gate : enabled.allFeatureGates()) {
             assertThat(gate.isEnabled(), is(true));
         }
 
-        FeatureGates disabled = new FeatureGates(String.join(",", allDisabled));
+        FeatureGates disabled = FeatureGates.getInstance(String.join(",", allDisabled));
         for (FeatureGates.FeatureGate gate : disabled.allFeatureGates()) {
             assertThat(gate.isEnabled(), is(false));
         }
@@ -62,34 +62,34 @@ public class FeatureGatesTest {
 
     @ParallelTest
     public void testFeatureGatesParsing() {
-        assertThat(new FeatureGates("+ContinueReconciliationOnManualRollingUpdateFailure").continueOnManualRUFailureEnabled(), is(true));
-        assertThat(new FeatureGates("-ContinueReconciliationOnManualRollingUpdateFailure").continueOnManualRUFailureEnabled(), is(false));
-        assertThat(new FeatureGates("  -ContinueReconciliationOnManualRollingUpdateFailure    ").continueOnManualRUFailureEnabled(), is(false));
+        assertThat(FeatureGates.getInstance("+ContinueReconciliationOnManualRollingUpdateFailure").continueOnManualRUFailureEnabled(), is(true));
+        assertThat(FeatureGates.getInstance("-ContinueReconciliationOnManualRollingUpdateFailure").continueOnManualRUFailureEnabled(), is(false));
+        assertThat(FeatureGates.getInstance("  -ContinueReconciliationOnManualRollingUpdateFailure    ").continueOnManualRUFailureEnabled(), is(false));
         // TODO: Add more tests with various feature gate combinations once we have multiple feature gates again.
         //       The commented out code below shows the tests we used to have with multiple feature gates.
-        //assertThat(new FeatureGates("-UseKRaft,-ContinueReconciliationOnManualRollingUpdateFailure").useKRaftEnabled(), is(false));
-        //assertThat(new FeatureGates("-UseKRaft,-ContinueReconciliationOnManualRollingUpdateFailure").continueOnManualRUFailureEnabled(), is(false));
-        //assertThat(new FeatureGates("  +UseKRaft    ,    +ContinueReconciliationOnManualRollingUpdateFailure").useKRaftEnabled(), is(true));
-        //assertThat(new FeatureGates("  +UseKRaft    ,    +ContinueReconciliationOnManualRollingUpdateFailure").continueOnManualRUFailureEnabled(), is(true));
-        //assertThat(new FeatureGates("+ContinueReconciliationOnManualRollingUpdateFailure,-UseKRaft").useKRaftEnabled(), is(false));
-        //assertThat(new FeatureGates("+ContinueReconciliationOnManualRollingUpdateFailure,-UseKRaft").continueOnManualRUFailureEnabled(), is(true));
+        //assertThat(FeatureGates.getInstance("-UseKRaft,-ContinueReconciliationOnManualRollingUpdateFailure").useKRaftEnabled(), is(false));
+        //assertThat(FeatureGates.getInstance("-UseKRaft,-ContinueReconciliationOnManualRollingUpdateFailure").continueOnManualRUFailureEnabled(), is(false));
+        //assertThat(FeatureGates.getInstance("  +UseKRaft    ,    +ContinueReconciliationOnManualRollingUpdateFailure").useKRaftEnabled(), is(true));
+        //assertThat(FeatureGates.getInstance("  +UseKRaft    ,    +ContinueReconciliationOnManualRollingUpdateFailure").continueOnManualRUFailureEnabled(), is(true));
+        //assertThat(FeatureGates.getInstance("+ContinueReconciliationOnManualRollingUpdateFailure,-UseKRaft").useKRaftEnabled(), is(false));
+        //assertThat(FeatureGates.getInstance("+ContinueReconciliationOnManualRollingUpdateFailure,-UseKRaft").continueOnManualRUFailureEnabled(), is(true));
     }
 
     @ParallelTest
     public void testFeatureGatesEquals() {
-        FeatureGates fg = new FeatureGates("+ContinueReconciliationOnManualRollingUpdateFailure");
+        FeatureGates fg = FeatureGates.getInstance("+ContinueReconciliationOnManualRollingUpdateFailure");
         assertThat(fg, is(fg));
-        assertThat(fg, is(new FeatureGates("+ContinueReconciliationOnManualRollingUpdateFailure")));
-        assertThat(fg, is(not(new FeatureGates("-ContinueReconciliationOnManualRollingUpdateFailure"))));
+        assertThat(fg, is(FeatureGates.getInstance("+ContinueReconciliationOnManualRollingUpdateFailure")));
+        assertThat(fg, is(not(FeatureGates.getInstance("-ContinueReconciliationOnManualRollingUpdateFailure"))));
     }
 
     @ParallelTest
     public void testEmptyFeatureGates() {
         List<FeatureGates> emptyFeatureGates = List.of(
-                new FeatureGates(null),
-                new FeatureGates(""),
-                new FeatureGates("  "),
-                new FeatureGates("    "),
+                FeatureGates.getInstance(null),
+                FeatureGates.getInstance(""),
+                FeatureGates.getInstance("  "),
+                FeatureGates.getInstance("    "),
                 FeatureGates.NONE);
 
         for (FeatureGates fgs : emptyFeatureGates)  {
@@ -101,39 +101,39 @@ public class FeatureGatesTest {
 
     @ParallelTest
     public void testDuplicateFeatureGateWithSameValue() {
-        InvalidConfigurationException e = assertThrows(InvalidConfigurationException.class, () -> new FeatureGates("+ContinueReconciliationOnManualRollingUpdateFailure,+ContinueReconciliationOnManualRollingUpdateFailure"));
+        InvalidConfigurationException e = assertThrows(InvalidConfigurationException.class, () -> FeatureGates.getInstance("+ContinueReconciliationOnManualRollingUpdateFailure,+ContinueReconciliationOnManualRollingUpdateFailure"));
         assertThat(e.getMessage(), containsString("Feature gate ContinueReconciliationOnManualRollingUpdateFailure is configured multiple times"));
     }
 
     @ParallelTest
     public void testDuplicateFeatureGateWithDifferentValue() {
-        InvalidConfigurationException e = assertThrows(InvalidConfigurationException.class, () -> new FeatureGates("+ContinueReconciliationOnManualRollingUpdateFailure,-ContinueReconciliationOnManualRollingUpdateFailure"));
+        InvalidConfigurationException e = assertThrows(InvalidConfigurationException.class, () -> FeatureGates.getInstance("+ContinueReconciliationOnManualRollingUpdateFailure,-ContinueReconciliationOnManualRollingUpdateFailure"));
         assertThat(e.getMessage(), containsString("Feature gate ContinueReconciliationOnManualRollingUpdateFailure is configured multiple times"));
     }
 
     @ParallelTest
     public void testMissingSign() {
-        InvalidConfigurationException e = assertThrows(InvalidConfigurationException.class, () -> new FeatureGates("ContinueReconciliationOnManualRollingUpdateFailure"));
+        InvalidConfigurationException e = assertThrows(InvalidConfigurationException.class, () -> FeatureGates.getInstance("ContinueReconciliationOnManualRollingUpdateFailure"));
         assertThat(e.getMessage(), containsString("ContinueReconciliationOnManualRollingUpdateFailure is not a valid feature gate configuration"));
     }
 
     @ParallelTest
     public void testNonExistingGate() {
-        InvalidConfigurationException e = assertThrows(InvalidConfigurationException.class, () -> new FeatureGates("+RandomGate"));
+        InvalidConfigurationException e = assertThrows(InvalidConfigurationException.class, () -> FeatureGates.getInstance("+RandomGate"));
         assertThat(e.getMessage(), containsString("Unknown feature gate RandomGate found in the configuration"));
     }
 
     @ParallelTest
     public void testEnvironmentVariable()   {
-        assertThat(new FeatureGates("").toEnvironmentVariable(), is(""));
-        assertThat(new FeatureGates("-ContinueReconciliationOnManualRollingUpdateFailure").toEnvironmentVariable(), is("-ContinueReconciliationOnManualRollingUpdateFailure"));
-        assertThat(new FeatureGates("+ContinueReconciliationOnManualRollingUpdateFailure").toEnvironmentVariable(), is(""));
+        assertThat(FeatureGates.getInstance("").toEnvironmentVariable(), is(""));
+        assertThat(FeatureGates.getInstance("-ContinueReconciliationOnManualRollingUpdateFailure").toEnvironmentVariable(), is("-ContinueReconciliationOnManualRollingUpdateFailure"));
+        assertThat(FeatureGates.getInstance("+ContinueReconciliationOnManualRollingUpdateFailure").toEnvironmentVariable(), is(""));
     }
 
     @ParallelTest
     void testFeatureFlagWithDifferentContexts() {
         // Mock the isEnvVarProvider method to return false
-        FeatureGates spyFeatureGates = Mockito.spy(new FeatureGates(""));
+        FeatureGates spyFeatureGates = Mockito.spy(FeatureGates.getInstance(""));
         doReturn(false).when(spyFeatureGates).isEnvVarProvider();
 
         // Create different EvaluationContexts

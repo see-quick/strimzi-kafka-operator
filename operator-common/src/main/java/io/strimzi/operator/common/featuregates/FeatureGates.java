@@ -30,6 +30,9 @@ import static java.util.Arrays.asList;
 public class FeatureGates {
     /* test */ static final FeatureGates NONE = new FeatureGates();
 
+    /**
+     * Environment variable for configuration of the STRIMZI_FEATURE_GATES (only for ENV_VAR provider)
+     */
     public static final String STRIMZI_FEATURE_GATES_ENV = "STRIMZI_FEATURE_GATES";
 
     private static final String CONTINUE_ON_MANUAL_RU_FAILURE = "ContinueReconciliationOnManualRollingUpdateFailure";

@@ -104,7 +104,7 @@ public class UserControllerLoop extends AbstractControllerLoop {
 
         //  update the state of feature gates dynamically from FlagD
         FeatureGates.getInstance().updateFeatureGateStates();
-        LOGGER.infoCr(reconciliation, "Fetching from FlagD: continueOnManualRUFailureEnabled is enabled: {}", featureGates.continueOnManualRUFailureEnabled());
+        LOGGER.infoCr(reconciliation, "Fetching from FlagD: continueOnManualRUFailureEnabled is enabled: {}", FeatureGates.getInstance().continueOnManualRUFailureEnabled());
 
         KafkaUser user = userLister.namespace(reconciliation.namespace()).get(reconciliation.name());
 

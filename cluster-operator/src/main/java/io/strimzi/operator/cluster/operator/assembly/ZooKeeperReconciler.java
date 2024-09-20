@@ -180,7 +180,7 @@ public class ZooKeeperReconciler {
         this.zooLeaderFinder = supplier.zookeeperLeaderFinder;
         this.zooKeeperAdminProvider = supplier.zooKeeperAdminProvider;
 
-        this.featureGates = new FeatureGates();
+        this.featureGates = FeatureGates.getInstance();
         // TODO: add loggic to reconclier cause of flagD and other providers (this is just for env-var provider)
         this.continueOnManualRUFailure = this.featureGates.continueOnManualRUFailureEnabled();
     }
