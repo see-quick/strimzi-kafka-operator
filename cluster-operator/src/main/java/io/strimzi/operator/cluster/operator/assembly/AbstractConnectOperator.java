@@ -48,6 +48,7 @@ import io.strimzi.operator.common.Annotations;
 import io.strimzi.operator.common.BackOff;
 import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.ReconciliationLogger;
+import io.strimzi.operator.common.featuregates.FeatureGates;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.model.OrderedProperties;
 import io.strimzi.operator.common.model.StatusDiff;
@@ -150,9 +151,7 @@ public abstract class AbstractConnectOperator<C extends KubernetesClient, T exte
         this.versions = config.versions();
         this.sharedEnvironmentProvider = supplier.sharedEnvironmentProvider;
         this.port = port;
-        // TODO: ConnectOperator using ClusterOperator config feature gates defined so basically here we can't use instance of FeatureGates
-        //  because it would use the new instance...we should have basically a singleton FeatureGates for ClusterOperator instance I think??
-        this.continueOnManualRUFailure = false; // config.featureGates().continueOnManualRUFailureEnabled();
+        this.continueOnManualRUFailure = FeatureGates.getInstance().continueOnManualRUFailureEnabled();
     }
 
     @Override

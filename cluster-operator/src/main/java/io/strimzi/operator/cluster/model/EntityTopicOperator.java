@@ -29,6 +29,7 @@ import io.strimzi.operator.cluster.model.logging.SupportsLogging;
 import io.strimzi.operator.cluster.model.securityprofiles.ContainerSecurityProviderContextImpl;
 import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.Util;
+import io.strimzi.operator.common.featuregates.FeatureGates;
 import io.strimzi.operator.common.model.PasswordGenerator;
 
 import java.util.ArrayList;
@@ -148,8 +149,7 @@ public class EntityTopicOperator extends AbstractModel implements SupportsLoggin
             
             result.cruiseControlEnabled = kafkaAssembly.getSpec().getCruiseControl() != null;
             result.rackAwarenessEnabled = result.cruiseControlEnabled && kafkaAssembly.getSpec().getKafka().getRack() != null;
-            // TODO: here ENtityTopicOperator inherits feature gates from ClusterOperator??? :)
-            result.featureGatesEnvVarValue = null; // config.featureGates().toEnvironmentVariable();
+            result.featureGatesEnvVarValue = FeatureGates.getInstance().toEnvironmentVariable();
 
             return result;
         } else {
