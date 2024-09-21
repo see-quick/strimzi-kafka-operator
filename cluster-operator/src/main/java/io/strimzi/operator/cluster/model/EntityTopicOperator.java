@@ -196,8 +196,7 @@ public class EntityTopicOperator extends AbstractModel implements SupportsLoggin
 
         // Add feature gates configuration if not empty
         if (featureGatesEnvVarValue != null && !featureGatesEnvVarValue.isEmpty()) {
-            // TODO: Disallowed import - io.strimzi.operator.common.featuregates.FeatureGates.
-            varList.add(ContainerUtils.createEnvVar("STRIMZI_FEATURE_GATES", featureGatesEnvVarValue));
+            varList.add(ContainerUtils.createEnvVar(FeatureGates.STRIMZI_FEATURE_GATES_ENV, featureGatesEnvVarValue));
         }
 
         // Add environment variables required for Cruise Control integration
