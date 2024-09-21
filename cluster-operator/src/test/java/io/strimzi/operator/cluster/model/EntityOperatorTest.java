@@ -45,6 +45,7 @@ import io.strimzi.operator.cluster.KafkaVersionTestUtils;
 import io.strimzi.operator.cluster.ResourceUtils;
 import io.strimzi.operator.common.Annotations;
 import io.strimzi.operator.common.Reconciliation;
+import io.strimzi.operator.common.featuregates.FeatureGates;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.test.TestUtils;
 import io.strimzi.test.annotations.ParallelSuite;
@@ -785,14 +786,14 @@ public class EntityOperatorTest {
     @ParallelTest
     public void testFeatureGateEnvVars() {
         ClusterOperatorConfig config = new ClusterOperatorConfig.ClusterOperatorConfigBuilder(ResourceUtils.dummyClusterOperatorConfig(), VERSIONS)
-                .with("STRIMZI_FEATURE_GATES", "-ContinueReconciliationOnManualRollingUpdateFailure")
+                .with(FeatureGates.STRIMZI_FEATURE_GATES_ENV, "-ContinueReconciliationOnManualRollingUpdateFailure")
                 .build();
 
         EntityOperator eo = EntityOperator.fromCrd(new Reconciliation("test", KAFKA.getKind(), KAFKA.getMetadata().getNamespace(), KAFKA.getMetadata().getName()), KAFKA, SHARED_ENV_PROVIDER, config);
         Deployment dep = eo.generateDeployment(Map.of(), false, null, null);
 
-        assertThat(dep.getSpec().getTemplate().getSpec().getContainers().get(0).getEnv().stream().filter(env -> "STRIMZI_FEATURE_GATES".equals(env.getName())).map(EnvVar::getValue).findFirst().orElseThrow(), is("-ContinueReconciliationOnManualRollingUpdateFailure"));
-        assertThat(dep.getSpec().getTemplate().getSpec().getContainers().get(1).getEnv().stream().filter(env -> "STRIMZI_FEATURE_GATES".equals(env.getName())).map(EnvVar::getValue).findFirst().orElseThrow(), is("-ContinueReconciliationOnManualRollingUpdateFailure"));
+        assertThat(dep.getSpec().getTemplate().getSpec().getContainers().get(0).getEnv().stream().filter(env -> FeatureGates.STRIMZI_FEATURE_GATES_ENV.equals(env.getName())).map(EnvVar::getValue).findFirst().orElseThrow(), is("-ContinueReconciliationOnManualRollingUpdateFailure"));
+        assertThat(dep.getSpec().getTemplate().getSpec().getContainers().get(1).getEnv().stream().filter(env -> FeatureGates.STRIMZI_FEATURE_GATES_ENV.equals(env.getName())).map(EnvVar::getValue).findFirst().orElseThrow(), is("-ContinueReconciliationOnManualRollingUpdateFailure"));
     }
 
     ////////////////////

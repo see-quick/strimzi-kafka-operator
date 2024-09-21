@@ -53,6 +53,7 @@ import io.strimzi.operator.cluster.operator.resource.kubernetes.ServiceOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.StrimziPodSetOperator;
 import io.strimzi.operator.common.Annotations;
 import io.strimzi.operator.common.Reconciliation;
+import io.strimzi.operator.common.featuregates.FeatureGates;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.model.OrderedProperties;
 import io.strimzi.operator.common.operator.resource.ReconcileResult;
@@ -2230,7 +2231,7 @@ public class KafkaConnectAssemblyOperatorPodSetTest {
         ArgumentCaptor<KafkaConnect> connectCaptor = ArgumentCaptor.forClass(KafkaConnect.class);
         when(mockConnectOps.updateStatusAsync(any(), connectCaptor.capture())).thenReturn(Future.succeededFuture());
 
-        ClusterOperatorConfig coConfig = new ClusterOperatorConfig.ClusterOperatorConfigBuilder(ResourceUtils.dummyClusterOperatorConfig(), VERSIONS).with("STRIMZI_FEATURE_GATES", "-ContinueReconciliationOnManualRollingUpdateFailure").build();
+        ClusterOperatorConfig coConfig = new ClusterOperatorConfig.ClusterOperatorConfigBuilder(ResourceUtils.dummyClusterOperatorConfig(), VERSIONS).with(FeatureGates.STRIMZI_FEATURE_GATES_ENV, "-ContinueReconciliationOnManualRollingUpdateFailure").build();
         KafkaConnectAssemblyOperator ops = new KafkaConnectAssemblyOperator(
                 vertx,
                 new PlatformFeaturesAvailability(false, KUBERNETES_VERSION),

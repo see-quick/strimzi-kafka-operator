@@ -10,6 +10,7 @@ import io.strimzi.operator.cluster.leaderelection.LeaderElectionManagerConfig;
 import io.strimzi.operator.cluster.model.ImagePullPolicy;
 import io.strimzi.operator.cluster.model.UnsupportedVersionException;
 import io.strimzi.operator.common.InvalidConfigurationException;
+import io.strimzi.operator.common.featuregates.FeatureGates;
 import io.strimzi.operator.common.model.Labels;
 import org.junit.jupiter.api.Test;
 
@@ -327,7 +328,7 @@ public class ClusterOperatorConfigTest {
         // We test that the configuration is really parsing the feature gates environment variable. We test it on
         // non-existing feature gate instead of a real one so that we do not have to change it when the FGs are promoted
         Map<String, String> envVars = new HashMap<>(ClusterOperatorConfigTest.ENV_VARS);
-        envVars.put("STRIMZI_FEATURE_GATES", "-NonExistingGate");
+        envVars.put(FeatureGates.STRIMZI_FEATURE_GATES_ENV, "-NonExistingGate");
 
         InvalidConfigurationException e = assertThrows(InvalidConfigurationException.class, () -> ClusterOperatorConfig.buildFromMap(envVars, KafkaVersionTestUtils.getKafkaVersionLookup()));
         assertThat(e.getMessage(), containsString("Unknown feature gate NonExistingGate found in the configuration"));

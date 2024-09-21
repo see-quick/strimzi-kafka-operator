@@ -81,6 +81,7 @@ import io.strimzi.operator.common.MicrometerMetricsProvider;
 import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.auth.PemAuthIdentity;
 import io.strimzi.operator.common.auth.PemTrustSet;
+import io.strimzi.operator.common.featuregates.FeatureGates;
 import io.strimzi.operator.common.model.Ca;
 import io.strimzi.operator.common.model.Labels;
 import io.vertx.core.Future;
@@ -671,7 +672,7 @@ public class ResourceUtils {
 
     public static ClusterOperatorConfig dummyClusterOperatorConfig(String featureGates) {
         return new ClusterOperatorConfigBuilder(dummyClusterOperatorConfig(), KafkaVersionTestUtils.getKafkaVersionLookup())
-                .with("STRIMZI_FEATURE_GATES", featureGates)
+                .with(FeatureGates.STRIMZI_FEATURE_GATES_ENV, featureGates)
                 .build();
     }
 }

@@ -1,0 +1,26 @@
+apiVersion: core.openfeature.dev/v1beta1
+kind: FeatureFlag
+metadata:
+  name: strimzi-feature-gates-flags
+  labels:
+    app: strimzi-feature-gates
+spec:
+  flagSpec:
+    flags:
+      ContinueReconciliationOnManualRollingUpdateFailure:
+        variants:
+          'on': true
+          'off': false
+        defaultVariant: 'on'
+        state: ENABLED
+        targeting:
+          if:
+           - and:
+               - "==":
+                 - var: clusterName
+                 - "my-cluster"
+               - "==":
+                 - var: namespace
+                 - "myproject"
+           - "off"
+           - "on"

@@ -49,6 +49,7 @@ import io.strimzi.operator.cluster.operator.resource.kubernetes.ServiceOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.StrimziPodSetOperator;
 import io.strimzi.operator.common.Annotations;
 import io.strimzi.operator.common.Reconciliation;
+import io.strimzi.operator.common.featuregates.FeatureGates;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.model.OrderedProperties;
 import io.strimzi.operator.common.operator.resource.ReconcileResult;
@@ -1523,7 +1524,7 @@ public class KafkaMirrorMaker2AssemblyOperatorPodSetTest {
         when(mockConnectClient.list(any(), anyString(), anyInt())).thenReturn(Future.succeededFuture(emptyList()));
         when(mockConnectClient.updateConnectLoggers(any(), anyString(), anyInt(), anyString(), any(OrderedProperties.class))).thenReturn(Future.succeededFuture());
 
-        ClusterOperatorConfig coConfig = new ClusterOperatorConfig.ClusterOperatorConfigBuilder(ResourceUtils.dummyClusterOperatorConfig(), VERSIONS).with("STRIMZI_FEATURE_GATES", "-ContinueReconciliationOnManualRollingUpdateFailure").build();
+        ClusterOperatorConfig coConfig = new ClusterOperatorConfig.ClusterOperatorConfigBuilder(ResourceUtils.dummyClusterOperatorConfig(), VERSIONS).with(FeatureGates.STRIMZI_FEATURE_GATES_ENV, "-ContinueReconciliationOnManualRollingUpdateFailure").build();
         KafkaMirrorMaker2AssemblyOperator ops = new KafkaMirrorMaker2AssemblyOperator(
                 vertx,
                 new PlatformFeaturesAvailability(false, KUBERNETES_VERSION),
