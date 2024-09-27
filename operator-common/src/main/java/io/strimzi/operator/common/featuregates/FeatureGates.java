@@ -57,6 +57,8 @@ public class FeatureGates {
     public static synchronized FeatureGates getInstance() {
         if (instance == null) {
             instance = new FeatureGates();
+            // add client hook to run all evaluations of this client
+            instance.featureClient.addHooks(new FeatureFlagDebugHook());
         }
         return instance;
     }
@@ -70,20 +72,8 @@ public class FeatureGates {
     public static synchronized FeatureGates getInstance(String featureGatesConfig) {
         if (instance == null) {
             instance = new FeatureGates(featureGatesConfig);
-        }
-        return instance;
-    }
-
-    /**
-     * Returns the singleton instance of FeatureGates with specified configuration and evaluation context.
-     *
-     * @param featureGatesConfig config
-     * @param evaluationContext EvaluationContext
-     * @return FeatureGates singleton instance
-     */
-    public static synchronized FeatureGates getInstance(String featureGatesConfig, EvaluationContext evaluationContext) {
-        if (instance == null) {
-            instance = new FeatureGates(featureGatesConfig, evaluationContext);
+            // add client hook to run all evaluations of this client
+            instance.featureClient.addHooks(new FeatureFlagDebugHook());
         }
         return instance;
     }
@@ -92,9 +82,8 @@ public class FeatureGates {
      * Constructs the feature gates configuration.
      *
      * @param featureGatesConfig config
-     * @param evaluationContext EvaluationContext
      */
-    private FeatureGates(String featureGatesConfig, final EvaluationContext evaluationContext) {
+    private FeatureGates(String featureGatesConfig) {
         this.provider = getProviderFromEnv();
         OpenFeatureAPI.getInstance().setProvider(this.provider);
         this.featureClient = OpenFeatureAPI.getInstance().getClient();
@@ -109,9 +98,7 @@ public class FeatureGates {
             validateFeatureGateConfig(featureGatesConfig);
         } else {
             // other providers (e.g., flagd)
-            this.continueOnManualRUFailure = evaluationContext != null ?
-                new FeatureGate(CONTINUE_ON_MANUAL_RU_FAILURE, fetchFeatureFlag(CONTINUE_ON_MANUAL_RU_FAILURE, false, Boolean.class, evaluationContext)) :
-                new FeatureGate(CONTINUE_ON_MANUAL_RU_FAILURE, fetchFeatureFlag(CONTINUE_ON_MANUAL_RU_FAILURE, false, Boolean.class));
+            this.continueOnManualRUFailure = new FeatureGate(CONTINUE_ON_MANUAL_RU_FAILURE, fetchFeatureFlag(CONTINUE_ON_MANUAL_RU_FAILURE, false, Boolean.class));
         }
 
         System.out.println("Constructor was called and value of ContinueReconciliationOnManualRollingUpdateFailure is: " + this.continueOnManualRUFailureEnabled());
@@ -123,18 +110,9 @@ public class FeatureGates {
     /**
      * Constructs the feature gates configuration.
      *
-     * @param featureGatesConfig config
-     */
-    private FeatureGates(final String featureGatesConfig) {
-        this(featureGatesConfig, null);
-    }
-
-    /**
-     * Constructs the feature gates configuration.
-     *
      */
     private FeatureGates() {
-        this(null, null);
+        this(null);
     }
 
     /**
@@ -268,7 +246,11 @@ public class FeatureGates {
         } else {
             System.out.println("Not an ENV VAR provider is set and it's FlagD :))");
             // update multiple times cause
-            this.continueOnManualRUFailure.setValue(fetchFeatureFlag(CONTINUE_ON_MANUAL_RU_FAILURE, false, Boolean.class));
+            this.continueOnManualRUFailure.setValue(
+                fetchFeatureFlag(
+                    CONTINUE_ON_MANUAL_RU_FAILURE,
+                    false,
+                    Boolean.class));
         }
     }
 
@@ -290,21 +272,6 @@ public class FeatureGates {
                     Boolean.class,
                     evaluationContext));
         }
-    }
-
-    /**
-     * Sets the feature gate value if it was not set yet. But if it is already set, then it throws an exception. This
-     * helps to ensure that each feature gate is configured always only once.
-     *
-     * @param gate  Feature gate which is being configured
-     * @param value Value which should be set
-     */
-    private void setValueOnlyOnce(FeatureGate gate, boolean value) {
-        if (gate.isSet()) {
-            throw new InvalidConfigurationException("Feature gate " + gate.getName() + " is configured multiple times");
-        }
-
-        gate.setValue(value);
     }
 
     /* test */ boolean isEnvVarProvider() {

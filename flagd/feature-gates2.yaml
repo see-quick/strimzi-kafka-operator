@@ -13,14 +13,3 @@ spec:
           'off': false
         defaultVariant: 'on'
         state: ENABLED
-        targeting:
-          if:
-           - and:
-               - "==":
-                 - var: clusterName
-                 - "my-cluster"
-               - "==":
-                 - var: namespace
-                 - "myproject"
-           - "on"
-           - "off"

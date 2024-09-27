@@ -3,7 +3,7 @@ kind: FeatureFlag
 metadata:
   name: strimzi-feature-gates-flags
   labels:
-    app: strimzi-feature-gates
+    app: strimzi-feature-flags
 spec:
   flagSpec:
     flags:
@@ -11,16 +11,16 @@ spec:
         variants:
           'on': true
           'off': false
-        defaultVariant: 'on'
+        defaultVariant: 'off'
         state: ENABLED
         targeting:
           if:
-           - and:
+            - or:
                - "==":
-                 - var: clusterName
-                 - "my-cluster"
+                  - var: clusterName
+                  - "my-cluster"
                - "==":
-                 - var: namespace
-                 - "myproject"
-           - "on"
-           - "off"
+                  - var: clusterName
+                  - "my-cluster-2"
+            - "on"
+            - "off"

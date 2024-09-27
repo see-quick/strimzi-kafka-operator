@@ -10,9 +10,3 @@ spec:
   sources:
     - source: strimzi-feature-gates-flags
       provider: kubernetes
-    - source: kafka-cluster-feature-flags
-      provider: kubernetes
-    - source: sample-flags
-      provider: kubernetes
-    - source: my-feature-flag
-      provider: kubernetes
