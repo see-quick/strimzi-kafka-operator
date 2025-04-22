@@ -44,7 +44,7 @@ public class QuotasCache extends AbstractCache<KafkaUserQuotas> {
      * @return  ConcurrentHashMap with all users and their Quotas
      */
     @Override
-    protected ConcurrentHashMap<String, KafkaUserQuotas> loadCache() {
+    public ConcurrentHashMap<String, KafkaUserQuotas> loadCache() {
         KafkaFuture<Map<ClientQuotaEntity, Map<String, Double>>> futureQuotas = adminClient.describeClientQuotas(ClientQuotaFilter.all()).entities();
 
         try {
