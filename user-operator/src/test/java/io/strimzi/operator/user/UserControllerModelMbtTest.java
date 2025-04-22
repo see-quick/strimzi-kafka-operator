@@ -111,6 +111,7 @@ public class UserControllerModelMbtTest {
         );
         InvariantChecker invariants = new InvariantChecker(kafkaUserOps, secretOperator);
 
+        kafkaUserOperator.start();
         controller.start();
 
         try {
@@ -324,7 +325,6 @@ public class UserControllerModelMbtTest {
 
         // Without calling start(), the QuotasOperator would not initialize its cache nor trigger periodic quota refreshes → reconciliations would fail or work incorrectly.
         quotasOperator = new QuotasOperator(adminClient, config, ForkJoinPool.commonPool());
-        quotasOperator.start();
 
         SimpleAclOperator aclOperator = Mockito.mock(SimpleAclOperator.class);
         when(aclOperator.reconcile(any(), any(), any()))
@@ -358,9 +358,6 @@ public class UserControllerModelMbtTest {
         }
         if (kafkaUserOperator != null) {
             kafkaUserOperator.stop();
-        }
-        if (quotasOperator != null) {
-            quotasOperator.stop();
         }
     }
 
