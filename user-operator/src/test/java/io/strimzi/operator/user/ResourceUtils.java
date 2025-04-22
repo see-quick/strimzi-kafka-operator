@@ -4,6 +4,8 @@
  */
 package io.strimzi.operator.user;
 
+import com.dajudge.kindcontainer.client.config.User;
+import io.fabric8.kubernetes.api.model.ObjectMetaBuilder;
 import io.fabric8.kubernetes.api.model.Secret;
 import io.fabric8.kubernetes.api.model.SecretBuilder;
 import io.strimzi.api.kafka.model.user.KafkaUser;
@@ -13,6 +15,7 @@ import io.strimzi.api.kafka.model.user.KafkaUserBuilder;
 import io.strimzi.api.kafka.model.user.KafkaUserQuotas;
 import io.strimzi.api.kafka.model.user.KafkaUserQuotasBuilder;
 import io.strimzi.api.kafka.model.user.KafkaUserScramSha512ClientAuthentication;
+import io.strimzi.api.kafka.model.user.KafkaUserSpec;
 import io.strimzi.api.kafka.model.user.KafkaUserTlsClientAuthentication;
 import io.strimzi.api.kafka.model.user.acl.AclOperation;
 import io.strimzi.api.kafka.model.user.acl.AclRule;
@@ -21,6 +24,7 @@ import io.strimzi.operator.user.UserOperatorConfig.UserOperatorConfigBuilder;
 import io.strimzi.operator.user.model.KafkaUserModel;
 import io.strimzi.operator.user.model.acl.SimpleAclRule;
 
+import javax.print.attribute.standard.MediaSize;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
@@ -63,6 +67,16 @@ public class ResourceUtils {
                       .with(UserOperatorConfig.USER_OPERATIONS_THREAD_POOL_SIZE.key(), String.valueOf(poolSize))
                       .build();
     }
+
+    public static UserOperatorConfig createUserOperatorConfigForUserControllerTesting(String namespace, Map<String, String> labels, int fullReconciliationInterval, int queueSize, int poolSize, String secretPrefix, int threadControllerSize) {
+        return new UserOperatorConfigBuilder(createUserOperatorConfig(namespace, labels, false, "32", secretPrefix))
+            .with(UserOperatorConfig.RECONCILIATION_INTERVAL_MS.key(), String.valueOf(fullReconciliationInterval))
+            .with(UserOperatorConfig.WORK_QUEUE_SIZE.key(), String.valueOf(queueSize))
+            .with(UserOperatorConfig.USER_OPERATIONS_THREAD_POOL_SIZE.key(), String.valueOf(poolSize))
+            .with(UserOperatorConfig.CONTROLLER_THREAD_POOL_SIZE.key(), String.valueOf(threadControllerSize))
+            .build();
+    }
+
 
     public static UserOperatorConfig createUserOperatorConfig(String namespace) {
         return createUserOperatorConfig(namespace, Map.of(), true, "32", null);
@@ -139,6 +153,36 @@ public class ResourceUtils {
         return createKafkaUser(namespace, new KafkaUserTlsClientAuthentication());
     }
 
+    public static KafkaUser createKafkaUserTls(String namespace, String username) {
+        KafkaUser user = new KafkaUserBuilder()
+            .withNewMetadata()
+                .withLabels(Labels.forStrimziCluster("my-cluster").toMap())
+                .withName(username)
+                .withNamespace(namespace)
+            .endMetadata()
+            .withNewSpec()
+                .withAuthentication(new KafkaUserTlsClientAuthentication())
+            .endSpec()
+            .build();
+        return user;
+    }
+
+    public static KafkaUser createKafkaUserWithQuotas(String namespace, String username,  KafkaUserQuotas quotas) {
+        KafkaUser user = new KafkaUserBuilder()
+            .withNewMetadata()
+                .withLabels(Labels.forStrimziCluster("my-cluster").toMap())
+                .withName(username)
+                .withNamespace(namespace)
+            .endMetadata()
+            .withNewSpec()
+                // tls
+                .withAuthentication(new KafkaUserTlsClientAuthentication())
+                .withQuotas(quotas)
+            .endSpec()
+            .build();
+        return user;
+    }
+
     public static KafkaUser createKafkaUserScramSha(String namespace) {
         return createKafkaUser(namespace, new KafkaUserScramSha512ClientAuthentication());
     }
@@ -174,15 +218,15 @@ public class ResourceUtils {
                 .build();
     }
 
-    public static Secret createUserSecretTls(String namespace)  {
+    public static Secret createUserSecretTls(String namespace, String name)  {
         return new SecretBuilder()
                 .withNewMetadata()
-                    .withName(NAME)
+                    .withName(name)
                     .withNamespace(namespace)
                     .withLabels(Labels.fromMap(LABELS)
                         .withKubernetesName(KafkaUserModel.KAFKA_USER_OPERATOR_NAME)
-                        .withKubernetesInstance(NAME)
-                        .withKubernetesPartOf(NAME)
+                        .withKubernetesInstance(name)
+                        .withKubernetesPartOf(name)
                         .withKubernetesManagedBy(KafkaUserModel.KAFKA_USER_OPERATOR_NAME)
                         .withStrimziKind(KafkaUser.RESOURCE_KIND)
                         .toMap())
@@ -193,6 +237,10 @@ public class ResourceUtils {
                 .addToData("user.p12", Base64.getEncoder().encodeToString("expected-p12".getBytes()))
                 .addToData("user.password", Base64.getEncoder().encodeToString("expected-password".getBytes()))
                 .build();
+    }
+
+    public static Secret createUserSecretTls(String namespace)  {
+        return createUserSecretTls(namespace, NAME);
     }
 
     public static Secret createUserSecretScramSha(String namespace)  {
