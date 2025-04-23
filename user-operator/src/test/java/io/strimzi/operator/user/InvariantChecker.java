@@ -1,10 +1,12 @@
 package io.strimzi.operator.user;
 
+import io.fabric8.kubernetes.api.model.Secret;
 import io.strimzi.api.kafka.model.user.KafkaUser;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.operator.resource.concurrent.CrdOperator;
 import io.strimzi.operator.common.operator.resource.concurrent.SecretOperator;
 
+import java.sql.SQLOutput;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -26,25 +28,41 @@ public class InvariantChecker {
         assertTrue(controller.isAlive(), "❌ Controller is not alive!");
     }
 
-    public void assertUserConsistency(String namespace, String username) throws InterruptedException {
+    public void assertUserConsistency(String namespace, String username) {
         if (username == null || username.isBlank()) {
             System.out.println("⚠️ Skipping invariant check: username is null or blank");
             return;
         }
 
-        KafkaUser user = kafkaUserOps.get(namespace, username);
-        if (user != null && user.getStatus() != null && user.getStatus().getConditions() != null) {
-            boolean isReady = user.getStatus().getConditions().stream()
-                .anyMatch(c -> "Ready".equals(c.getType()) && "True".equals(c.getStatus()));
+        KafkaUser ku = kafkaUserOps.get(namespace, username);
 
-            if (isReady) {
-                waitUntilSecretExists(namespace, username, 5000);
-                boolean secretExists = secretOperator.get(namespace, username) != null;
-                assertTrue(secretExists, "❌ KafkaUser '" + username + "' is Ready but Secret is missing");
+        if (ku != null && "Ready".equals(statusOf(ku))) {
+            if (requiresSecret(ku)) {
+                Secret secret = secretOperator.get(namespace, username);
+                assertTrue(secret != null, "❌ KafkaUser '" + username + "' is Ready but Secret is missing");
+            } else {
+                System.out.println("ℹ️ KafkaUser " + username + "' is Ready and does not require a Secret (authentication is none or tls-external)");
             }
-        } else {
-            System.out.printf("ℹ️ KafkaUser '%s' does not exist or is missing status%n", username);
         }
+    }
+
+    private boolean requiresSecret(KafkaUser ku) {
+        if (ku.getSpec() == null || ku.getSpec().getAuthentication() == null) {
+            return false; // No authentication -> no Secret needed
+        }
+
+        String authType = ku.getSpec().getAuthentication().getType();
+        return "tls".equalsIgnoreCase(authType) || "scram-sha-512".equalsIgnoreCase(authType);
+    }
+
+    private String statusOf(KafkaUser ku) {
+        return ku.getStatus() != null && ku.getStatus().getConditions() != null
+            ? ku.getStatus().getConditions().stream()
+            .filter(c -> "Ready".equals(c.getType()))
+            .findFirst()
+            .map(c -> c.getStatus())
+            .orElse(null)
+            : null;
     }
 
     public void assertSecretsConsistency(String namespace) {
@@ -53,12 +71,16 @@ public class InvariantChecker {
             .collect(Collectors.toSet());
 
         kafkaUserOps.list(namespace, kafkaUserLabels).forEach(user -> {
-            boolean created = user.getStatus() != null && user.getStatus().getConditions().stream()
+            boolean ready = user.getStatus() != null && user.getStatus().getConditions().stream()
                 .anyMatch(c -> "Ready".equals(c.getType()) && "True".equals(c.getStatus()));
 
-            if (created) {
-                assertTrue(secretNames.contains(user.getMetadata().getName()),
-                    "❌ Secret missing for Ready KafkaUser: " + user.getMetadata().getName());
+            if (ready) {
+                if (requiresSecret(user)) {
+                    assertTrue(secretNames.contains(user.getMetadata().getName()),
+                        "❌ Secret missing for Ready KafkaUser that requires a Secret: " + user.getMetadata().getName());
+                } else {
+                    System.out.println("ℹ️ Ready KafkaUser '" + user.getMetadata().getName() + "' does not require a Secret (authentication is none or tls-external)");
+                }
             }
         });
     }
