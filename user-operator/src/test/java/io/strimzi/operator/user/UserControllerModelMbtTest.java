@@ -4,14 +4,22 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.fabric8.kubernetes.api.model.Secret;
 import io.fabric8.kubernetes.api.model.SecretBuilder;
+import io.fabric8.kubernetes.api.model.SecretList;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.strimzi.api.kafka.model.common.Password;
+import io.strimzi.api.kafka.model.common.PasswordBuilder;
 import io.strimzi.api.kafka.model.user.KafkaUser;
+import io.strimzi.api.kafka.model.user.KafkaUserBuilder;
 import io.strimzi.api.kafka.model.user.KafkaUserList;
 import io.strimzi.api.kafka.model.user.KafkaUserQuotasBuilder;
+import io.strimzi.api.kafka.model.user.KafkaUserScramSha512ClientAuthentication;
+import io.strimzi.api.kafka.model.user.KafkaUserScramSha512ClientAuthenticationBuilder;
+import io.strimzi.api.kafka.model.user.KafkaUserTlsClientAuthentication;
 import io.strimzi.certs.CertManager;
 import io.strimzi.operator.common.MetricsProvider;
 import io.strimzi.operator.common.MicrometerMetricsProvider;
+import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.operator.MockCertManager;
 import io.strimzi.operator.common.operator.resource.concurrent.CrdOperator;
 import io.strimzi.operator.common.operator.resource.concurrent.SecretOperator;
@@ -57,6 +65,12 @@ import static org.hamcrest.Matchers.notNullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
+// TODO: Issues found (not sure if these are real bugs or expected behavior):
+// 1. When a user is created with authType 'none' and later updated to 'scramsha' or 'tls',
+//    the corresponding Secret is not created.
+// 2. In the trace sequence (e.g., traces2.json), repeated updates and deletes for user 'bob'
+//    can lead to a timeout when trying to recreate 'bob' later.
+//    → Results in: Timeout after 15000 ms waiting for KafkaUser bob to become Ready
 public class UserControllerModelMbtTest {
     private static final Logger LOGGER = LogManager.getLogger(UserControllerModelMbtTest.class);
     private static final Random RANDOM = new Random();
@@ -121,55 +135,34 @@ public class UserControllerModelMbtTest {
 
                 // TODO: pick also numbers from model (i.e., quotas parametsrs stutff from Quint...)
 
-                // extract nondetPick (username)
                 String username = null;
+                String authType = null;
+                Boolean quotasEnabled = null;
+
                 Map<String, Object> nondet = (Map<String, Object>) state.get("mbt::nondetPicks");
-                if (nondet != null && nondet.get("u") instanceof Map<?,?> uMap && "Some".equals(uMap.get("tag"))) {
-                    username = ((String) uMap.get("value")).toLowerCase(Locale.ROOT);
+                if (nondet != null) {
+                    if (nondet.get("u") instanceof Map<?,?> uMap && "Some".equals(uMap.get("tag"))) {
+                        username = ((String) uMap.get("value")).toLowerCase(Locale.ROOT);
+                    }
+                    if (nondet.get("authType") instanceof Map<?,?> authMap && "Some".equals(authMap.get("tag"))) {
+                        authType = (String) authMap.get("value");
+                    }
+                    if (nondet.get("quotasEnabled") instanceof Map<?,?> quotasMap && "Some".equals(quotasMap.get("tag"))) {
+                        quotasEnabled = (Boolean) quotasMap.get("value");
+                    }
                 }
 
-                String stepInfo = String.format("MBT: [%d] Executing action '%s' for user '%s'", i, action, username);
-                LOGGER.info(stepInfo);
+                String stepInfo = String.format(
+                    "MBT: [%d] Executing action '%s' for user='%s', authType='%s', quotasEnabled='%s'",
+                    i, action, username, authType, quotasEnabled
+                );LOGGER.info(stepInfo);
                 mbtTimeline.add(stepInfo);
 
+                // TODO: if none => secret is not created check that :))
                 if (i > 0) {
                     switch (action) {
-                        case "createUser" -> {
-                            try {
-                                kafkaUserOps
-                                .resource(namespace, ResourceUtils.createKafkaUserTls(namespace, username))
-                                .create();
-                            } catch (Exception e) {
-                                if (!e.getMessage().contains("409")) {
-                                    throw e; // Re-throw unexpected exceptions
-                                }
-                                // Log conflict (409), resource already exists
-                                LOGGER.info("User '{}' already exists (409), asserting state matches model.", username);
-                                assertThat("KafkaUser should exist but does not!", kafkaUserOps.get(namespace, username), notNullValue());
-                            }
-                            waitUntilKafkaUserReady(username, namespace, 15_000);
-                        }
-                        case "createUserWithQuotas" -> {
-                            try {
-                                kafkaUserOps.resource(namespace,
-                                    ResourceUtils.createKafkaUserWithQuotas(namespace, username,
-                                        new KafkaUserQuotasBuilder()
-                                            .withConsumerByteRate(100)
-                                            .withProducerByteRate(200)
-                                            .withRequestPercentage(50)
-                                            .withControllerMutationRate(5.0)
-                                            .build()))
-                                    .create();
-                            } catch (Exception e) {
-                                if (!e.getMessage().contains("409")) {
-                                    throw e;
-                                }
-                                LOGGER.info("User '{}' already exists (409), asserting state matches model.", username);
-                                assertThat(kafkaUserOps.get(namespace, username), notNullValue());
-                            }
-                            // TODO: find out why QuotasOperator does not reconcile... bob :))
-                            waitUntilKafkaUserReady(username, namespace, 10_000);
-                        }
+                        case "createUser" -> createKafkaUser(authType, quotasEnabled, username);
+                        case "updateUser" -> updateKafkaUser(authType, quotasEnabled, username);
                         case "deleteUser" -> {
                             KafkaUser existing = kafkaUserOps.get(namespace, username);
                             if (existing != null) {
@@ -190,34 +183,6 @@ public class UserControllerModelMbtTest {
                                 LOGGER.info("KafkaUser '{}' already deleted (404).", username);
                             }
                         }
-                        case "updateUser" -> {
-                            KafkaUser existing = kafkaUserOps.get(namespace, username);
-                            // TODO: modify update a bit :)
-                            if (existing != null) {
-                                existing.getSpec().setAdditionalProperty("roles", List.of("admin"));
-                                kafkaUserOps.resource(namespace, existing).update();
-                                waitUntilKafkaUserReady(username, namespace, 15_000);
-                            } else {
-                                LOGGER.info("KafkaUser '{}' does not exist; skipping update.", username);
-                            }
-                        }
-                        case "updateUserWithQuotas" -> {
-                            KafkaUser existing = kafkaUserOps.get(namespace, username);
-                            if (existing != null) {
-                                existing.getSpec().setQuotas(
-                                    ResourceUtils.createKafkaUserWithQuotas(namespace, username,
-                                        new KafkaUserQuotasBuilder()
-                                            .withConsumerByteRate(500)
-                                            .withProducerByteRate(500)
-                                            .withRequestPercentage(90)
-                                            .withControllerMutationRate(20.0)
-                                            .build()).getSpec().getQuotas());
-                                kafkaUserOps.resource(namespace, existing).update();
-                                waitUntilKafkaUserReady(username, namespace, 15_000);
-                            } else {
-                                LOGGER.info("KafkaUser '{}' does not exist; skipping update with quotas.", username);
-                            }
-                        }
                         case "" -> { /* no-op */ }
                         default -> { /* no-op */ }
                     }
@@ -234,6 +199,7 @@ public class UserControllerModelMbtTest {
                 invariants.assertReadyUsersQuotasValid(namespace);
             }
         } finally {
+            kafkaUserOperator.stop();
             controller.stop();
             LOGGER.info("ℹ️ MBT test trace for {}. Timeline of actions:", tracePath);
             mbtTimeline.forEach(step -> LOGGER.info(step));
@@ -309,23 +275,12 @@ public class UserControllerModelMbtTest {
 
         kafkaUserOps = new CrdOperator<>(ForkJoinPool.commonPool(), client, KafkaUser.class, KafkaUserList.class, "KafkaUser");
 
-        ScramCredentialsOperator scramCredentialsOperator = Mockito.mock(ScramCredentialsOperator.class); // new ScramCredentialsOperator(adminClient, config, ForkJoinPool.commonPool());
-
-        // Mock the ScramCredentialsOperator
-        when(scramCredentialsOperator.reconcile(any(), any(), any()))
-            .thenAnswer(i -> CompletableFuture.supplyAsync(() -> {
-                try {
-                    // introduce small async delays to your mocked operators to avoid lock starvation
-                    Thread.sleep(50 + RANDOM.nextInt(100)); // 50-150 ms random delay
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-                return null;
-            }));
+        ScramCredentialsOperator scramCredentialsOperator = new ScramCredentialsOperator(adminClient, config, ForkJoinPool.commonPool());
 
         // Without calling start(), the QuotasOperator would not initialize its cache nor trigger periodic quota refreshes → reconciliations would fail or work incorrectly.
         quotasOperator = new QuotasOperator(adminClient, config, ForkJoinPool.commonPool());
 
+        // TODO: use real ACL operator instead of mock :)
         SimpleAclOperator aclOperator = Mockito.mock(SimpleAclOperator.class);
         when(aclOperator.reconcile(any(), any(), any()))
             .thenAnswer(i -> CompletableFuture.supplyAsync(() -> {
@@ -355,9 +310,6 @@ public class UserControllerModelMbtTest {
     public void afterEach() {
         if (mockKube != null) {
             mockKube.stop();
-        }
-        if (kafkaUserOperator != null) {
-            kafkaUserOperator.stop();
         }
     }
 
@@ -442,6 +394,161 @@ public class UserControllerModelMbtTest {
                 }
             );
         }
+    }
+
+    private void createKafkaUser(String authType, Boolean quotasEnabled, String username) throws Exception {
+        try {
+            if ("tls".equalsIgnoreCase(authType)) {
+                if (Boolean.TRUE.equals(quotasEnabled)) {
+                    kafkaUserOps.resource(namespace,
+                            ResourceUtils.createKafkaUserWithQuotas(namespace, username,
+                                new KafkaUserQuotasBuilder()
+                                    .withConsumerByteRate(100)
+                                    .withProducerByteRate(200)
+                                    .withRequestPercentage(50)
+                                    .withControllerMutationRate(5.0)
+                                    .build()))
+                        .create();
+                } else {
+                    kafkaUserOps.resource(namespace,
+                            ResourceUtils.createKafkaUserTls(namespace, username))
+                        .create();
+                }
+            } else if ("scramsha".equalsIgnoreCase(authType)) {
+                if (Boolean.TRUE.equals(quotasEnabled)) {
+                    kafkaUserOps.resource(namespace,
+                            ResourceUtils.createKafkaUserScramShaAndQuotas(namespace, username,
+                                new KafkaUserQuotasBuilder()
+                                    .withConsumerByteRate(100)
+                                    .withProducerByteRate(200)
+                                    .withRequestPercentage(50)
+                                    .withControllerMutationRate(5.0)
+                                    .build()))
+                        .create();
+                } else {
+                    kafkaUserOps.resource(namespace, ResourceUtils.createKafkaUserScramSha(namespace, username))
+                        .create();
+                }
+            } else {
+                // No auth type (NONE)
+
+                if (Boolean.TRUE.equals(quotasEnabled)) {
+                    kafkaUserOps.resource(namespace,
+                       new KafkaUserBuilder()
+                            .withNewMetadata()
+                                .withLabels(Labels.forStrimziCluster("my-cluster").toMap())
+                                .withName(username)
+                                .withNamespace(namespace)
+                            .endMetadata()
+                            .withNewSpec()
+                                .withQuotas(new KafkaUserQuotasBuilder()
+                                   .withConsumerByteRate(100)
+                                   .withProducerByteRate(200)
+                                   .withRequestPercentage(50)
+                                   .withControllerMutationRate(5.0)
+                                   .build())
+                           .withAuthentication(new KafkaUserTlsClientAuthentication())
+                            .endSpec()
+                           .build())
+                        .create();
+                } else {
+                    kafkaUserOps.resource(namespace,
+                        new KafkaUserBuilder()
+                            .withNewMetadata()
+                            .withLabels(Labels.forStrimziCluster("my-cluster").toMap())
+                            .withName(username)
+                            .withNamespace(namespace)
+                            .endMetadata()
+                            .withNewSpec()
+                            .endSpec()
+                            .build())
+                        .create();
+                }
+            }
+            waitUntilKafkaUserReady(username, namespace, 15_000);
+        } catch (Exception e) {
+            if (!e.getMessage().contains("409")) {
+                throw e; // Re-throw unexpected exceptions
+            }
+            // Log conflict (409), resource already exists
+            LOGGER.info("User '{}' already exists (409), asserting state matches model.", username);
+            assertThat("KafkaUser should exist but does not!", kafkaUserOps.get(namespace, username), notNullValue());
+        }
+    }
+
+    private void updateKafkaUser(String authType, Boolean quotasEnabled, String username) throws Exception {
+        KafkaUser existing = kafkaUserOps.get(namespace, username);
+        if (existing == null) {
+            LOGGER.info("KafkaUser '{}' does not exist; skipping update.", username);
+            return;
+        }
+
+        if ("tls".equalsIgnoreCase(authType)) {
+            if (Boolean.TRUE.equals(quotasEnabled)) {
+                existing.getSpec().setQuotas(
+                        new KafkaUserQuotasBuilder()
+                            .withConsumerByteRate(500)
+                            .withProducerByteRate(500)
+                            .withRequestPercentage(90)
+                            .withControllerMutationRate(20.0)
+                            .build());
+                existing.getSpec().setAuthentication((new KafkaUserTlsClientAuthentication()));
+            } else {
+                existing.getSpec().setAdditionalProperty("roles", List.of("admin"));
+                existing.getSpec().setAuthentication((new KafkaUserTlsClientAuthentication()));
+
+            }
+        } else if ("scramsha".equalsIgnoreCase(authType)) {
+            if (Boolean.TRUE.equals(quotasEnabled)) {
+                // when also Quotas we also update custom scram-sha
+                final String secretName = "custom-secret-scram-sha";
+                final Secret userDefinedSecret = new SecretBuilder()
+                    .withNewMetadata()
+                    .withName(secretName)
+                    .withNamespace(namespace)
+                    .endMetadata()
+                    .addToData("password", "VDZmQ2pNMWRRb1d6VnBYNWJHa1VSOGVOMmFIeFA3WXM=")
+                    .build();
+
+                client.resource(userDefinedSecret).create();
+
+                existing.getSpec().setQuotas(
+                        new KafkaUserQuotasBuilder()
+                            .withConsumerByteRate(332)
+                            .withProducerByteRate(522)
+                            .withRequestPercentage(94)
+                            .withControllerMutationRate(22.0)
+                            .build());
+                existing.getSpec().setAuthentication(
+                    new KafkaUserScramSha512ClientAuthenticationBuilder()
+                        .withPassword(new PasswordBuilder()
+                            .editOrNewValueFrom()
+                                .withNewSecretKeyRef("password", secretName, false)
+                            .endValueFrom()
+                            .build())
+                        .build()
+                );
+            } else {
+                existing.getSpec().setAuthentication((new KafkaUserScramSha512ClientAuthentication()));
+                // For SCRAM users, you might update quotas or add a dummy field
+                existing.getSpec().setAdditionalProperty("dummyUpdate", "true");
+            }
+         } else {
+            // none
+            if (Boolean.TRUE.equals(quotasEnabled)) {
+                existing.getSpec().setQuotas(new KafkaUserQuotasBuilder()
+                    .withConsumerByteRate(100)
+                    .withProducerByteRate(200)
+                    .withRequestPercentage(50)
+                    .withControllerMutationRate(5.0)
+                    .build());
+                existing.getSpec().setAuthentication(null);
+            } else {
+                existing.getSpec().setAuthentication(null);
+            }
+        }
+        kafkaUserOps.resource(namespace, existing).update();
+        waitUntilKafkaUserReady(username, namespace, 15_000);
     }
 
 }

@@ -167,6 +167,20 @@ public class ResourceUtils {
         return user;
     }
 
+    public static KafkaUser createKafkaUserScramSha(String namespace, String username) {
+        KafkaUser user = new KafkaUserBuilder()
+            .withNewMetadata()
+                .withLabels(Labels.forStrimziCluster("my-cluster").toMap())
+                .withName(username)
+                .withNamespace(namespace)
+            .endMetadata()
+            .withNewSpec()
+                .withAuthentication(new KafkaUserScramSha512ClientAuthentication())
+            .endSpec()
+            .build();
+        return user;
+    }
+
     public static KafkaUser createKafkaUserWithQuotas(String namespace, String username,  KafkaUserQuotas quotas) {
         KafkaUser user = new KafkaUserBuilder()
             .withNewMetadata()
@@ -177,6 +191,22 @@ public class ResourceUtils {
             .withNewSpec()
                 // tls
                 .withAuthentication(new KafkaUserTlsClientAuthentication())
+                .withQuotas(quotas)
+            .endSpec()
+            .build();
+        return user;
+    }
+
+    public static KafkaUser createKafkaUserScramShaAndQuotas(String namespace, String username,  KafkaUserQuotas quotas) {
+        KafkaUser user = new KafkaUserBuilder()
+            .withNewMetadata()
+                .withLabels(Labels.forStrimziCluster("my-cluster").toMap())
+                .withName(username)
+                .withNamespace(namespace)
+            .endMetadata()
+            .withNewSpec()
+                // scram-sha
+                .withAuthentication(new KafkaUserScramSha512ClientAuthentication())
                 .withQuotas(quotas)
             .endSpec()
             .build();
