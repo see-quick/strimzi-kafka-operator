@@ -63,8 +63,8 @@ import java.util.stream.Stream;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.notNullValue;
 
-public class UserControllerModelMbtTest {
-    private static final Logger LOGGER = LogManager.getLogger(UserControllerModelMbtTest.class);
+public class UserControllerModelMbtIT {
+    private static final Logger LOGGER = LogManager.getLogger(UserControllerModelMbtIT.class);
     private static final int POLL_INTERVAL_MS = 100;
 
     private static KubernetesClient client;
@@ -104,13 +104,24 @@ public class UserControllerModelMbtTest {
     @ParameterizedTest
     @MethodSource("traceProvider")
     public void testUserOperator(String tracePath) throws Exception {
-        List<String> mbtTimeline = new ArrayList<>();
+        final List<String> mbtTimeline = new ArrayList<>();
 
-        ObjectMapper mapper = new ObjectMapper();
-        InputStream input = getClass().getResourceAsStream(tracePath);
-        Trace trace = mapper.readValue(input, Trace.class);
+        final ObjectMapper mapper = new ObjectMapper();
+        final InputStream input = getClass().getResourceAsStream(tracePath);
+        final Trace trace = mapper.readValue(input, Trace.class);
 
-        final boolean aclsEnabled = tracePath.contains("acl_enabled");
+        // assumption is that trace would have always more than 0 states
+        final Map<String, Object> parameters = (Map<String, Object>) trace.states.get(0).get("parameters");
+
+        final Boolean aclsEnabled = (Boolean) parameters.get("aclsEnabled");
+        final List<String> usersToTest = (List<String>) ((Map<String, Object>) parameters.get("potentialUsers")).get("#set");
+
+        LOGGER.info("\n\n====================");
+        LOGGER.info("📋 STARTING TEST CASE: {}", tracePath);
+        LOGGER.info("====================");
+        LOGGER.info("1️⃣ PARAMETER aclEnabled = {}", aclsEnabled);
+        LOGGER.info("2️⃣ PARAMETER potentialUsers = {}", usersToTest);
+        LOGGER.info("====================\n\n");
 
         config = ResourceUtils.createUserOperatorConfigForUserControllerTesting(
             namespace,
@@ -128,7 +139,7 @@ public class UserControllerModelMbtTest {
         certManager = new MockCertManager();
 
         // Prepare controller
-        MetricsProvider metrics = new MicrometerMetricsProvider(new SimpleMeterRegistry());
+        final MetricsProvider metrics = new MicrometerMetricsProvider(new SimpleMeterRegistry());
 
         kafkaUserOperator = new KafkaUserOperator(
             config,
