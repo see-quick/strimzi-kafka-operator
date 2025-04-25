@@ -218,6 +218,8 @@ public class UserControllerModelMbtIT {
                 }
 
                 waitUntilNoOrphanSecrets(namespace, 15_000);
+                // prevent races
+                Thread.sleep(50);
 
                 invariants.assertControllerAlive(controller);
                 invariants.assertUserConsistency(namespace, username);
