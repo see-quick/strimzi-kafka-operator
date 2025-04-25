@@ -11,6 +11,7 @@ import io.fabric8.kubernetes.api.model.SecretBuilder;
 import io.strimzi.api.kafka.model.user.KafkaUser;
 import io.strimzi.api.kafka.model.user.KafkaUserAuthentication;
 import io.strimzi.api.kafka.model.user.KafkaUserAuthorizationSimple;
+import io.strimzi.api.kafka.model.user.KafkaUserAuthorizationSimpleBuilder;
 import io.strimzi.api.kafka.model.user.KafkaUserBuilder;
 import io.strimzi.api.kafka.model.user.KafkaUserQuotas;
 import io.strimzi.api.kafka.model.user.KafkaUserQuotasBuilder;
@@ -19,16 +20,20 @@ import io.strimzi.api.kafka.model.user.KafkaUserSpec;
 import io.strimzi.api.kafka.model.user.KafkaUserTlsClientAuthentication;
 import io.strimzi.api.kafka.model.user.acl.AclOperation;
 import io.strimzi.api.kafka.model.user.acl.AclRule;
+import io.strimzi.api.kafka.model.user.acl.AclRuleBuilder;
+import io.strimzi.api.kafka.model.user.acl.AclRuleType;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.user.UserOperatorConfig.UserOperatorConfigBuilder;
 import io.strimzi.operator.user.model.KafkaUserModel;
 import io.strimzi.operator.user.model.acl.SimpleAclRule;
 
 import javax.print.attribute.standard.MediaSize;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -68,15 +73,21 @@ public class ResourceUtils {
                       .build();
     }
 
-    public static UserOperatorConfig createUserOperatorConfigForUserControllerTesting(String namespace, Map<String, String> labels, int fullReconciliationInterval, int queueSize, int poolSize, String secretPrefix, int threadControllerSize) {
-        return new UserOperatorConfigBuilder(createUserOperatorConfig(namespace, labels, false, "32", secretPrefix))
+    public static UserOperatorConfig createUserOperatorConfigForUserControllerTesting(String namespace,
+                                                                                      Map<String, String> labels,
+                                                                                      int fullReconciliationInterval,
+                                                                                      int queueSize,
+                                                                                      int poolSize,
+                                                                                      String secretPrefix,
+                                                                                      int threadControllerSize,
+                                                                                      boolean aclsAdminApiSupported) {
+        return new UserOperatorConfigBuilder(createUserOperatorConfig(namespace, labels, aclsAdminApiSupported, "32", secretPrefix))
             .with(UserOperatorConfig.RECONCILIATION_INTERVAL_MS.key(), String.valueOf(fullReconciliationInterval))
             .with(UserOperatorConfig.WORK_QUEUE_SIZE.key(), String.valueOf(queueSize))
             .with(UserOperatorConfig.USER_OPERATIONS_THREAD_POOL_SIZE.key(), String.valueOf(poolSize))
             .with(UserOperatorConfig.CONTROLLER_THREAD_POOL_SIZE.key(), String.valueOf(threadControllerSize))
             .build();
     }
-
 
     public static UserOperatorConfig createUserOperatorConfig(String namespace) {
         return createUserOperatorConfig(namespace, Map.of(), true, "32", null);
@@ -299,5 +310,27 @@ public class ResourceUtils {
         }
 
         return simpleAclRules;
+    }
+
+    public static KafkaUserAuthorizationSimple createSimpleAuthorization(Set<AclOperation> operations) {
+        return new KafkaUserAuthorizationSimpleBuilder()
+            .withAcls(List.of(
+                new AclRuleBuilder()
+                    .withNewAclRuleTopicResource()
+                    .withName("*")
+                    .endAclRuleTopicResource()
+                    .withOperations(new ArrayList<>(operations))
+                    .withHost("*")
+                    .withType(AclRuleType.ALLOW)
+                    .build()
+            ))
+            .build();
+    }
+
+    public static String getAuthType(KafkaUser user) {
+        if (user.getSpec() == null || user.getSpec().getAuthentication() == null) {
+            return "none";
+        }
+        return user.getSpec().getAuthentication().getType();
     }
 }

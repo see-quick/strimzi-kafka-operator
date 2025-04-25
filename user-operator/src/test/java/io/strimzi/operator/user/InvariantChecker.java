@@ -2,14 +2,34 @@ package io.strimzi.operator.user;
 
 import io.fabric8.kubernetes.api.model.Secret;
 import io.strimzi.api.kafka.model.user.KafkaUser;
+import io.strimzi.api.kafka.model.user.KafkaUserAuthorizationSimple;
+import io.strimzi.api.kafka.model.user.KafkaUserQuotas;
+import io.strimzi.api.kafka.model.user.acl.AclRule;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.operator.resource.concurrent.CrdOperator;
 import io.strimzi.operator.common.operator.resource.concurrent.SecretOperator;
+import io.strimzi.operator.user.model.QuotaUtils;
+import io.strimzi.operator.user.model.acl.SimpleAclRule;
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.common.acl.AccessControlEntryFilter;
+import org.apache.kafka.common.acl.AclBindingFilter;
+import org.apache.kafka.common.acl.AclPermissionType;
+import org.apache.kafka.common.quota.ClientQuotaEntity;
+import org.apache.kafka.common.quota.ClientQuotaFilter;
+import org.apache.kafka.common.quota.ClientQuotaFilterComponent;
+import org.apache.kafka.common.resource.ResourcePatternFilter;
+import org.apache.kafka.common.security.auth.KafkaPrincipal;
+import org.hamcrest.CoreMatchers;
+import org.hamcrest.Matchers;
 
 import java.sql.SQLOutput;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class InvariantChecker {
@@ -52,7 +72,7 @@ public class InvariantChecker {
         }
 
         String authType = ku.getSpec().getAuthentication().getType();
-        return "tls".equalsIgnoreCase(authType) || "scram-sha-512".equalsIgnoreCase(authType);
+        return "tls".equalsIgnoreCase(authType) || "scramsha".equalsIgnoreCase(authType);
     }
 
     private String statusOf(KafkaUser ku) {
@@ -162,4 +182,51 @@ public class InvariantChecker {
         });
     }
 
+    public void assertACLsExistForAuthorizedUsers(String namespace) {
+        kafkaUserOps.list(namespace, kafkaUserLabels).forEach(user -> {
+            if (user.getSpec() != null && user.getSpec().getAuthorization() instanceof KafkaUserAuthorizationSimple simpleAuth) {
+                List<AclRule> acls = simpleAuth.getAcls();
+                if (acls != null) {
+                    acls.forEach(rule -> {
+                        assertTrue(rule.getResource() != null,
+                            "❌ ACL rule resource is missing for user: " + user.getMetadata().getName());
+                        assertTrue(rule.getResource().getType() != null && !rule.getResource().getType().isEmpty(),
+                            "❌ ACL rule resource type is missing for user: " + user.getMetadata().getName());
+                        assertTrue(rule.getHost() != null && !rule.getHost().isEmpty(),
+                            "❌ ACL rule host is missing for user: " + user.getMetadata().getName());
+                    });
+                }
+            }
+        });
+    }
+
+    public void assertNoACLsForDeletedUsers(String namespace) {
+        kafkaUserOps.list(namespace, kafkaUserLabels).forEach(user -> {
+            boolean deleted = user.getStatus() != null
+                && user.getStatus().getConditions() != null
+                && user.getStatus().getConditions().stream()
+                .anyMatch(c -> "Deleted".equals(c.getType()) && "True".equals(c.getStatus()));
+
+            if (deleted && user.getSpec() != null && user.getSpec().getAuthorization() instanceof KafkaUserAuthorizationSimple simpleAuth) {
+                List<AclRule> acls = simpleAuth.getAcls();
+                assertTrue(acls == null || acls.isEmpty(),
+                    "❌ Deleted user '" + user.getMetadata().getName() + "' must not have ACLs");
+            }
+        });
+    }
+
+    public void assertReadyUsersMustHaveACLs(String namespace) {
+        kafkaUserOps.list(namespace, kafkaUserLabels).forEach(user -> {
+            boolean ready = user.getStatus() != null
+                && user.getStatus().getConditions() != null
+                && user.getStatus().getConditions().stream()
+                .anyMatch(c -> "Ready".equals(c.getType()) && "True".equals(c.getStatus()));
+
+            if (ready && user.getSpec() != null && user.getSpec().getAuthorization() instanceof KafkaUserAuthorizationSimple simpleAuth) {
+                List<AclRule> acls = simpleAuth.getAcls();
+                assertTrue(acls != null && !acls.isEmpty(),
+                    "❌ Ready user '" + user.getMetadata().getName() + "' must have at least one ACL rule");
+            }
+        });
+    }
 }
