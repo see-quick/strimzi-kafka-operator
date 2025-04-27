@@ -120,7 +120,7 @@ public class InvariantChecker {
         }
     }
 
-    private void waitUntilSecretExists(String namespace, String username, long timeoutMillis) throws InterruptedException {
+    public void waitUntilSecretExists(String namespace, String username, long timeoutMillis) throws InterruptedException {
         long deadline = System.currentTimeMillis() + timeoutMillis;
         while (System.currentTimeMillis() < deadline) {
             if (secretOperator.get(namespace, username) != null) {

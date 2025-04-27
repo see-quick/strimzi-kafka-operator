@@ -4,8 +4,6 @@
  */
 package io.strimzi.operator.user;
 
-import com.dajudge.kindcontainer.client.config.User;
-import io.fabric8.kubernetes.api.model.ObjectMetaBuilder;
 import io.fabric8.kubernetes.api.model.Secret;
 import io.fabric8.kubernetes.api.model.SecretBuilder;
 import io.strimzi.api.kafka.model.user.KafkaUser;
@@ -16,7 +14,6 @@ import io.strimzi.api.kafka.model.user.KafkaUserBuilder;
 import io.strimzi.api.kafka.model.user.KafkaUserQuotas;
 import io.strimzi.api.kafka.model.user.KafkaUserQuotasBuilder;
 import io.strimzi.api.kafka.model.user.KafkaUserScramSha512ClientAuthentication;
-import io.strimzi.api.kafka.model.user.KafkaUserSpec;
 import io.strimzi.api.kafka.model.user.KafkaUserTlsClientAuthentication;
 import io.strimzi.api.kafka.model.user.acl.AclOperation;
 import io.strimzi.api.kafka.model.user.acl.AclRule;
@@ -27,7 +24,6 @@ import io.strimzi.operator.user.UserOperatorConfig.UserOperatorConfigBuilder;
 import io.strimzi.operator.user.model.KafkaUserModel;
 import io.strimzi.operator.user.model.acl.SimpleAclRule;
 
-import javax.print.attribute.standard.MediaSize;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
@@ -45,6 +41,7 @@ public class ResourceUtils {
     public static final String CA_CERT_NAME = "ca-cert";
     public static final String CA_KEY_NAME = "ca-key";
     public static final String PASSWORD = "my-password";
+    public static final String CLUSTER_NAME = "my-cluster";
 
     public static UserOperatorConfig createUserOperatorConfig(String namespace, Map<String, String> labels, boolean aclsAdminApiSupported, String scramShaPasswordLength, String secretPrefix) {
         Map<String, String> envVars = new HashMap<>(4);
