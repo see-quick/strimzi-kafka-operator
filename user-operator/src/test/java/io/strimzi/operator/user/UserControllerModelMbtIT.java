@@ -8,6 +8,7 @@ import io.fabric8.kubernetes.client.KubernetesClient;
 import io.fabric8.kubernetes.client.KubernetesClientException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.strimzi.api.kafka.model.user.KafkaUser;
+import io.strimzi.api.kafka.model.user.KafkaUserAuthorizationSimple;
 import io.strimzi.api.kafka.model.user.KafkaUserAuthorizationSimpleBuilder;
 import io.strimzi.api.kafka.model.user.KafkaUserBuilder;
 import io.strimzi.api.kafka.model.user.KafkaUserList;
@@ -67,29 +68,20 @@ public class UserControllerModelMbtIT {
     private static final Logger LOGGER = LogManager.getLogger(UserControllerModelMbtIT.class);
     private static final int POLL_INTERVAL_MS = 100;
 
-    private static KubernetesClient client;
     private static MockKube3 mockKube;
     private static StrimziKafkaCluster kafkaCluster;
     private static Admin adminClient;
 
     private CrdOperator<KubernetesClient, KafkaUser, KafkaUserList> kafkaUserOps;
-    // operators
     private SecretOperator secretOperator;
-    private ScramCredentialsOperator scramCredentialsOperator;
-    private QuotasOperator quotasOperator;
-    private KafkaUserOperator kafkaUserOperator;
-
     private String namespace;
-    private CertManager certManager;
-    private UserController controller;
-    private UserOperatorConfig config;
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     static class Trace {
         public List<Map<String, Object>> states;
     }
 
-    static Stream<String> traceProvider() {
+    static Stream<String> testCaseProvider() {
         try {
             File dir = new File(UserControllerMockTest.class.getResource("/specification/traces/").toURI());
             return Stream.of(dir.listFiles())
@@ -102,16 +94,16 @@ public class UserControllerModelMbtIT {
     }
 
     @ParameterizedTest
-    @MethodSource("traceProvider")
+    @MethodSource("testCaseProvider")
     public void testUserOperator(String tracePath) throws Exception {
         final List<String> mbtTimeline = new ArrayList<>();
 
         final ObjectMapper mapper = new ObjectMapper();
         final InputStream input = getClass().getResourceAsStream(tracePath);
-        final Trace trace = mapper.readValue(input, Trace.class);
+        final Trace testCase = mapper.readValue(input, Trace.class);
 
         // assumption is that trace would have always more than 0 states
-        final Map<String, Object> parameters = (Map<String, Object>) trace.states.get(0).get("parameters");
+        final Map<String, Object> parameters = (Map<String, Object>) testCase.states.get(0).get("parameters");
 
         final Boolean aclsEnabled = (Boolean) parameters.get("aclsEnabled");
         final List<String> usersToTest = (List<String>) ((Map<String, Object>) parameters.get("potentialUsers")).get("#set");
@@ -123,7 +115,12 @@ public class UserControllerModelMbtIT {
         LOGGER.info("2️⃣ PARAMETER potentialUsers = {}", usersToTest);
         LOGGER.info("====================\n\n");
 
-        config = ResourceUtils.createUserOperatorConfigForUserControllerTesting(
+        // Batch queue size
+        // Max batch size
+        // Optional secret prefix
+        // controller thread size
+        // ACLs enabled/disabled
+        UserOperatorConfig config = ResourceUtils.createUserOperatorConfigForUserControllerTesting(
             namespace,
             Map.of(),
             1000,
@@ -134,14 +131,14 @@ public class UserControllerModelMbtIT {
             aclsEnabled             // ACLs enabled/disabled
         );
 
-        scramCredentialsOperator = new ScramCredentialsOperator(adminClient, config, ForkJoinPool.commonPool());
-        quotasOperator = new QuotasOperator(adminClient, config, ForkJoinPool.commonPool());
-        certManager = new MockCertManager();
+        ScramCredentialsOperator scramCredentialsOperator = new ScramCredentialsOperator(adminClient, config, ForkJoinPool.commonPool());
+        QuotasOperator quotasOperator = new QuotasOperator(adminClient, config, ForkJoinPool.commonPool());
+        CertManager certManager = new MockCertManager();
 
         // Prepare controller
         final MetricsProvider metrics = new MicrometerMetricsProvider(new SimpleMeterRegistry());
 
-        kafkaUserOperator = new KafkaUserOperator(
+        KafkaUserOperator kafkaUserOperator = new KafkaUserOperator(
             config,
             certManager,
             secretOperator,
@@ -153,7 +150,7 @@ public class UserControllerModelMbtIT {
                 new DisabledSimpleAclOperator()
         );
 
-        controller = new UserController(
+        UserController controller = new UserController(
             config,
             secretOperator,
             kafkaUserOps,
@@ -165,8 +162,8 @@ public class UserControllerModelMbtIT {
         controller.start();
 
         try {
-            for (int i = 0; i < trace.states.size(); i++) {
-                Map<String, Object> state = trace.states.get(i);
+            for (int i = 0; i < testCase.states.size(); i++) {
+                Map<String, Object> state = testCase.states.get(i);
                 String action = (String) state.get("mbt::actionTaken");
 
                 // TODO: pick also numbers from model (i.e., quotas parametsrs stutff from Quint...)
@@ -212,14 +209,12 @@ public class UserControllerModelMbtIT {
                                 LOGGER.info("KafkaUser '{}' already deleted (404).", username);
                             }
                         }
-                        case "" -> { /* no-op */ }
                         default -> { /* no-op */ }
                     }
                 }
 
-                waitUntilNoOrphanSecrets(namespace, 15_000);
-                // prevent races
-                Thread.sleep(50);
+                //Every actual secret must correspond to a user with authType != 'none'
+                waitUntilAllSecretsHaveMatchingKafkaUsers(namespace, 15_000);
 
                 invariants.assertControllerAlive(controller);
                 invariants.assertUserConsistency(namespace, username);
@@ -270,7 +265,8 @@ public class UserControllerModelMbtIT {
             .withDeletionController()
             .build();
         mockKube.start();
-        client = mockKube.client();
+
+        final KubernetesClient client = mockKube.client();
 
         namespace = testInfo.getTestMethod().orElseThrow().getName().toLowerCase(Locale.ROOT);
 
@@ -279,19 +275,20 @@ public class UserControllerModelMbtIT {
 
         secretOperator = new SecretOperator(ForkJoinPool.commonPool(), client);
 
-        // ✅ Create dummy ca-cert Secret required by KafkaUserOperator
-        Secret caCert = new SecretBuilder()
+        // Create dummy ca-cert Secret required by KafkaUserOperator
+        final Secret caCert = new SecretBuilder()
             .withNewMetadata()
-                .withName("ca-cert")
+                .withName(ResourceUtils.CA_CERT_NAME)
                 .withNamespace(namespace)
-                    .addToAnnotations("strimzi.io/ca-cert-generation", "1")
+                .addToAnnotations("strimzi.io/ca-cert-generation", "1")
             .endMetadata()
             .withData(Map.of("ca.crt", "ZHVtbXk=")) // "dummy" base64-encoded
             .build();
+
         // Create dummy ca-key Secret required by KafkaUserOperator
-        Secret caKey = new SecretBuilder()
+        final Secret caKey = new SecretBuilder()
             .withNewMetadata()
-                .withName("ca-key")
+                .withName(ResourceUtils.CA_KEY_NAME)
                 .withNamespace(namespace)
                 .addToAnnotations("strimzi.io/ca-key-generation", "1")
             .endMetadata()
@@ -317,7 +314,7 @@ public class UserControllerModelMbtIT {
         if (kafkaCluster != null) kafkaCluster.stop();
     }
 
-    private void waitUntilNoOrphanSecrets(String namespace, long timeoutMillis) {
+    private void waitUntilAllSecretsHaveMatchingKafkaUsers(String namespace, long timeoutMillis) {
         long deadline = System.currentTimeMillis() + timeoutMillis;
 
         while (System.currentTimeMillis() < deadline) {
@@ -407,7 +404,7 @@ public class UserControllerModelMbtIT {
     private void createKafkaUser(String username, String authType, Boolean quotasEnabled, Boolean aclsEnabled) throws Exception {
         KafkaUserBuilder builder = new KafkaUserBuilder()
             .withNewMetadata()
-                .withLabels(Labels.forStrimziCluster("my-cluster").toMap())
+                .withLabels(Labels.forStrimziCluster(ResourceUtils.CLUSTER_NAME).toMap())
                 .withName(username)
                 .withNamespace(namespace)
             .endMetadata()
@@ -415,12 +412,13 @@ public class UserControllerModelMbtIT {
             .endSpec();
 
         // Authentication
-        if ("scramsha".equalsIgnoreCase(authType)) {
+
+        if (KafkaUserScramSha512ClientAuthentication.TYPE_SCRAM_SHA_512.equalsIgnoreCase(authType)) {
             builder
                 .editOrNewSpec()
                     .withAuthentication(new KafkaUserScramSha512ClientAuthentication())
                 .endSpec();
-        } else if ("tls".equalsIgnoreCase(authType)) {
+        } else if (KafkaUserTlsClientAuthentication.TYPE_TLS.equalsIgnoreCase(authType)) {
             builder
                 .editOrNewSpec()
                     .withAuthentication(new KafkaUserTlsClientAuthentication())
@@ -452,6 +450,9 @@ public class UserControllerModelMbtIT {
             kafkaUserOps.resource(namespace, builder.build()).create();
 
             waitUntilKafkaUserReady(username, namespace, 15_000);
+            if (KafkaUserScramSha512ClientAuthentication.TYPE_SCRAM_SHA_512.equalsIgnoreCase(authType) || KafkaUserTlsClientAuthentication.TYPE_TLS.equalsIgnoreCase(authType)) {
+                waitUntilSecretCreated(username, namespace, 15_000);
+            }
         } catch (Exception e) {
             if (!e.getMessage().contains("409")) {
                 throw e; // Re-throw unexpected exceptions
@@ -472,11 +473,10 @@ public class UserControllerModelMbtIT {
 
             KafkaUserBuilder builder = new KafkaUserBuilder(existing);
 
-            // TODO: remove this?? dummy update
             builder.editOrNewMetadata().addToLabels("new-label", "" + new Random().nextInt(Integer.MAX_VALUE)).endMetadata();
 
             // Authentication
-            if ("scramsha".equalsIgnoreCase(authType)) {
+            if (KafkaUserScramSha512ClientAuthentication.TYPE_SCRAM_SHA_512.equalsIgnoreCase(authType)) {
                 builder
                     .editOrNewSpec()
                         .withNewKafkaUserScramSha512ClientAuthentication()
@@ -502,7 +502,7 @@ public class UserControllerModelMbtIT {
                 //                            .build())
                 //                        .build()
                 //
-            } else if ("tls".equalsIgnoreCase(authType)) {
+            } else if (KafkaUserTlsClientAuthentication.TYPE_TLS.equalsIgnoreCase(authType)) {
                 builder
                     .editOrNewSpec()
                         .withNewKafkaUserTlsClientAuthentication()
@@ -544,6 +544,9 @@ public class UserControllerModelMbtIT {
 
             kafkaUserOps.resource(namespace, builder.build()).update();
             waitUntilKafkaUserReady(username, namespace, 15_000);
+            if (KafkaUserScramSha512ClientAuthentication.TYPE_SCRAM_SHA_512.equalsIgnoreCase(authType) || KafkaUserTlsClientAuthentication.TYPE_TLS.equalsIgnoreCase(authType)) {
+                waitUntilSecretCreated(username, namespace, 15_000);
+            }
 
             return true;
         });
@@ -565,4 +568,12 @@ public class UserControllerModelMbtIT {
         throw new RuntimeException("Max retries exceeded due to conflict");
     }
 
+    private void waitUntilSecretCreated(String username, String namespace, long timeoutMillis) {
+        TestUtils.waitFor(
+            "Secret for KafkaUser " + username + " to be created",
+            Duration.ofMillis(POLL_INTERVAL_MS).toMillis(),
+            Duration.ofMillis(timeoutMillis).toMillis(),
+            () -> secretOperator.get(namespace, username) != null
+        );
+    }
 }
