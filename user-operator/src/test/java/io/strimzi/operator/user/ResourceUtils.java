@@ -6,11 +6,13 @@ package io.strimzi.operator.user;
 
 import io.fabric8.kubernetes.api.model.Secret;
 import io.fabric8.kubernetes.api.model.SecretBuilder;
+import io.fabric8.kubernetes.client.KubernetesClient;
 import io.strimzi.api.kafka.model.user.KafkaUser;
 import io.strimzi.api.kafka.model.user.KafkaUserAuthentication;
 import io.strimzi.api.kafka.model.user.KafkaUserAuthorizationSimple;
 import io.strimzi.api.kafka.model.user.KafkaUserAuthorizationSimpleBuilder;
 import io.strimzi.api.kafka.model.user.KafkaUserBuilder;
+import io.strimzi.api.kafka.model.user.KafkaUserList;
 import io.strimzi.api.kafka.model.user.KafkaUserQuotas;
 import io.strimzi.api.kafka.model.user.KafkaUserQuotasBuilder;
 import io.strimzi.api.kafka.model.user.KafkaUserScramSha512ClientAuthentication;
@@ -20,10 +22,16 @@ import io.strimzi.api.kafka.model.user.acl.AclRule;
 import io.strimzi.api.kafka.model.user.acl.AclRuleBuilder;
 import io.strimzi.api.kafka.model.user.acl.AclRuleType;
 import io.strimzi.operator.common.model.Labels;
+import io.strimzi.operator.common.operator.resource.concurrent.CrdOperator;
+import io.strimzi.operator.common.operator.resource.concurrent.SecretOperator;
 import io.strimzi.operator.user.UserOperatorConfig.UserOperatorConfigBuilder;
 import io.strimzi.operator.user.model.KafkaUserModel;
 import io.strimzi.operator.user.model.acl.SimpleAclRule;
+import io.strimzi.test.TestUtils;
+import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.AdminClientConfig;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
@@ -31,7 +39,10 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 public class ResourceUtils {
@@ -329,5 +340,69 @@ public class ResourceUtils {
             return "none";
         }
         return user.getSpec().getAuthentication().getType();
+    }
+
+    public static void waitUntilKafkaUserReady(final String username,
+                                               final String namespace,
+                                               final long pollingInterval,
+                                               final long timeoutMillis,
+                                               final CrdOperator<KubernetesClient, KafkaUser, KafkaUserList> kafkaUserOps) {
+        TestUtils.waitFor(
+            "KafkaUser " + username + " to become Ready",
+            Duration.ofMillis(pollingInterval).toMillis(),
+            Duration.ofMillis(timeoutMillis).toMillis(),
+            () -> {
+                KafkaUser ku = kafkaUserOps.get(namespace, username);
+                return ku != null
+                    && ku.getStatus() != null
+                    && ku.getStatus().getConditions() != null
+                    && ku.getStatus().getConditions().stream()
+                    .anyMatch(c -> "Ready".equals(c.getType()) && "True".equals(c.getStatus()));
+            }
+        );
+    }
+
+    public static void waitUntilKafkaReady(final String bootstrapServers,
+                                           final Duration timeout) {
+        final Properties props = new Properties();
+        props.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        try (AdminClient admin = AdminClient.create(props)) {
+            TestUtils.waitFor(
+                "Kafka broker to be ready",
+                500,
+                timeout.toMillis(),
+                () -> {
+                    try {
+                        return !admin.describeCluster().nodes().get(5, TimeUnit.SECONDS).isEmpty();
+                    } catch (Exception e) {
+                        return false;
+                    }
+                }
+            );
+        }
+    }
+
+    public static void waitUntilUserAndSecretDeleted(final String username,
+                                              final String namespace,
+                                              final String authType,
+                                              final long pollingInterval,
+                                              final long timeoutMillis,
+                                              final CrdOperator<KubernetesClient, KafkaUser, KafkaUserList> kafkaUserOps,
+                                              final SecretOperator secretOperator) {
+        TestUtils.waitFor(
+            "KafkaUser " + username + " and Secret to be deleted",
+            Duration.ofMillis(pollingInterval).toMillis(),
+            Duration.ofMillis(timeoutMillis).toMillis(),
+            () -> {
+                boolean userDeleted = kafkaUserOps.get(namespace, username) == null;
+
+                if (authType == null || Objects.equals(authType, "none")) {
+                    return userDeleted;
+                } else {
+                    boolean secretDeleted = secretOperator.get(namespace, username) == null;
+                    return userDeleted && secretDeleted;
+                }
+            }
+        );
     }
 }
