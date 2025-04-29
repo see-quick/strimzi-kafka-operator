@@ -87,12 +87,14 @@ public class UserControllerModelMbtIT {
 
         final Boolean aclsEnabled = (Boolean) parameters.get("aclsEnabled");
         final List<String> usersToTest = (List<String>) ((Map<String, Object>) parameters.get("potentialUsers")).get("#set");
+        final Integer maxProcessedEvents = Integer.parseInt((String) ((Map<String, Object>) parameters.get("maxProcessedEvents")).get("#bigint"));
 
         LOGGER.info("\n\n====================");
         LOGGER.info("📋 STARTING TEST CASE: {}", tracePath);
         LOGGER.info("====================");
         LOGGER.info("1️⃣ PARAMETER aclEnabled = {}", aclsEnabled);
         LOGGER.info("2️⃣ PARAMETER potentialUsers = {}", usersToTest);
+        LOGGER.info("3️⃣ PARAMETER maxProcessedEvents = {}", maxProcessedEvents);
         LOGGER.info("====================\n\n");
 
         final UserOperatorConfig config = ResourceUtils.createUserOperatorConfigForUserControllerTesting(
@@ -136,6 +138,16 @@ public class UserControllerModelMbtIT {
         try {
             for (int i = 0; i < testCase.states.size(); i++) {
                 final Map<String, Object> state = testCase.states.get(i);
+                final Map<String, Object> globalState = (Map<String, Object>) state.get("globalState");
+                final int processedEvents = Integer.parseInt(
+                    String.valueOf(((Map<String, Object>) globalState.get("processedEvents")).get("#bigint"))
+                );
+
+                if (processedEvents >= maxProcessedEvents) {
+                    LOGGER.info("🍀 Reached maxProcessedEvents={} at step {} — finishing early.", maxProcessedEvents, i);
+                    break;
+                }
+
                 final String action = (String) state.get("mbt::actionTaken");
 
                 String username = null;
