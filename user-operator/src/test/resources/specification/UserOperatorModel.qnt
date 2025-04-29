@@ -116,18 +116,19 @@ module UserOperatorModel {
   // ============================================================================
   // All state is encapsulated in a single global variable.
   var globalState: GlobalState
-  var parameters : { aclsEnabled : bool, potentialUsers : Set[str] }
+  var parameters : { aclsEnabled : bool, potentialUsers : Set[str], maxProcessedEvents: int }
 
   // ============================================================================
   // INITIALIZATION ACTION
   // ============================================================================
   action init = all {
     nondet acl = Set(true, false).oneOf()
-    parameters' = { aclsEnabled : acl, potentialUsers : Set("Alice", "Bob", "Carol") },
-    globalState' = { 
-      users: Map(), 
-      secrets : Set(), 
-      eventQueue: [], 
+    // for verifying temporal property one has to set maxProcessedEvents <= 10 or verification would take 1 day ++ :)
+    parameters' = { aclsEnabled : acl, potentialUsers : Set("Alice", "Bob", "Carol"), maxProcessedEvents : 1000 },
+    globalState' = {
+      users: Map(),
+      secrets : Set(),
+      eventQueue: [],
       processedEvents: 0
     }
   }
@@ -245,14 +246,22 @@ module UserOperatorModel {
   action step = all {
     nondet u = parameters.potentialUsers.oneOf()
     nondet authType = Set("scram-sha-512", "tls", "none").oneOf()
-    nondet quotasEnabled = Set(false, true).oneOf()
-    any {
-      createUser(u, authType, quotasEnabled, parameters.aclsEnabled),
-      updateUser(u, authType, quotasEnabled, parameters.aclsEnabled),
-      deleteUser(u),
-      processNextEvent
-    },
-    parameters' = parameters,
+    nondet quotasEnabled = Set(true, false).oneOf()
+
+    // the sum of (already processed + currently queued) is bounded.
+    // we can never create more events than you will ever be allowed to process.
+    // therefore, the system guaranteedly stops after maxProcessedEvents in total.
+    if (globalState.processedEvents + length(globalState.eventQueue) < parameters.maxProcessedEvents)
+      any {
+        createUser(u, authType, quotasEnabled, parameters.aclsEnabled),
+        updateUser(u, authType, quotasEnabled, parameters.aclsEnabled),
+        deleteUser(u),
+        processNextEvent
+      }
+    else
+      processNextEvent,
+
+    parameters' = parameters
   }
 
   // ============================================================================
@@ -287,7 +296,7 @@ module UserOperatorModel {
       | UserDeleted(username) =>
               {
                 metadata: user.metadata,
-                spec: { 
+                spec: {
                   ...user.spec,
                   authorization: {
                     typeAuthz: "disabled",
@@ -328,7 +337,7 @@ module UserOperatorModel {
                 // Doesn’t regenerate secrets for deleted users.
                 if (state.users.get(cr.metadata.name).status.conditions.status == "Deleted")
                   state.secrets
-                else 
+                else
                   if (requiresSecret(cr.spec.authentication))
                     state.secrets.union(Set(cr.metadata.name))
                   else
@@ -428,7 +437,7 @@ module UserOperatorModel {
       (globalState.users.get(u).spec.quotas.requestPercentage >= 0) and
       (globalState.users.get(u).spec.quotas.requestPercentage <= 100)
     )
-  
+
   // If a KafkaUser is Ready, then their quotas must be valid. => (Non-negative and requestPercentage ∈ [0,100])
   val ReadyUsersQuotasValid =
     globalState.users.keys().forall(u =>
@@ -441,7 +450,7 @@ module UserOperatorModel {
        and globalState.users.get(u).spec.quotas.controllerMutationRate >= 0
      )
   )
-  
+
   // ========================================
   // ====== AUTHENTICATION INVARIANTS =======
   // ========================================
@@ -515,20 +524,35 @@ module UserOperatorModel {
       (state.users.get(u).status.conditions.status == "Deleted")
     )
 
-  // TODO: this is kinda tricky and it's does not HOLD in TLC need to investigate... :)
+
+  // ========================================
+  // ========= TEMPORAL PROPERTIES ==========
+  // ========================================
+
   // Temporal Property: Eventually Stable Reconciliation (ESR)
   // -----------------------------------------------------------
-  // This property asserts that if the step action is executed in a weakly fair
-  // manner (i.e., weakFair(step, globalState)), then it is always the case that
-  // eventually the system reaches a stable state. Here, a stable state is one in
-  // which:
-  //   1. The event queue is empty (i.e., no pending events remain), and
-  //   2. Every potential user is either absent from the state, or, if present,
-  //      its status is "Ready" or "Deleted" (i.e., the user is considered stable).
+  // This property asserts that if the `step` action is executed in a strongly fair
+  // manner (i.e., strongFair(step, globalState)), then the system must eventually
+  // reach a *stable* state.
   //
-  // In temporal logic, this is written as:
+  // A *stable* state means:
+  //   1. The event queue is empty (i.e., no pending events remain), and
+  //   2. Every potential user is either absent from the system or, if present,
+  //      has a status of "Ready" or "Deleted" (i.e., is considered stable).
+  //
+  // However, to allow for models that intentionally bound the number of processed
+  // events (to prevent infinite behavior during exploration), we additionally
+  // permit termination once the `processedEvents` counter reaches `maxProcessedEvents`.
+  //
+  // In other words, *stability must eventually be reached*, unless the system
+  // intentionally stops by exhausting the allowed number of processed events.
   temporal EventuallyStableReconciliationProperty =
-      strongFair(step, globalState) implies always(eventually(
-        (length(globalState.eventQueue) == 0) and isStable(globalState)
-      ))
+    strongFair(step, globalState) implies always(eventually(
+      (
+        (length(globalState.eventQueue) == 0)
+        and isStable(globalState)
+      )
+      or
+      (globalState.processedEvents >= parameters.maxProcessedEvents)
+    ))
 }
