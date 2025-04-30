@@ -123,7 +123,8 @@ module UserOperatorModel {
   // ============================================================================
   action init = all {
     nondet acl = Set(true, false).oneOf()
-    parameters' = { aclsEnabled : acl, potentialUsers : Set("Alice", "Bob", "Carol"), maxProcessedEvents : 5 },
+    // for verifying temporal property one has to set maxProcessedEvents <= 10 or verification would take 1 day ++ :)
+    parameters' = { aclsEnabled : acl, potentialUsers : Set("Alice", "Bob", "Carol"), maxProcessedEvents : 1000 },
     globalState' = {
       users: Map(),
       secrets : Set(),
