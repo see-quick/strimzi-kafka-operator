@@ -45,6 +45,24 @@ import java.util.Properties;
 import java.util.concurrent.ForkJoinPool;
 import java.util.stream.Stream;
 
+/**
+ * Model-Based Test (MBT) for the Strimzi User Operator.
+ *
+ * This test replays formal execution traces (JSON files) generated from a Quint specification
+ * (`UserOperatorModel.qnt`) and validates that the real Java User Operator behaves as the model expects.
+ *
+ * Each trace describes a sequence of actions (createUser, updateUser, deleteUser, processNextEvent).
+ * - Actions are queued until `processNextEvent` is explicitly requested, mimicking the model's event queue.
+ * - After each step, invariants (user/secret/ACL/quotas consistency) are checked against the real system.
+ *
+ * Components under test include:
+ * - KafkaUser creation/update/deletion
+ * - Secret handling based on authentication
+ * - ACLs based on authorization
+ * - Quotas validation
+ *
+ * This test ensures that the real implementation honors the same invariants and properties as the Quint model.
+ */
 public class UserControllerModelMbtIT {
     private static final Logger LOGGER = LogManager.getLogger(UserControllerModelMbtIT.class);
 
@@ -89,13 +107,11 @@ public class UserControllerModelMbtIT {
         final List<String> usersToTest = (List<String>) ((Map<String, Object>) parameters.get("potentialUsers")).get("#set");
         final Integer maxProcessedEvents = Integer.parseInt((String) ((Map<String, Object>) parameters.get("maxProcessedEvents")).get("#bigint"));
 
-        LOGGER.info("\n\n====================");
         LOGGER.info("📋 STARTING TEST CASE: {}", tracePath);
         LOGGER.info("====================");
         LOGGER.info("1️⃣ PARAMETER aclEnabled = {}", aclsEnabled);
         LOGGER.info("2️⃣ PARAMETER potentialUsers = {}", usersToTest);
         LOGGER.info("3️⃣ PARAMETER maxProcessedEvents = {}", maxProcessedEvents);
-        LOGGER.info("====================\n\n");
 
         final UserOperatorConfig config = ResourceUtils.createUserOperatorConfigForUserControllerTesting(
             namespace,
@@ -134,6 +150,7 @@ public class UserControllerModelMbtIT {
         controller.start();
 
         final KafkaUserModelActions actions = new KafkaUserModelActions(kafkaUserOps, secretOperator, namespace);
+        final List<KafkaUserModelActions.ModelEvent> eventQueue = new ArrayList<>();
 
         try {
             for (int i = 0; i < testCase.states.size(); i++) {
@@ -176,31 +193,38 @@ public class UserControllerModelMbtIT {
                 LOGGER.info(stepInfo);
                 mbtTimeline.add(stepInfo);
 
+                // i = 0 is init state
                 if (i > 0) {
-                    switch (action) {
-                        case "createUser" -> actions.createKafkaUser(username, authType, quotasEnabled, aclsEnabled);
-                        case "updateUser" -> actions.updateKafkaUser(username, authType, quotasEnabled, aclsEnabled);
-                        case "deleteUser" -> actions.deleteKafkaUser(username, authType);
+                    final KafkaUserModelActions.Action act = KafkaUserModelActions.Action.fromString(action);
+                    switch (act) {
+                        case CREATE_USER -> eventQueue.add(KafkaUserModelActions.EventsFactory.create(username, authType, quotasEnabled, aclsEnabled));
+                        case UPDATE_USER -> eventQueue.add(KafkaUserModelActions.EventsFactory.update(username, authType, quotasEnabled, aclsEnabled));
+                        case DELETE_USER -> eventQueue.add(KafkaUserModelActions.EventsFactory.delete(username, authType));
+                        case PROCESS_NEXT_EVENT -> {
+                            actions.processNextEvent(eventQueue);
+
+                            // after we process event we check all invariants
+
+                            //Every actual secret must correspond to a user with authType != 'none'
+                            actions.waitUntilAllSecretsHaveMatchingKafkaUsers(namespace);
+
+                            invariants.assertControllerAlive(controller);
+                            invariants.assertUserConsistency(namespace, username);
+                            // Secret invariants
+                            invariants.assertSecretsConsistency(namespace);
+                            invariants.assertNoSecretsForDeletedUsers(namespace);
+                            // Quotas invariants
+                            invariants.assertQuotasNonNegative(namespace);
+                            invariants.assertQuotasRequestPercentageValid(namespace);
+                            invariants.assertReadyUsersQuotasValid(namespace);
+                            // ACLs invariants
+                            invariants.assertACLsExistForAuthorizedUsers(namespace);
+                            invariants.assertNoACLsForDeletedUsers(namespace);
+                            invariants.assertReadyUsersMustHaveACLs(namespace);
+                        }
                         default -> { /* no-op */ }
                     }
                 }
-
-                //Every actual secret must correspond to a user with authType != 'none'
-                actions.waitUntilAllSecretsHaveMatchingKafkaUsers(namespace);
-
-                invariants.assertControllerAlive(controller);
-                invariants.assertUserConsistency(namespace, username);
-                // Secret invariants
-                invariants.assertSecretsConsistency(namespace);
-                invariants.assertNoSecretsForDeletedUsers(namespace);
-                // Quotas invariants
-                invariants.assertQuotasNonNegative(namespace);
-                invariants.assertQuotasRequestPercentageValid(namespace);
-                invariants.assertReadyUsersQuotasValid(namespace);
-                // ACLs invariants
-                invariants.assertACLsExistForAuthorizedUsers(namespace);
-                invariants.assertNoACLsForDeletedUsers(namespace);
-                invariants.assertReadyUsersMustHaveACLs(namespace);
             }
         } finally {
             kafkaUserOperator.stop();

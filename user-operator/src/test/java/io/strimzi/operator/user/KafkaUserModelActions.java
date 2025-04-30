@@ -1,6 +1,5 @@
 package io.strimzi.operator.user;
 
-import com.google.common.base.Supplier;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import io.fabric8.kubernetes.client.KubernetesClientException;
 import io.strimzi.api.kafka.model.user.KafkaUser;
@@ -19,14 +18,40 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.notNullValue;
 
+/**
+ * Executes real system operations for KafkaUser management during Model-Based Testing (MBT).
+ *
+ * This class bridges the gap between the abstract actions from the formal Quint model and the concrete
+ * operations on a Kubernetes + Kafka cluster via the User Operator. It implements the logic to:
+ *
+ * <ul>
+ *   <li><b>createKafkaUser(...)</b> — Create a KafkaUser with specified auth, quotas, and ACLs.</li>
+ *   <li><b>updateKafkaUser(...)</b> — Randomly mutate an existing KafkaUser to force reconciliation.</li>
+ *   <li><b>deleteKafkaUser(...)</b> — Delete a KafkaUser and ensure its Secret is also cleaned up.</li>
+ *   <li><b>processNextEvent(...)</b> — Apply and dequeue the next action from the MBT-generated queue.</li>
+ * </ul>
+ *
+ * Model actions are represented as sealed `ModelEvent` records (Create, Update, Delete),
+ * constructed via the {@link EventsFactory} for type safety.
+ *
+ * This executor is typically used in {@code UserControllerModelMbtIT} to replay traces generated from
+ * a formal Quint specification (`UserOperatorModel.qnt`) and assert that real system behavior matches
+ * the expected invariant-preserving execution.
+ *
+ * @see KafkaUserModelActions.ModelEvent
+ * @see KafkaUserModelActions.EventsFactory
+ * @see io.strimzi.operator.user.UserControllerModelMbtIT
+ */
 public class KafkaUserModelActions {
     private static final Logger LOGGER = LogManager.getLogger(KafkaUserModelActions.class);
     private static final long POLL_INTERVAL_MS = Duration.ofMillis(100).toMillis();
@@ -45,6 +70,83 @@ public class KafkaUserModelActions {
         this.kafkaUserOps = kafkaUserOps;
         this.secretOperator = secretOperator;
         this.namespace = namespace;
+    }
+
+    public enum Action {
+        CREATE_USER("createUser"),
+        UPDATE_USER("updateUser"),
+        DELETE_USER("deleteUser"),
+        PROCESS_NEXT_EVENT("processNextEvent");
+
+        private final String actionName;
+
+        Action(String actionName) {
+            this.actionName = actionName;
+        }
+
+        public String actionName() {
+            return actionName;
+        }
+
+        public static Action fromString(String s) {
+            for (Action a : values()) {
+                if (a.actionName.equalsIgnoreCase(s)) {
+                    return a;
+                }
+            }
+            throw new IllegalArgumentException("Unknown action: " + s);
+        }
+    }
+
+    sealed interface ModelEvent permits CreateUserEvent, UpdateUserEvent, DeleteUserEvent {
+        void apply(KafkaUserModelActions actions) throws Exception;
+    }
+
+    record CreateUserEvent(String username, String authType, Boolean quotasEnabled, Boolean aclsEnabled) implements ModelEvent {
+        public void apply(KafkaUserModelActions actions) throws Exception {
+            actions.createKafkaUser(username, authType, quotasEnabled, aclsEnabled);
+        }
+    }
+
+    record UpdateUserEvent(String username, String authType, Boolean quotasEnabled, Boolean aclsEnabled) implements ModelEvent {
+        public void apply(KafkaUserModelActions actions) throws Exception {
+            actions.updateKafkaUser(username, authType, quotasEnabled, aclsEnabled);
+        }
+    }
+
+    record DeleteUserEvent(String username, String authType) implements ModelEvent {
+        public void apply(KafkaUserModelActions actions) {
+            actions.deleteKafkaUser(username, authType);
+        }
+    }
+
+    public static class EventsFactory {
+        public static ModelEvent create(String username, String authType, Boolean quotasEnabled, Boolean aclsEnabled) {
+            return new CreateUserEvent(username, authType, quotasEnabled, aclsEnabled);
+        }
+
+        public static ModelEvent update(String username, String authType, Boolean quotasEnabled, Boolean aclsEnabled) {
+            return new UpdateUserEvent(username, authType, quotasEnabled, aclsEnabled);
+        }
+
+        public static ModelEvent delete(String username, String authType) {
+            return new DeleteUserEvent(username, authType);
+        }
+    }
+
+    /**
+     * Processes the next ModelEvent from the event queue.
+     * Handles empty queue gracefully.
+     */
+    public void processNextEvent(List<ModelEvent> eventQueue) throws Exception {
+        if (eventQueue.isEmpty()) {
+            LOGGER.warn("⚠️ Tried to processNextEvent, but the event queue is empty.");
+            return;
+        }
+
+        ModelEvent next = eventQueue.remove(0);
+        LOGGER.info("🌀 Processing next event from queue: {}", next);
+        next.apply(this);
     }
 
     public void createKafkaUser(String username, String authType, Boolean quotasEnabled, Boolean aclsEnabled) throws Exception {
@@ -127,26 +229,6 @@ public class KafkaUserModelActions {
                         .withNewKafkaUserScramSha512ClientAuthentication()
                         .endKafkaUserScramSha512ClientAuthentication()
                     .endSpec();
-                // TODO: another flag to use custom scram sha password instead of randon one )) and use this as code
-                //  // when also Quotas we also update custom scram-sha
-                //                final String secretName = "custom-secret-scram-sha";
-                //                final Secret userDefinedSecret = new SecretBuilder()
-                //                    .withNewMetadata()
-                //                    .withName(secretName)
-                //                    .withNamespace(namespace)
-                //                    .endMetadata()
-                //                    .addToData("password", "VDZmQ2pNMWRRb1d6VnBYNWJHa1VSOGVOMmFIeFA3WXM=")
-                //                    .build();
-                //                client.resource(userDefinedSecret).create();
-                //                existing.getSpec().setAuthentication(
-                //                    new KafkaUserScramSha512ClientAuthenticationBuilder()
-                //                        .withPassword(new PasswordBuilder()
-                //                            .editOrNewValueFrom()
-                //                                .withNewSecretKeyRef("password", secretName, false)
-                //                            .endValueFrom()
-                //                            .build())
-                //                        .build()
-                //
             } else if (KafkaUserTlsClientAuthentication.TYPE_TLS.equalsIgnoreCase(authType)) {
                 builder
                     .editOrNewSpec()
