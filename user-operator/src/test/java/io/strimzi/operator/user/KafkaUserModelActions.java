@@ -103,13 +103,13 @@ public class KafkaUserModelActions {
     }
 
     record CreateUserEvent(String username, String authType, Boolean quotasEnabled, Boolean aclsEnabled) implements ModelEvent {
-        public void apply(final KafkaUserModelActions actions) throws Exception {
+        public void apply(final KafkaUserModelActions actions) {
             actions.createKafkaUser(username, authType, quotasEnabled, aclsEnabled);
         }
     }
 
     record UpdateUserEvent(String username, String authType, Boolean quotasEnabled, Boolean aclsEnabled) implements ModelEvent {
-        public void apply(final KafkaUserModelActions actions) throws Exception {
+        public void apply(final KafkaUserModelActions actions) {
             actions.updateKafkaUser(username, authType, quotasEnabled, aclsEnabled);
         }
     }
