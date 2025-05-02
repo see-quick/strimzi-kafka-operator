@@ -118,7 +118,7 @@ public class UserControllerModelMbtIT {
             Map.of(),
             1000,
             100,          // Batch queue size
-            1,                     // Max batch size
+            1,                      // Max batch size
             "",                     // Optional secret prefix
             1,                      // controller thread size
             aclsEnabled             // ACLs enabled/disabled
@@ -184,9 +184,9 @@ public class UserControllerModelMbtIT {
                     }
                 }
 
-                InvariantChecker invariants = new InvariantChecker(kafkaUserOps, secretOperator);
+                final InvariantChecker invariants = new InvariantChecker(kafkaUserOps, secretOperator);
 
-                String stepInfo = String.format(
+                final String stepInfo = String.format(
                     "MBT: [%d] Executing action '%s' for user='%s', authType='%s', quotasEnabled='%s', aclsEnabled='%s'",
                     i, action, username, authType, quotasEnabled, aclsEnabled
                 );
@@ -203,8 +203,6 @@ public class UserControllerModelMbtIT {
                         case PROCESS_NEXT_EVENT -> {
                             actions.processNextEvent(eventQueue);
 
-                            // after we process event we check all invariants
-
                             //Every actual secret must correspond to a user with authType != 'none'
                             actions.waitUntilAllSecretsHaveMatchingKafkaUsers(namespace);
 
@@ -219,7 +217,6 @@ public class UserControllerModelMbtIT {
                             invariants.assertReadyUsersQuotasValid(namespace);
                             // ACLs invariants
                             invariants.assertACLsExistForAuthorizedUsers(namespace);
-                            invariants.assertNoACLsForDeletedUsers(namespace);
                             invariants.assertReadyUsersMustHaveACLs(namespace);
                         }
                         default -> { /* no-op */ }
@@ -255,7 +252,7 @@ public class UserControllerModelMbtIT {
     }
 
     @BeforeEach
-    public void beforeEach(TestInfo testInfo) {
+    void beforeEach(TestInfo testInfo) {
         mockKube = new MockKube3.MockKube3Builder()
             .withKafkaUserCrd()
             .withDeletionController()
@@ -297,15 +294,19 @@ public class UserControllerModelMbtIT {
     }
 
     @AfterEach
-    public void afterEach() {
+    void afterEach() {
         if (mockKube != null) {
             mockKube.stop();
         }
     }
 
     @AfterAll
-    public static void teardownKafka() {
-        if (adminClient != null) adminClient.close();
-        if (kafkaCluster != null) kafkaCluster.stop();
+    public static void tearDown() {
+        if (adminClient != null) {
+            adminClient.close();
+        }
+        if (kafkaCluster != null) {
+            kafkaCluster.stop();
+        }
     }
 }

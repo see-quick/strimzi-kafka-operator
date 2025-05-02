@@ -99,37 +99,44 @@ public class KafkaUserModelActions {
     }
 
     sealed interface ModelEvent permits CreateUserEvent, UpdateUserEvent, DeleteUserEvent {
-        void apply(KafkaUserModelActions actions) throws Exception;
+        void apply(final KafkaUserModelActions actions) throws Exception;
     }
 
     record CreateUserEvent(String username, String authType, Boolean quotasEnabled, Boolean aclsEnabled) implements ModelEvent {
-        public void apply(KafkaUserModelActions actions) throws Exception {
+        public void apply(final KafkaUserModelActions actions) throws Exception {
             actions.createKafkaUser(username, authType, quotasEnabled, aclsEnabled);
         }
     }
 
     record UpdateUserEvent(String username, String authType, Boolean quotasEnabled, Boolean aclsEnabled) implements ModelEvent {
-        public void apply(KafkaUserModelActions actions) throws Exception {
+        public void apply(final KafkaUserModelActions actions) throws Exception {
             actions.updateKafkaUser(username, authType, quotasEnabled, aclsEnabled);
         }
     }
 
     record DeleteUserEvent(String username, String authType) implements ModelEvent {
-        public void apply(KafkaUserModelActions actions) {
+        public void apply(final KafkaUserModelActions actions) {
             actions.deleteKafkaUser(username, authType);
         }
     }
 
     public static class EventsFactory {
-        public static ModelEvent create(String username, String authType, Boolean quotasEnabled, Boolean aclsEnabled) {
+        public static ModelEvent create(final String username,
+                                        final String authType,
+                                        final Boolean quotasEnabled,
+                                        final Boolean aclsEnabled) {
             return new CreateUserEvent(username, authType, quotasEnabled, aclsEnabled);
         }
 
-        public static ModelEvent update(String username, String authType, Boolean quotasEnabled, Boolean aclsEnabled) {
+        public static ModelEvent update(final String username,
+                                        final String authType,
+                                        final Boolean quotasEnabled,
+                                        final Boolean aclsEnabled) {
             return new UpdateUserEvent(username, authType, quotasEnabled, aclsEnabled);
         }
 
-        public static ModelEvent delete(String username, String authType) {
+        public static ModelEvent delete(final String username,
+                                        final String authType) {
             return new DeleteUserEvent(username, authType);
         }
     }
@@ -138,7 +145,7 @@ public class KafkaUserModelActions {
      * Processes the next ModelEvent from the event queue.
      * Handles empty queue gracefully.
      */
-    public void processNextEvent(List<ModelEvent> eventQueue) throws Exception {
+    public void processNextEvent(final List<ModelEvent> eventQueue) throws Exception {
         if (eventQueue.isEmpty()) {
             LOGGER.warn("⚠️ Tried to processNextEvent, but the event queue is empty.");
             return;
@@ -149,7 +156,10 @@ public class KafkaUserModelActions {
         next.apply(this);
     }
 
-    public void createKafkaUser(String username, String authType, Boolean quotasEnabled, Boolean aclsEnabled) throws Exception {
+    public void createKafkaUser(final String username,
+                                final String authType,
+                                final Boolean quotasEnabled,
+                                final Boolean aclsEnabled) {
         KafkaUserBuilder builder = new KafkaUserBuilder()
             .withNewMetadata()
                 .withLabels(Labels.forStrimziCluster(ResourceUtils.CLUSTER_NAME).toMap())
@@ -210,7 +220,10 @@ public class KafkaUserModelActions {
         }
     }
 
-    public void updateKafkaUser(String username, String authType, Boolean quotasEnabled, Boolean aclsEnabled) throws Exception {
+    public void updateKafkaUser(final String username,
+                                final String authType,
+                                final Boolean quotasEnabled,
+                                final Boolean aclsEnabled) {
         retryOnConflict(() -> {
             KafkaUser existing = kafkaUserOps.get(namespace, username);
             if (existing == null) {
@@ -241,7 +254,6 @@ public class KafkaUserModelActions {
             if (Boolean.TRUE.equals(quotasEnabled)) {
                 builder.
                     editOrNewSpec()
-                        // TODO: maybe make it also in (generate random attributes Quint model)?
                         .withQuotas(new KafkaUserQuotasBuilder()
                             .withConsumerByteRate(RNG.nextInt(1000) + 100)
                             .withProducerByteRate(RNG.nextInt(1000) + 200)
@@ -255,7 +267,6 @@ public class KafkaUserModelActions {
             if (Boolean.TRUE.equals(aclsEnabled)) {
                 builder.editOrNewSpec().withAuthorization(
                     new KafkaUserAuthorizationSimpleBuilder(
-                        // TODO: maybe all values in Quint model? => I think it's not needed :)
                         ResourceUtils.createSimpleAuthorization(Set.of(AclOperation.values())))
                     .build())
                 .endSpec();
@@ -271,7 +282,8 @@ public class KafkaUserModelActions {
 
             kafkaUserOps.resource(namespace, builder.build()).update();
             ResourceUtils.waitUntilKafkaUserReady(username, namespace, POLL_INTERVAL_MS, POLL_TIMEOUT_MS, kafkaUserOps);
-            if (KafkaUserScramSha512ClientAuthentication.TYPE_SCRAM_SHA_512.equalsIgnoreCase(authType) || KafkaUserTlsClientAuthentication.TYPE_TLS.equalsIgnoreCase(authType)) {
+            if (KafkaUserScramSha512ClientAuthentication.TYPE_SCRAM_SHA_512.equalsIgnoreCase(authType) ||
+                KafkaUserTlsClientAuthentication.TYPE_TLS.equalsIgnoreCase(authType)) {
                 waitUntilSecretCreated(username, namespace, POLL_TIMEOUT_MS);
             }
 
@@ -279,7 +291,8 @@ public class KafkaUserModelActions {
         });
     }
 
-    public void deleteKafkaUser(String username, String authType) {
+    public void deleteKafkaUser(final String username,
+                                final String authType) {
         KafkaUser existing = kafkaUserOps.get(namespace, username);
         if (existing != null) {
             kafkaUserOps.resource(namespace, username).delete();
@@ -308,7 +321,9 @@ public class KafkaUserModelActions {
         throw new RuntimeException("Max retries exceeded due to conflict");
     }
 
-    private void waitUntilSecretCreated(String username, String namespace, long timeoutMillis) {
+    private void waitUntilSecretCreated(final String username,
+                                        final String namespace,
+                                        final long timeoutMillis) {
         TestUtils.waitFor(
             "Secret for KafkaUser " + username + " to be created",
             Duration.ofMillis(POLL_INTERVAL_MS).toMillis(),
@@ -317,11 +332,11 @@ public class KafkaUserModelActions {
         );
     }
 
-    public void waitUntilAllSecretsHaveMatchingKafkaUsers(String namespace) {
-        long deadline = System.currentTimeMillis() + POLL_TIMEOUT_MS;
+    public void waitUntilAllSecretsHaveMatchingKafkaUsers(final String namespace) {
+        final long deadline = System.currentTimeMillis() + POLL_TIMEOUT_MS;
 
         while (System.currentTimeMillis() < deadline) {
-            Set<String> expectedSecrets = kafkaUserOps.list(namespace, InvariantChecker.kafkaUserLabels).stream()
+            final Set<String> expectedSecrets = kafkaUserOps.list(namespace, InvariantChecker.kafkaUserLabels).stream()
                 .filter(user -> {
                     String type = ResourceUtils.getAuthType(user);
                     return !"none".equalsIgnoreCase(type);
@@ -329,12 +344,12 @@ public class KafkaUserModelActions {
                 .map(user -> user.getMetadata().getName())
                 .collect(Collectors.toSet());
 
-            Set<String> actualSecrets = secretOperator.list(namespace, InvariantChecker.kafkaUserLabels).stream()
+            final Set<String> actualSecrets = secretOperator.list(namespace, InvariantChecker.kafkaUserLabels).stream()
                 .map(secret -> secret.getMetadata().getName())
                 .collect(Collectors.toSet());
 
             // Every actual secret must correspond to a user with authType != 'none'
-            boolean allSecretsMatchUsers = actualSecrets.stream().allMatch(expectedSecrets::contains);
+            final boolean allSecretsMatchUsers = actualSecrets.stream().allMatch(expectedSecrets::contains);
 
             if (allSecretsMatchUsers) {
                 return;

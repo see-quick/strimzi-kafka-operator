@@ -17,27 +17,27 @@ module UserOperatorModel {
     | NoneAuthentication          // no authentication configured :)
 
   type ResourceType = 
-      topic     | 
-      group     | 
-      cluster   | 
-      transactionalId
-  
-  type PatternType = 
-      literal | 
-      prefix
-  
-  type Operation = 
-      Read          |
-      Write         |
-      Create        |
-      Delete        | 
-      Alter         |
-      Describe      |
-      ClusterAction |
-      AlterConfigs  |
-      DescribeConfigs |
-      IdempotentWrite |
-      All
+      topic     |
+      group     |           // (abstracted out)
+      cluster   |           // (abstracted out)
+      transactionalId       // (abstracted out)
+
+  type PatternType =
+      literal |
+      prefix                 // (abstracted out)
+
+  type Operation =
+      Read  |
+      Write |                // (abstracted out)
+      Create        |        // (abstracted out)
+      Delete        |        // (abstracted out)
+      Alter         |        // (abstracted out)
+      Describe      |        // (abstracted out)
+      ClusterAction |        // (abstracted out)
+      AlterConfigs  |        // (abstracted out)
+      DescribeConfigs |      // (abstracted out)
+      IdempotentWrite |      // (abstracted out)
+      All                    // (abstracted out)
 
   type AclResource = {
       name: str,
@@ -61,7 +61,7 @@ module UserOperatorModel {
     producerByteRate: int,
     consumerByteRate: int,
     requestPercentage: int,
-    controllerMutationRate: int    // should be real but Quint has only int :)
+    controllerMutationRate: int
   }
 
   type KafkaUserSpec = {
@@ -89,7 +89,7 @@ module UserOperatorModel {
   type UserResource = {
     metadata: KafkaUserMetadata,
     spec: KafkaUserSpec,
-    status: KafkaUserStatus  //   "Pending", "Ready", "Error", or "Deleted"
+    status: KafkaUserStatus  //   "Pending", "Ready", or "Deleted"
   }
 
   // ============================================================================
@@ -116,15 +116,29 @@ module UserOperatorModel {
   // ============================================================================
   // All state is encapsulated in a single global variable.
   var globalState: GlobalState
-  var parameters : { aclsEnabled : bool, potentialUsers : Set[str], maxProcessedEvents: int }
+  var parameters : {
+    aclsEnabled : bool,
+    potentialUsers : Set[str],
+    maxProcessedEvents: int,
+    authTypes: Set[str],
+    quotasEnabled: Set[bool]
+  }
 
   // ============================================================================
   // INITIALIZATION ACTION
   // ============================================================================
   action init = all {
+    // we fix ACLs (i.e., enabled / disabled within one trace)
     nondet acl = Set(true, false).oneOf()
+
     // for verifying temporal property one has to set maxProcessedEvents <= 10 or verification would take 1 day ++ :)
-    parameters' = { aclsEnabled : acl, potentialUsers : Set("Alice", "Bob", "Carol"), maxProcessedEvents : 1000 },
+    parameters' = {
+        aclsEnabled : acl,
+        potentialUsers : Set("Alice", "Bob", "Carol"),
+        maxProcessedEvents : 1000,
+        authTypes: Set("scram-sha-512", "tls", "none"),
+        quotasEnabled: Set(true, false)
+    },
     globalState' = {
       users: Map(),
       secrets : Set(),
@@ -176,7 +190,6 @@ module UserOperatorModel {
         controllerMutationRate: 0
       }
 
-  // TODO: make those ACLs operation non-determinstic and not just use read :))
   def makeAcl(): Set[SimpleAclRule] = Set({
      resource: { name: "*", typeAcl: topic, patternType: literal },
      operation: Read,
@@ -245,8 +258,8 @@ module UserOperatorModel {
   // If the choice is "reconcile" but the eventQueue is empty, it falls back to generating an event.
   action step = all {
     nondet u = parameters.potentialUsers.oneOf()
-    nondet authType = Set("scram-sha-512", "tls", "none").oneOf()
-    nondet quotasEnabled = Set(true, false).oneOf()
+    nondet authType = parameters.authTypes.oneOf()
+    nondet quotasEnabled = parameters.quotasEnabled.oneOf()
 
     // the sum of (already processed + currently queued) is bounded.
     // we can never create more events than you will ever be allowed to process.
@@ -346,18 +359,8 @@ module UserOperatorModel {
               processedEvents: state.processedEvents + 1
             }
           else
-            {
-              users: state.users.put(cr.metadata.name, {
-                metadata: cr.metadata,
-                spec: cr.spec,
-                status: { conditions: { status: "Ready" } }
-              }),
-              // TODO: when going from TLS to non-TLS (should I add secret?? ) => currnetly I am adding...
-              secrets: if (requiresSecret(cr.spec.authentication)) state.secrets.union(Set(cr.metadata.name)) else state.secrets,
-              eventQueue: state.eventQueue,
-              processedEvents: state.processedEvents + 1
-            }
-      | UserDeleted(username) =>
+            state
+       | UserDeleted(username) =>
           if (username.in(state.users.keys()))
             {
               users: state.users.put(username, reconcileUser(state.users.get(username), ev)),
