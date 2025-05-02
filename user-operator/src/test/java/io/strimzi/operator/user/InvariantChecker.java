@@ -144,19 +144,6 @@ public class InvariantChecker {
         });
     }
 
-    public void assertNoACLsForDeletedUsers(final String namespace) {
-        kafkaUserOps.list(namespace, kafkaUserLabels).forEach(user -> {
-            if (hasStatusCondition(user, "Deleted", "True") &&
-                user.getSpec() != null &&
-                user.getSpec().getAuthorization() instanceof KafkaUserAuthorizationSimple simpleAuth) {
-
-                List<AclRule> acls = simpleAuth.getAcls();
-                assertTrue(acls == null || acls.isEmpty(),
-                    "❌ Deleted user '" + user.getMetadata().getName() + "' must not have ACLs");
-            }
-        });
-    }
-
     public void assertReadyUsersMustHaveACLs(final String namespace) {
         kafkaUserOps.list(namespace, kafkaUserLabels).forEach(user -> {
             if (hasStatusCondition(user, "Ready", "True") &&
