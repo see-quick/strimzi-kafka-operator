@@ -5,7 +5,9 @@ import io.fabric8.kubernetes.client.KubernetesClient;
 import io.strimzi.api.kafka.model.user.KafkaUser;
 import io.strimzi.api.kafka.model.user.KafkaUserAuthorizationSimple;
 import io.strimzi.api.kafka.model.user.KafkaUserList;
+import io.strimzi.api.kafka.model.user.KafkaUserScramSha512ClientAuthentication;
 import io.strimzi.api.kafka.model.user.KafkaUserSpec;
+import io.strimzi.api.kafka.model.user.KafkaUserTlsClientAuthentication;
 import io.strimzi.api.kafka.model.user.acl.AclRule;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.operator.resource.concurrent.CrdOperator;
@@ -171,7 +173,7 @@ public class InvariantChecker {
             .map(KafkaUserSpec::getAuthentication)
             .map(auth -> {
                         String type = auth.getType();
-                        return "tls".equalsIgnoreCase(type) || "scramsha".equalsIgnoreCase(type);
+                        return KafkaUserTlsClientAuthentication.TYPE_TLS.equalsIgnoreCase(type) || KafkaUserScramSha512ClientAuthentication.TYPE_SCRAM_SHA_512.equalsIgnoreCase(type);
                 }).orElse(false);
     }
 }
