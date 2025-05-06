@@ -170,25 +170,28 @@ public class UserControllerModelMbtIT {
                 String username = null;
                 String authType = null;
                 Boolean quotasEnabled = null;
+                String resourceType = null;
+                String pattern = null;
+                String operation = null;
 
-                Map<String, Object> nondet = (Map<String, Object>) state.get("mbt::nondetPicks");
+                final Map<String, Object> nondet = (Map<String, Object>) state.get("mbt::nondetPicks");
                 if (nondet != null) {
-                    if (nondet.get("u") instanceof Map<?,?> uMap && "Some".equals(uMap.get("tag"))) {
-                        username = ((String) uMap.get("value")).toLowerCase(Locale.ROOT);
+                    username = ResourceUtils.getOptionalValue(nondet, "u", String.class);
+                    if (username != null) {
+                        username = username.toLowerCase(Locale.ROOT);
                     }
-                    if (nondet.get("authType") instanceof Map<?,?> authMap && "Some".equals(authMap.get("tag"))) {
-                        authType = (String) authMap.get("value");
-                    }
-                    if (nondet.get("quotasEnabled") instanceof Map<?,?> quotasMap && "Some".equals(quotasMap.get("tag"))) {
-                        quotasEnabled = (Boolean) quotasMap.get("value");
-                    }
+                    authType = ResourceUtils.getOptionalValue(nondet, "authType", String.class);
+                    quotasEnabled = ResourceUtils.getOptionalValue(nondet, "quotasEnabled", Boolean.class);
+                    resourceType = ResourceUtils.getTaggedEnumValue(nondet, "resourceType");
+                    pattern = ResourceUtils.getTaggedEnumValue(nondet, "pattern");
+                    operation = ResourceUtils.getTaggedEnumValue(nondet, "op");
                 }
 
                 final InvariantChecker invariants = new InvariantChecker(kafkaUserOps, secretOperator);
 
                 final String stepInfo = String.format(
-                    "MBT: [%d] Executing action '%s' for user='%s', authType='%s', quotasEnabled='%s', aclsEnabled='%s'",
-                    i, action, username, authType, quotasEnabled, aclsEnabled
+                    "⊧ MBT: [%d] Executing action '%s' for user='%s', authType='%s', quotasEnabled='%s', aclsEnabled='%s', resourceType='%s', pattern='%s', operation='%s'",
+                    i, action, username, authType, quotasEnabled, aclsEnabled, resourceType, pattern, operation
                 );
                 LOGGER.info(stepInfo);
                 mbtTimeline.add(stepInfo);
@@ -197,9 +200,17 @@ public class UserControllerModelMbtIT {
                 if (i > 0) {
                     final KafkaUserModelActions.Action act = KafkaUserModelActions.Action.fromString(action);
                     switch (act) {
-                        case CREATE_USER -> eventQueue.add(KafkaUserModelActions.EventsFactory.create(username, authType, quotasEnabled, aclsEnabled));
-                        case UPDATE_USER -> eventQueue.add(KafkaUserModelActions.EventsFactory.update(username, authType, quotasEnabled, aclsEnabled));
-                        case DELETE_USER -> eventQueue.add(KafkaUserModelActions.EventsFactory.delete(username, authType));
+                        case CREATE_USER ->
+                            eventQueue.add(
+                                KafkaUserModelActions.EventsFactory.create(
+                                    username, authType, quotasEnabled, aclsEnabled, resourceType, pattern, operation));
+                        case UPDATE_USER ->
+                            eventQueue.add(
+                                KafkaUserModelActions.EventsFactory.update(
+                                    username, authType, quotasEnabled, aclsEnabled, resourceType, pattern, operation));
+                        case DELETE_USER ->
+                            eventQueue.add(
+                                KafkaUserModelActions.EventsFactory.delete(username, authType));
                         case PROCESS_NEXT_EVENT -> {
                             actions.processNextEvent(eventQueue);
 

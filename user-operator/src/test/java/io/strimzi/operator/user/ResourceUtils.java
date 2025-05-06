@@ -18,8 +18,14 @@ import io.strimzi.api.kafka.model.user.KafkaUserQuotasBuilder;
 import io.strimzi.api.kafka.model.user.KafkaUserScramSha512ClientAuthentication;
 import io.strimzi.api.kafka.model.user.KafkaUserTlsClientAuthentication;
 import io.strimzi.api.kafka.model.user.acl.AclOperation;
+import io.strimzi.api.kafka.model.user.acl.AclResourcePatternType;
 import io.strimzi.api.kafka.model.user.acl.AclRule;
 import io.strimzi.api.kafka.model.user.acl.AclRuleBuilder;
+import io.strimzi.api.kafka.model.user.acl.AclRuleClusterResource;
+import io.strimzi.api.kafka.model.user.acl.AclRuleGroupResource;
+import io.strimzi.api.kafka.model.user.acl.AclRuleResource;
+import io.strimzi.api.kafka.model.user.acl.AclRuleTopicResource;
+import io.strimzi.api.kafka.model.user.acl.AclRuleTransactionalIdResource;
 import io.strimzi.api.kafka.model.user.acl.AclRuleType;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.operator.resource.concurrent.CrdOperator;
@@ -172,66 +178,6 @@ public class ResourceUtils {
         return createKafkaUser(namespace, new KafkaUserTlsClientAuthentication());
     }
 
-    public static KafkaUser createKafkaUserTls(String namespace, String username) {
-        KafkaUser user = new KafkaUserBuilder()
-            .withNewMetadata()
-                .withLabels(Labels.forStrimziCluster("my-cluster").toMap())
-                .withName(username)
-                .withNamespace(namespace)
-            .endMetadata()
-            .withNewSpec()
-                .withAuthentication(new KafkaUserTlsClientAuthentication())
-            .endSpec()
-            .build();
-        return user;
-    }
-
-    public static KafkaUser createKafkaUserScramSha(String namespace, String username) {
-        KafkaUser user = new KafkaUserBuilder()
-            .withNewMetadata()
-                .withLabels(Labels.forStrimziCluster("my-cluster").toMap())
-                .withName(username)
-                .withNamespace(namespace)
-            .endMetadata()
-            .withNewSpec()
-                .withAuthentication(new KafkaUserScramSha512ClientAuthentication())
-            .endSpec()
-            .build();
-        return user;
-    }
-
-    public static KafkaUser createKafkaUserWithQuotas(String namespace, String username,  KafkaUserQuotas quotas) {
-        KafkaUser user = new KafkaUserBuilder()
-            .withNewMetadata()
-                .withLabels(Labels.forStrimziCluster("my-cluster").toMap())
-                .withName(username)
-                .withNamespace(namespace)
-            .endMetadata()
-            .withNewSpec()
-                // tls
-                .withAuthentication(new KafkaUserTlsClientAuthentication())
-                .withQuotas(quotas)
-            .endSpec()
-            .build();
-        return user;
-    }
-
-    public static KafkaUser createKafkaUserScramShaAndQuotas(String namespace, String username,  KafkaUserQuotas quotas) {
-        KafkaUser user = new KafkaUserBuilder()
-            .withNewMetadata()
-                .withLabels(Labels.forStrimziCluster("my-cluster").toMap())
-                .withName(username)
-                .withNamespace(namespace)
-            .endMetadata()
-            .withNewSpec()
-                // scram-sha
-                .withAuthentication(new KafkaUserScramSha512ClientAuthentication())
-                .withQuotas(quotas)
-            .endSpec()
-            .build();
-        return user;
-    }
-
     public static KafkaUser createKafkaUserScramSha(String namespace) {
         return createKafkaUser(namespace, new KafkaUserScramSha512ClientAuthentication());
     }
@@ -320,6 +266,53 @@ public class ResourceUtils {
         return simpleAclRules;
     }
 
+    public static KafkaUserAuthorizationSimple createSimpleAuthorization(
+        String resourceType,
+        String patternType,
+        String operation
+    ) {
+        final AclRuleResource resource;
+
+        switch (resourceType.toLowerCase()) {
+            case "topic" -> {
+                AclRuleTopicResource r = new AclRuleTopicResource();
+                r.setName("*");
+                r.setAdditionalProperty("patternType", patternType);
+                resource = r;
+            }
+            case "group" -> {
+                AclRuleGroupResource r = new AclRuleGroupResource();
+                r.setName("*");
+                r.setAdditionalProperty("patternType", patternType);
+                resource = r;
+            }
+            case "cluster" -> {
+                AclRuleClusterResource r = new AclRuleClusterResource();
+                r.setAdditionalProperty("patternType", patternType);
+                resource = r;
+            }
+            case "transactionalid" -> {
+                AclRuleTransactionalIdResource r = new AclRuleTransactionalIdResource();
+                r.setName("*");
+                r.setAdditionalProperty("patternType", patternType);
+                resource = r;
+            }
+            default -> throw new IllegalArgumentException("Unsupported resourceType: " + resourceType);
+        }
+
+        final AclRule acl = new AclRuleBuilder()
+            .withResource(resource)
+            .withHost("*")
+            .withOperation(AclOperation.valueOf(operation.toUpperCase()))
+            .withType(AclRuleType.ALLOW)
+            .build();
+
+
+        return new KafkaUserAuthorizationSimpleBuilder()
+            .withAcls(List.of(acl))
+            .build();
+    }
+
     public static KafkaUserAuthorizationSimple createSimpleAuthorization(Set<AclOperation> operations) {
         return new KafkaUserAuthorizationSimpleBuilder()
             .withAcls(List.of(
@@ -404,5 +397,32 @@ public class ResourceUtils {
                 }
             }
         );
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Object unwrapOptional(Object raw) {
+        if (raw instanceof Map<?, ?> wrapper && "Some".equals(wrapper.get("tag"))) {
+            return wrapper.get("value");
+        }
+        return null;
+    }
+
+    public static <T> T getOptionalValue(Map<String, Object> nondet, String key, Class<T> expectedType) {
+        Object unwrapped = unwrapOptional(nondet.get(key));
+        if (expectedType.isInstance(unwrapped)) {
+            return expectedType.cast(unwrapped);
+        }
+        return null;
+    }
+
+    public static String getTaggedEnumValue(Map<String, Object> nondet, String key) {
+        Object inner = unwrapOptional(nondet.get(key));
+        if (inner instanceof Map<?, ?> innerMap) {
+            Object tag = innerMap.get("tag");
+            if (tag instanceof String tagValue) {
+                return tagValue;
+            }
+        }
+        return null;
     }
 }

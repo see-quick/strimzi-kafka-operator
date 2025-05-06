@@ -102,15 +102,29 @@ public class KafkaUserModelActions {
         void apply(final KafkaUserModelActions actions) throws Exception;
     }
 
-    record CreateUserEvent(String username, String authType, Boolean quotasEnabled, Boolean aclsEnabled) implements ModelEvent {
+    record CreateUserEvent(
+        String username,
+        String authType,
+        Boolean quotasEnabled,
+        Boolean aclsEnabled,
+        String resourceType,
+        String patternType,
+        String operation
+    ) implements ModelEvent {
         public void apply(final KafkaUserModelActions actions) {
-            actions.createKafkaUser(username, authType, quotasEnabled, aclsEnabled);
+            actions.createKafkaUser(username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation);
         }
     }
 
-    record UpdateUserEvent(String username, String authType, Boolean quotasEnabled, Boolean aclsEnabled) implements ModelEvent {
+    record UpdateUserEvent(String username,
+                           String authType,
+                           Boolean quotasEnabled,
+                           Boolean aclsEnabled,
+                           String resourceType,
+                           String patternType,
+                           String operation) implements ModelEvent {
         public void apply(final KafkaUserModelActions actions) {
-            actions.updateKafkaUser(username, authType, quotasEnabled, aclsEnabled);
+            actions.updateKafkaUser(username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation);
         }
     }
 
@@ -124,15 +138,21 @@ public class KafkaUserModelActions {
         public static ModelEvent create(final String username,
                                         final String authType,
                                         final Boolean quotasEnabled,
-                                        final Boolean aclsEnabled) {
-            return new CreateUserEvent(username, authType, quotasEnabled, aclsEnabled);
+                                        final Boolean aclsEnabled,
+                                        final String resourceType,
+                                        final String patternType,
+                                        final String operation) {
+            return new CreateUserEvent(username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation);
         }
 
         public static ModelEvent update(final String username,
                                         final String authType,
                                         final Boolean quotasEnabled,
-                                        final Boolean aclsEnabled) {
-            return new UpdateUserEvent(username, authType, quotasEnabled, aclsEnabled);
+                                        final Boolean aclsEnabled,
+                                        final String resourceType,
+                                        final String patternType,
+                                        final String operation) {
+            return new UpdateUserEvent(username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation);
         }
 
         public static ModelEvent delete(final String username,
@@ -159,8 +179,11 @@ public class KafkaUserModelActions {
     public void createKafkaUser(final String username,
                                 final String authType,
                                 final Boolean quotasEnabled,
-                                final Boolean aclsEnabled) {
-        KafkaUserBuilder builder = new KafkaUserBuilder()
+                                final Boolean aclsEnabled,
+                                final String resourceType,
+                                final String patternType,
+                                final String operation) {
+       final KafkaUserBuilder builder = new KafkaUserBuilder()
             .withNewMetadata()
                 .withLabels(Labels.forStrimziCluster(ResourceUtils.CLUSTER_NAME).toMap())
                 .withName(username)
@@ -199,7 +222,7 @@ public class KafkaUserModelActions {
         if (Boolean.TRUE.equals(aclsEnabled)) {
             builder
                 .editOrNewSpec()
-                    .withAuthorization(ResourceUtils.createSimpleAuthorization(Set.of(AclOperation.READ)))
+                    .withAuthorization(ResourceUtils.createSimpleAuthorization(resourceType, patternType, operation))
                 .endSpec();
         }
 
@@ -223,9 +246,12 @@ public class KafkaUserModelActions {
     public void updateKafkaUser(final String username,
                                 final String authType,
                                 final Boolean quotasEnabled,
-                                final Boolean aclsEnabled) {
+                                final Boolean aclsEnabled,
+                                final String resourceType,
+                                final String patternType,
+                                final String operation) {
         retryOnConflict(() -> {
-            KafkaUser existing = kafkaUserOps.get(namespace, username);
+            final KafkaUser existing = kafkaUserOps.get(namespace, username);
             if (existing == null) {
                 LOGGER.info("KafkaUser '{}' does not exist; skipping update.", username);
                 return true;
@@ -265,11 +291,19 @@ public class KafkaUserModelActions {
 
             // Authorization
             if (Boolean.TRUE.equals(aclsEnabled)) {
-                builder.editOrNewSpec().withAuthorization(
-                    new KafkaUserAuthorizationSimpleBuilder(
-                        ResourceUtils.createSimpleAuthorization(Set.of(AclOperation.values())))
-                    .build())
-                .endSpec();
+                if (resourceType != null && patternType != null && operation != null) {
+                    builder.editOrNewSpec().withAuthorization(
+                        new KafkaUserAuthorizationSimpleBuilder(
+                            ResourceUtils.createSimpleAuthorization(resourceType, patternType, operation))
+                            .build())
+                    .endSpec();
+                } else {
+                    builder.editOrNewSpec().withAuthorization(
+                        new KafkaUserAuthorizationSimpleBuilder(
+                            ResourceUtils.createSimpleAuthorization(Set.of(AclOperation.values())))
+                            .build())
+                    .endSpec();
+                }
             } else {
                 builder
                     .editOrNewSpec()
@@ -293,7 +327,7 @@ public class KafkaUserModelActions {
 
     public void deleteKafkaUser(final String username,
                                 final String authType) {
-        KafkaUser existing = kafkaUserOps.get(namespace, username);
+        final KafkaUser existing = kafkaUserOps.get(namespace, username);
         if (existing != null) {
             kafkaUserOps.resource(namespace, username).delete();
             kafkaUserOps.resource(namespace, username)
