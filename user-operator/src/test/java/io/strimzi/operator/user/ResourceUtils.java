@@ -400,7 +400,7 @@ public class ResourceUtils {
     }
 
     @SuppressWarnings("unchecked")
-    private static Object unwrapOptional(Object raw) {
+    public static Object unwrapOptional(Object raw) {
         if (raw instanceof Map<?, ?> wrapper && "Some".equals(wrapper.get("tag"))) {
             return wrapper.get("value");
         }
@@ -415,14 +415,20 @@ public class ResourceUtils {
         return null;
     }
 
-    public static String getTaggedEnumValue(Map<String, Object> nondet, String key) {
-        Object inner = unwrapOptional(nondet.get(key));
-        if (inner instanceof Map<?, ?> innerMap) {
-            Object tag = innerMap.get("tag");
-            if (tag instanceof String tagValue) {
-                return tagValue;
+    public static List<String> getTupleEnumTags(final Map<String, Object> nondet,
+                                                final String key,
+                                                final int size) {
+        final Object maybeSome = unwrapOptional(nondet.get(key));
+        if (maybeSome instanceof Map<?, ?> maybeTuple) {
+            final Object inner = maybeTuple.get("#tup");
+            if (inner instanceof List<?> list && list.size() == size) {
+                return list.stream()
+                    .map(e -> ((Map<?, ?>) e).get("tag"))
+                    .filter(String.class::isInstance)
+                    .map(String.class::cast)
+                    .collect(Collectors.toList());
             }
         }
-        return null;
+        return List.of();
     }
 }

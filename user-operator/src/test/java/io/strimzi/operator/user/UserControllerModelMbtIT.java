@@ -171,7 +171,7 @@ public class UserControllerModelMbtIT {
                 String authType = null;
                 Boolean quotasEnabled = null;
                 String resourceType = null;
-                String pattern = null;
+                String patternType = null;
                 String operation = null;
 
                 final Map<String, Object> nondet = (Map<String, Object>) state.get("mbt::nondetPicks");
@@ -182,16 +182,21 @@ public class UserControllerModelMbtIT {
                     }
                     authType = ResourceUtils.getOptionalValue(nondet, "authType", String.class);
                     quotasEnabled = ResourceUtils.getOptionalValue(nondet, "quotasEnabled", Boolean.class);
-                    resourceType = ResourceUtils.getTaggedEnumValue(nondet, "resourceType");
-                    pattern = ResourceUtils.getTaggedEnumValue(nondet, "pattern");
-                    operation = ResourceUtils.getTaggedEnumValue(nondet, "op");
+
+                    final List<String> authzParams = ResourceUtils.getTupleEnumTags(nondet, "authzParams", 3);
+
+                    if (authzParams.size() == 3) {
+                        resourceType = authzParams.get(0);
+                        patternType = authzParams.get(1);
+                        operation = authzParams.get(2);
+                    }
                 }
 
                 final InvariantChecker invariants = new InvariantChecker(kafkaUserOps, secretOperator);
 
                 final String stepInfo = String.format(
                     "⊧ MBT: [%d] Executing action '%s' for user='%s', authType='%s', quotasEnabled='%s', aclsEnabled='%s', resourceType='%s', pattern='%s', operation='%s'",
-                    i, action, username, authType, quotasEnabled, aclsEnabled, resourceType, pattern, operation
+                    i, action, username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation
                 );
                 LOGGER.info(stepInfo);
                 mbtTimeline.add(stepInfo);
@@ -203,11 +208,11 @@ public class UserControllerModelMbtIT {
                         case CREATE_USER ->
                             eventQueue.add(
                                 KafkaUserModelActions.EventsFactory.create(
-                                    username, authType, quotasEnabled, aclsEnabled, resourceType, pattern, operation));
+                                    username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation));
                         case UPDATE_USER ->
                             eventQueue.add(
                                 KafkaUserModelActions.EventsFactory.update(
-                                    username, authType, quotasEnabled, aclsEnabled, resourceType, pattern, operation));
+                                    username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation));
                         case DELETE_USER ->
                             eventQueue.add(
                                 KafkaUserModelActions.EventsFactory.delete(username, authType));
