@@ -10,6 +10,7 @@ import io.strimzi.api.kafka.model.user.KafkaUserQuotasBuilder;
 import io.strimzi.api.kafka.model.user.KafkaUserScramSha512ClientAuthentication;
 import io.strimzi.api.kafka.model.user.KafkaUserTlsClientAuthentication;
 import io.strimzi.api.kafka.model.user.acl.AclOperation;
+import io.strimzi.operator.common.Annotations;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.operator.resource.concurrent.CrdOperator;
 import io.strimzi.operator.common.operator.resource.concurrent.SecretOperator;
@@ -109,10 +110,11 @@ public class KafkaUserModelActions {
         Boolean aclsEnabled,
         String resourceType,
         String patternType,
-        String operation
+        String operation,
+        Boolean reconciliationPaused
     ) implements ModelEvent {
         public void apply(final KafkaUserModelActions actions) {
-            actions.createKafkaUser(username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation);
+            actions.createKafkaUser(username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation, reconciliationPaused);
         }
     }
 
@@ -122,9 +124,10 @@ public class KafkaUserModelActions {
                            Boolean aclsEnabled,
                            String resourceType,
                            String patternType,
-                           String operation) implements ModelEvent {
+                           String operation,
+                           Boolean reconciliationPaused) implements ModelEvent {
         public void apply(final KafkaUserModelActions actions) {
-            actions.updateKafkaUser(username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation);
+            actions.updateKafkaUser(username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation, reconciliationPaused);
         }
     }
 
@@ -141,8 +144,9 @@ public class KafkaUserModelActions {
                                         final Boolean aclsEnabled,
                                         final String resourceType,
                                         final String patternType,
-                                        final String operation) {
-            return new CreateUserEvent(username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation);
+                                        final String operation,
+                                        final Boolean reconciliationPaused) {
+            return new CreateUserEvent(username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation,  reconciliationPaused);
         }
 
         public static ModelEvent update(final String username,
@@ -151,8 +155,9 @@ public class KafkaUserModelActions {
                                         final Boolean aclsEnabled,
                                         final String resourceType,
                                         final String patternType,
-                                        final String operation) {
-            return new UpdateUserEvent(username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation);
+                                        final String operation,
+                                        final Boolean reconciliationPaused) {
+            return new UpdateUserEvent(username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation, reconciliationPaused);
         }
 
         public static ModelEvent delete(final String username,
@@ -182,7 +187,8 @@ public class KafkaUserModelActions {
                                 final Boolean aclsEnabled,
                                 final String resourceType,
                                 final String patternType,
-                                final String operation) {
+                                final String operation,
+                                final Boolean reconciliationPaused) {
        final KafkaUserBuilder builder = new KafkaUserBuilder()
             .withNewMetadata()
                 .withLabels(Labels.forStrimziCluster(ResourceUtils.CLUSTER_NAME).toMap())
@@ -226,6 +232,13 @@ public class KafkaUserModelActions {
                 .endSpec();
         }
 
+        if (Boolean.TRUE.equals(reconciliationPaused)) {
+            builder
+                .editOrNewMetadata()
+                    .addToAnnotations(Annotations.ANNO_STRIMZI_IO_PAUSE_RECONCILIATION, "true")
+                .endMetadata();
+        }
+
         try {
             kafkaUserOps.resource(namespace, builder.build()).create();
 
@@ -249,7 +262,8 @@ public class KafkaUserModelActions {
                                 final Boolean aclsEnabled,
                                 final String resourceType,
                                 final String patternType,
-                                final String operation) {
+                                final String operation,
+                                final Boolean reconciliationPaused) {
         retryOnConflict(() -> {
             final KafkaUser existing = kafkaUserOps.get(namespace, username);
             if (existing == null) {
@@ -311,6 +325,13 @@ public class KafkaUserModelActions {
                     .endSpec();
             }
 
+            if (Boolean.TRUE.equals(reconciliationPaused)) {
+                builder
+                    .editOrNewMetadata()
+                        .addToAnnotations(Annotations.ANNO_STRIMZI_IO_PAUSE_RECONCILIATION, "true")
+                    .endMetadata();
+            }
+
             // Always clear .status on update => This forces the controller to re-evaluate and not trust old Ready status.
             builder.withStatus(null);
 
@@ -358,6 +379,17 @@ public class KafkaUserModelActions {
     private void waitUntilSecretCreated(final String username,
                                         final String namespace,
                                         final long timeoutMillis) {
+        KafkaUser ku = kafkaUserOps.get(namespace, username);
+        boolean paused = ku != null &&
+            ku.getMetadata() != null &&
+            ku.getMetadata().getAnnotations() != null &&
+            Boolean.TRUE.toString().equalsIgnoreCase(ku.getMetadata().getAnnotations().get(Annotations.ANNO_STRIMZI_IO_PAUSE_RECONCILIATION));
+
+        if (paused) {
+            LOGGER.info("⏸️ Reconciliation is paused for '{}'; skipping secret wait", username);
+            return;
+        }
+
         TestUtils.waitFor(
             "Secret for KafkaUser " + username + " to be created",
             Duration.ofMillis(POLL_INTERVAL_MS).toMillis(),
