@@ -18,7 +18,6 @@ import io.strimzi.api.kafka.model.user.KafkaUserQuotasBuilder;
 import io.strimzi.api.kafka.model.user.KafkaUserScramSha512ClientAuthentication;
 import io.strimzi.api.kafka.model.user.KafkaUserTlsClientAuthentication;
 import io.strimzi.api.kafka.model.user.acl.AclOperation;
-import io.strimzi.api.kafka.model.user.acl.AclResourcePatternType;
 import io.strimzi.api.kafka.model.user.acl.AclRule;
 import io.strimzi.api.kafka.model.user.acl.AclRuleBuilder;
 import io.strimzi.api.kafka.model.user.acl.AclRuleClusterResource;
@@ -27,6 +26,7 @@ import io.strimzi.api.kafka.model.user.acl.AclRuleResource;
 import io.strimzi.api.kafka.model.user.acl.AclRuleTopicResource;
 import io.strimzi.api.kafka.model.user.acl.AclRuleTransactionalIdResource;
 import io.strimzi.api.kafka.model.user.acl.AclRuleType;
+import io.strimzi.operator.common.Annotations;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.operator.resource.concurrent.CrdOperator;
 import io.strimzi.operator.common.operator.resource.concurrent.SecretOperator;
@@ -345,11 +345,11 @@ public class ResourceUtils {
             Duration.ofMillis(pollingInterval).toMillis(),
             Duration.ofMillis(timeoutMillis).toMillis(),
             () -> {
-                KafkaUser ku = kafkaUserOps.get(namespace, username);
-                return ku != null
-                    && ku.getStatus() != null
-                    && ku.getStatus().getConditions() != null
-                    && ku.getStatus().getConditions().stream()
+                final KafkaUser ku = kafkaUserOps.get(namespace, username);
+                if (ku == null || ku.getStatus() == null || ku.getStatus().getConditions() == null) return false;
+                final boolean pausedReconciliation = ku.getMetadata().getAnnotations() != null &&
+                    Boolean.TRUE.toString().equalsIgnoreCase(ku.getMetadata().getAnnotations().get(Annotations.ANNO_STRIMZI_IO_PAUSE_RECONCILIATION));
+                return pausedReconciliation || ku.getStatus().getConditions().stream()
                     .anyMatch(c -> "Ready".equals(c.getType()) && "True".equals(c.getStatus()));
             }
         );

@@ -51,6 +51,10 @@ public class InvariantChecker {
         assertTrue(controller.isAlive(), "❌ Controller is not alive!");
     }
 
+    public void assertControllerReady(final UserController controller) {
+        assertTrue(controller.isReady(), "❌ Controller is not ready!");
+    }
+
     public void assertUserConsistency(final String namespace,
                                       final String username) {
         if (username == null || username.isBlank()) {
@@ -59,7 +63,7 @@ public class InvariantChecker {
         }
 
         final KafkaUser kafkaUser = kafkaUserOps.get(namespace, username);
-        if (kafkaUser != null && hasStatusCondition(kafkaUser, "Ready", "True")) {
+        if (kafkaUser != null && hasStatusCondition(kafkaUser, "Ready", "True") && !isReconciliationPaused(kafkaUser)) {
             if (requiresSecret(kafkaUser)) {
                 Secret secret = secretOperator.get(namespace, username);
                 assertTrue(secret != null, "❌ KafkaUser '" + username + "' is Ready but Secret is missing");
@@ -75,7 +79,7 @@ public class InvariantChecker {
             .collect(Collectors.toSet());
 
         kafkaUserOps.list(namespace, kafkaUserLabels).forEach(user -> {
-            if (hasStatusCondition(user, "Ready", "True")) {
+            if (hasStatusCondition(user, "Ready", "True") && !isReconciliationPaused(user)) {
                 if (requiresSecret(user)) {
                     assertTrue(secretNames.contains(user.getMetadata().getName()),
                         "❌ Secret missing for Ready KafkaUser: " + user.getMetadata().getName());
@@ -157,6 +161,13 @@ public class InvariantChecker {
                     "❌ Ready user '" + user.getMetadata().getName() + "' must have at least one ACL rule");
             }
         });
+    }
+
+    private boolean isReconciliationPaused(KafkaUser user) {
+        return Optional.ofNullable(user.getStatus())
+            .map(s -> s.getConditions())
+            .map(conds -> conds.stream().anyMatch(c -> "ReconciliationPaused".equals(c.getType()) && "True".equals(c.getStatus())))
+            .orElse(false);
     }
 
     private boolean hasStatusCondition(final KafkaUser user,

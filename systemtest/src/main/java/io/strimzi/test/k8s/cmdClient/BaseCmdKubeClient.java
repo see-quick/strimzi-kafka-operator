@@ -508,9 +508,9 @@ public abstract class BaseCmdKubeClient<K extends BaseCmdKubeClient<K>> implemen
                     "|", "grep", " -e " + join(" -e ", grepPattern), "-B", "1"))).out();
         } catch (KubeClusterException e) {
             if (e.result != null && e.result.returnCode() == 1) {
-                LOGGER.info("{} not found", grepPattern);
+                LOGGER.info("{} not found", (Object[]) grepPattern);
             } else {
-                LOGGER.error("Caught exception while searching {} in logs", grepPattern);
+                LOGGER.error("Caught exception while searching {} in logs", (Object[]) grepPattern);
             }
         }
         return "";
@@ -523,9 +523,9 @@ public abstract class BaseCmdKubeClient<K extends BaseCmdKubeClient<K>> implemen
                     "|", "grep", " -e " + join(" -e ", grepPattern), "-B", "1"))).out();
         } catch (KubeClusterException e) {
             if (e.result != null && e.result.exitStatus()) {
-                LOGGER.info("{} not found", grepPattern);
+                LOGGER.info("{} not found", (Object[]) grepPattern);
             } else {
-                LOGGER.error("Caught exception while searching {} in logs", grepPattern);
+                LOGGER.error("Caught exception while searching {} in logs", (Object[]) grepPattern);
             }
         }
         return "";

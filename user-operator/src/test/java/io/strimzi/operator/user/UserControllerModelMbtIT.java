@@ -9,6 +9,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.strimzi.api.kafka.model.user.KafkaUser;
 import io.strimzi.api.kafka.model.user.KafkaUserList;
 import io.strimzi.certs.CertManager;
+import io.strimzi.certs.OpenSslCertManager;
 import io.strimzi.operator.common.MetricsProvider;
 import io.strimzi.operator.common.MicrometerMetricsProvider;
 import io.strimzi.operator.common.operator.MockCertManager;
@@ -123,6 +124,9 @@ public class UserControllerModelMbtIT {
             1,                      // controller thread size
             aclsEnabled             // ACLs enabled/disabled
         );
+
+        LOGGER.info("Starting with config: {}", config.toString());
+
         final ScramCredentialsOperator scramCredentialsOperator = new ScramCredentialsOperator(adminClient, config, ForkJoinPool.commonPool());
         final QuotasOperator quotasOperator = new QuotasOperator(adminClient, config, ForkJoinPool.commonPool());
         final CertManager certManager = new MockCertManager();
@@ -173,6 +177,7 @@ public class UserControllerModelMbtIT {
                 String resourceType = null;
                 String patternType = null;
                 String operation = null;
+                Boolean reconciliationPaused = null;
 
                 final Map<String, Object> nondet = (Map<String, Object>) state.get("mbt::nondetPicks");
                 if (nondet != null) {
@@ -190,15 +195,36 @@ public class UserControllerModelMbtIT {
                         patternType = authzParams.get(1);
                         operation = authzParams.get(2);
                     }
+
+                    reconciliationPaused = ResourceUtils.getOptionalValue(nondet, "reconciliationPaused", Boolean.class);
                 }
 
                 final InvariantChecker invariants = new InvariantChecker(kafkaUserOps, secretOperator);
 
-                final String stepInfo = String.format(
-                    "⊧ MBT: [%d] Executing action '%s' for user='%s', authType='%s', quotasEnabled='%s', aclsEnabled='%s', resourceType='%s', pattern='%s', operation='%s'",
-                    i, action, username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation
+                final String stepInfo = String.format("""
+                    ⊧ MBT: [%d] %s action='%s'
+                        ├─ user='%s'
+                        ├─ authType='%s'
+                        ├─ quotasEnabled='%s'
+                        ├─ aclsEnabled='%s'
+                        ├─ resourceType='%s'
+                        ├─ pattern='%s'
+                        ├─ operation='%s'
+                        └─ reconciliationPaused='%s'
+                    """,
+                    i,
+                    "processNextEvent".equals(action) ? "Executing" : "Queueing",
+                    action,
+                    username,
+                    authType,
+                    quotasEnabled,
+                    aclsEnabled,
+                    resourceType,
+                    patternType,
+                    operation,
+                    reconciliationPaused
                 );
-                LOGGER.info(stepInfo);
+                LOGGER.debug(stepInfo);
                 mbtTimeline.add(stepInfo);
 
                 // i = 0 is init state
@@ -208,11 +234,11 @@ public class UserControllerModelMbtIT {
                         case CREATE_USER ->
                             eventQueue.add(
                                 KafkaUserModelActions.EventsFactory.create(
-                                    username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation));
+                                    username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation, reconciliationPaused));
                         case UPDATE_USER ->
                             eventQueue.add(
                                 KafkaUserModelActions.EventsFactory.update(
-                                    username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation));
+                                    username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation, reconciliationPaused));
                         case DELETE_USER ->
                             eventQueue.add(
                                 KafkaUserModelActions.EventsFactory.delete(username, authType));
@@ -223,6 +249,7 @@ public class UserControllerModelMbtIT {
                             actions.waitUntilAllSecretsHaveMatchingKafkaUsers(namespace);
 
                             invariants.assertControllerAlive(controller);
+                            invariants.assertControllerReady(controller);
                             invariants.assertUserConsistency(namespace, username);
                             // Secret invariants
                             invariants.assertSecretsConsistency(namespace);
@@ -243,7 +270,7 @@ public class UserControllerModelMbtIT {
             kafkaUserOperator.stop();
             controller.stop();
             LOGGER.info("ℹ️ MBT test trace for {}. Timeline of actions:", tracePath);
-            mbtTimeline.forEach(step -> LOGGER.info(step));
+            mbtTimeline.forEach(step -> LOGGER.debug(step));
         }
     }
 
