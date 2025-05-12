@@ -6,7 +6,9 @@ package io.strimzi.operator.user;
 
 import io.fabric8.kubernetes.api.model.Secret;
 import io.fabric8.kubernetes.api.model.SecretBuilder;
+import io.fabric8.kubernetes.api.model.StatusBuilder;
 import io.fabric8.kubernetes.client.KubernetesClient;
+import io.fabric8.kubernetes.client.KubernetesClientException;
 import io.strimzi.api.kafka.model.user.KafkaUser;
 import io.strimzi.api.kafka.model.user.KafkaUserAuthentication;
 import io.strimzi.api.kafka.model.user.KafkaUserAuthorizationSimple;
@@ -411,6 +413,17 @@ public class ResourceUtils {
         Object unwrapped = unwrapOptional(nondet.get(key));
         if (expectedType.isInstance(unwrapped)) {
             return expectedType.cast(unwrapped);
+        }
+        return null;
+    }
+
+    public static String getOptionalEnumTag(Map<String, Object> nondet, String key) {
+        Object raw = nondet.get(key);
+        if (raw instanceof Map<?, ?> maybeSome && "Some".equals(maybeSome.get("tag"))) {
+            Object value = maybeSome.get("value");
+            if (value instanceof Map<?, ?> enumValue && enumValue.containsKey("tag")) {
+                return (String) enumValue.get("tag");
+            }
         }
         return null;
     }
