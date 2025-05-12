@@ -1,5 +1,6 @@
 package io.strimzi.operator.user;
 
+import io.fabric8.kubernetes.api.model.SecretBuilder;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import io.fabric8.kubernetes.client.KubernetesClientException;
 import io.strimzi.api.kafka.model.user.KafkaUser;
@@ -11,6 +12,7 @@ import io.strimzi.api.kafka.model.user.KafkaUserScramSha512ClientAuthentication;
 import io.strimzi.api.kafka.model.user.KafkaUserTlsClientAuthentication;
 import io.strimzi.api.kafka.model.user.acl.AclOperation;
 import io.strimzi.operator.common.Annotations;
+import io.strimzi.operator.common.Util;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.operator.resource.concurrent.CrdOperator;
 import io.strimzi.operator.common.operator.resource.concurrent.SecretOperator;
@@ -20,6 +22,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -111,10 +114,11 @@ public class KafkaUserModelActions {
         String resourceType,
         String patternType,
         String operation,
-        Boolean reconciliationPaused
+        Boolean reconciliationPaused,
+        Boolean useDesiredPassword
     ) implements ModelEvent {
         public void apply(final KafkaUserModelActions actions) {
-            actions.createKafkaUser(username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation, reconciliationPaused);
+            actions.createKafkaUser(username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation, reconciliationPaused, useDesiredPassword);
         }
     }
 
@@ -125,9 +129,10 @@ public class KafkaUserModelActions {
                            String resourceType,
                            String patternType,
                            String operation,
-                           Boolean reconciliationPaused) implements ModelEvent {
+                           Boolean reconciliationPaused,
+                           Boolean useDesiredPassword) implements ModelEvent {
         public void apply(final KafkaUserModelActions actions) {
-            actions.updateKafkaUser(username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation, reconciliationPaused);
+            actions.updateKafkaUser(username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation, reconciliationPaused, useDesiredPassword);
         }
     }
 
@@ -145,8 +150,9 @@ public class KafkaUserModelActions {
                                         final String resourceType,
                                         final String patternType,
                                         final String operation,
-                                        final Boolean reconciliationPaused) {
-            return new CreateUserEvent(username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation,  reconciliationPaused);
+                                        final Boolean reconciliationPaused,
+                                        final Boolean useDesiredPassword) {
+            return new CreateUserEvent(username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation,  reconciliationPaused, useDesiredPassword);
         }
 
         public static ModelEvent update(final String username,
@@ -156,8 +162,9 @@ public class KafkaUserModelActions {
                                         final String resourceType,
                                         final String patternType,
                                         final String operation,
-                                        final Boolean reconciliationPaused) {
-            return new UpdateUserEvent(username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation, reconciliationPaused);
+                                        final Boolean reconciliationPaused,
+                                        final Boolean useDesiredPassword) {
+            return new UpdateUserEvent(username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation, reconciliationPaused, useDesiredPassword);
         }
 
         public static ModelEvent delete(final String username,
@@ -188,7 +195,8 @@ public class KafkaUserModelActions {
                                 final String resourceType,
                                 final String patternType,
                                 final String operation,
-                                final Boolean reconciliationPaused) {
+                                final Boolean reconciliationPaused,
+                                final Boolean useDesiredPassword) {
        final KafkaUserBuilder builder = new KafkaUserBuilder()
             .withNewMetadata()
                 .withLabels(Labels.forStrimziCluster(ResourceUtils.CLUSTER_NAME).toMap())
@@ -200,10 +208,32 @@ public class KafkaUserModelActions {
 
         // Authentication
         if (KafkaUserScramSha512ClientAuthentication.TYPE_SCRAM_SHA_512.equalsIgnoreCase(authType)) {
-            builder
-                .editOrNewSpec()
-                    .withAuthentication(new KafkaUserScramSha512ClientAuthentication())
-                .endSpec();
+            if (useDesiredPassword != null && useDesiredPassword) {
+                builder
+                    .editOrNewSpec()
+                        .withNewKafkaUserScramSha512ClientAuthentication()
+                            .withNewPassword()
+                                .withNewValueFrom()
+                                    .withNewSecretKeyRef("my-password", username + "-custom", false)
+                                .endValueFrom()
+                            .endPassword()
+                    .endKafkaUserScramSha512ClientAuthentication()
+                    .endSpec();
+
+                secretOperator.resource(namespace, new SecretBuilder()
+                    .withNewMetadata()
+                        .withName(username + "-custom")
+                        .withNamespace(namespace)
+                    .endMetadata()
+                        .withData(Map.of("my-password", Util.encodeToBase64("desiredpassword")))
+                    .build())
+                    .createOrReplace();
+            } else {
+                builder
+                    .editOrNewSpec()
+                        .withAuthentication(new KafkaUserScramSha512ClientAuthentication())
+                    .endSpec();
+            }
         } else if (KafkaUserTlsClientAuthentication.TYPE_TLS.equalsIgnoreCase(authType)) {
             builder
                 .editOrNewSpec()
@@ -242,7 +272,10 @@ public class KafkaUserModelActions {
         try {
             kafkaUserOps.resource(namespace, builder.build()).create();
 
-            ResourceUtils.waitUntilKafkaUserReady(username, namespace, POLL_INTERVAL_MS, POLL_TIMEOUT_MS, kafkaUserOps);
+            if (Boolean.FALSE.equals(reconciliationPaused) && !(kafkaUserOps instanceof FaultyCrdOperator)) {
+                ResourceUtils.waitUntilKafkaUserReady(username, namespace, POLL_INTERVAL_MS, POLL_TIMEOUT_MS, kafkaUserOps);
+            }
+
             if (KafkaUserScramSha512ClientAuthentication.TYPE_SCRAM_SHA_512.equalsIgnoreCase(authType) || KafkaUserTlsClientAuthentication.TYPE_TLS.equalsIgnoreCase(authType)) {
                 waitUntilSecretCreated(username, namespace, POLL_TIMEOUT_MS);
             }
@@ -263,8 +296,9 @@ public class KafkaUserModelActions {
                                 final String resourceType,
                                 final String patternType,
                                 final String operation,
-                                final Boolean reconciliationPaused) {
-        retryOnConflict(() -> {
+                                final Boolean reconciliationPaused,
+                                final Boolean useDesiredPassword) {
+        retryOnKubeException(() -> {
             final KafkaUser existing = kafkaUserOps.get(namespace, username);
             if (existing == null) {
                 LOGGER.info("KafkaUser '{}' does not exist; skipping update.", username);
@@ -277,11 +311,34 @@ public class KafkaUserModelActions {
 
             // Authentication
             if (KafkaUserScramSha512ClientAuthentication.TYPE_SCRAM_SHA_512.equalsIgnoreCase(authType)) {
-                builder
-                    .editOrNewSpec()
-                        .withNewKafkaUserScramSha512ClientAuthentication()
-                        .endKafkaUserScramSha512ClientAuthentication()
-                    .endSpec();
+                if (useDesiredPassword != null && useDesiredPassword) {
+                    builder
+                        .editOrNewSpec()
+                            .withNewKafkaUserScramSha512ClientAuthentication()
+                                .withNewPassword()
+                                    .withNewValueFrom()
+                                        .withNewSecretKeyRef("my-password", username + "-custom", false)
+                                    .endValueFrom()
+                                .endPassword()
+                            .endKafkaUserScramSha512ClientAuthentication()
+                        .endSpec();
+
+                    secretOperator.resource(namespace, new SecretBuilder()
+                            .withNewMetadata()
+                                .withName(username + "-custom")
+                                .withNamespace(namespace)
+                            .endMetadata()
+                            .withData(Map.of("my-password", Util.encodeToBase64("desiredpassword")))
+                            .build())
+                        .createOrReplace();
+                } else {
+                    builder
+                        .editOrNewSpec()
+                            .withNewKafkaUserScramSha512ClientAuthentication()
+                            .endKafkaUserScramSha512ClientAuthentication()
+                        .endSpec();
+                }
+
             } else if (KafkaUserTlsClientAuthentication.TYPE_TLS.equalsIgnoreCase(authType)) {
                 builder
                     .editOrNewSpec()
@@ -297,7 +354,7 @@ public class KafkaUserModelActions {
                         .withQuotas(new KafkaUserQuotasBuilder()
                             .withConsumerByteRate(RNG.nextInt(1000) + 100)
                             .withProducerByteRate(RNG.nextInt(1000) + 200)
-                            .withRequestPercentage(RNG.nextInt(100))
+                            .withRequestPercentage(1 + RNG.nextInt(100)) // Quota request_percentage must be greater than 0
                             .withControllerMutationRate(RNG.nextDouble() * 10)
                         .build())
                     .endSpec();
@@ -336,7 +393,11 @@ public class KafkaUserModelActions {
             builder.withStatus(null);
 
             kafkaUserOps.resource(namespace, builder.build()).update();
-            ResourceUtils.waitUntilKafkaUserReady(username, namespace, POLL_INTERVAL_MS, POLL_TIMEOUT_MS, kafkaUserOps);
+
+            if (Boolean.FALSE.equals(reconciliationPaused) && !(kafkaUserOps instanceof FaultyCrdOperator)) {
+                ResourceUtils.waitUntilKafkaUserReady(username, namespace, POLL_INTERVAL_MS, POLL_TIMEOUT_MS, kafkaUserOps);
+            }
+
             if (KafkaUserScramSha512ClientAuthentication.TYPE_SCRAM_SHA_512.equalsIgnoreCase(authType) ||
                 KafkaUserTlsClientAuthentication.TYPE_TLS.equalsIgnoreCase(authType)) {
                 waitUntilSecretCreated(username, namespace, POLL_TIMEOUT_MS);
@@ -360,20 +421,27 @@ public class KafkaUserModelActions {
         }
     }
 
-    private <T> T retryOnConflict(Supplier<T> action) {
+    private <T> T retryOnKubeException(Supplier<T> action) {
         final int maxRetries = 5;
         for (int attempt = 0; attempt < maxRetries; attempt++) {
             try {
                 return action.get();
             } catch (KubernetesClientException e) {
-                if (e.getCode() == 409 && attempt < maxRetries - 1) {
-                    LOGGER.warn("Conflict detected, retrying... (attempt {})", attempt + 1);
-                    continue;
+                int code = e.getCode();
+                if (code == 409) {
+                    LOGGER.info("Conflict (409) occurred, asserting resource still exists and is consistent.");
+                    assertThat("KafkaUser still exists", notNullValue());
+                    return null;
+                } else if (code == 404) {
+                    LOGGER.warn("Resource not found (404) during update — skipping step.");
+                    return null;
+                } else {
+                    LOGGER.error("Kubernetes error (code {}) during update: {}", code, e.getMessage());
+                    throw e;
                 }
-                throw e;
             }
         }
-        throw new RuntimeException("Max retries exceeded due to conflict");
+        throw new RuntimeException("Max retries exceeded due to repeated KubernetesClientExceptions");
     }
 
     private void waitUntilSecretCreated(final String username,

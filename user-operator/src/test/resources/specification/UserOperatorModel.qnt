@@ -6,38 +6,39 @@ module UserOperatorModel {
   // ============================================================================
   // Metadata is abstracted
   type KafkaUserMetadata = {
-    name: str
+    name: str,
     // labels: str -> str  (abstracted out)
-    // annotations: str -> str (abstracted out)
+    // for paused reconciliation
+    annotations: str -> str
   }
 
   type KafkaUserAuthentication =
-    | ScramSha512Authentication({ secretName: str, secretKey: str, optional: bool })
+    | ScramSha512Authentication({ useDesiredPassword: bool })
     | TlsAuthentication({ enabled: bool })
     | NoneAuthentication          // no authentication configured :)
 
-  type ResourceType = 
-      topic     |
-      group     |           // (abstracted out)
-      cluster   |           // (abstracted out)
-      transactionalId       // (abstracted out)
+  type ResourceType =
+      Topic     |
+      Group     |
+      Cluster   |
+      TransactionalId
 
   type PatternType =
-      literal |
-      prefix                 // (abstracted out)
+      Literal |
+      Prefix
 
   type Operation =
       Read  |
-      Write |                // (abstracted out)
-      Create        |        // (abstracted out)
-      Delete        |        // (abstracted out)
-      Alter         |        // (abstracted out)
-      Describe      |        // (abstracted out)
-      ClusterAction |        // (abstracted out)
-      AlterConfigs  |        // (abstracted out)
-      DescribeConfigs |      // (abstracted out)
-      IdempotentWrite |      // (abstracted out)
-      All                    // (abstracted out)
+      Write |
+      Create        |
+      Delete        |
+      Alter         |
+      Describe      |
+      ClusterAction |
+      AlterConfigs  |
+      DescribeConfigs |
+      IdempotentWrite |
+      All
 
   type AclResource = {
       name: str,
@@ -92,6 +93,8 @@ module UserOperatorModel {
     status: KafkaUserStatus  //   "Pending", "Ready", or "Deleted"
   }
 
+  type Fault = None | Pause | Conflict | Gone | ServerError
+
   // ============================================================================
   // EVENT MODEL
   // ============================================================================
@@ -121,7 +124,8 @@ module UserOperatorModel {
     potentialUsers : Set[str],
     maxProcessedEvents: int,
     authTypes: Set[str],
-    quotasEnabled: Set[bool]
+    quotasEnabled: Set[bool],
+    useDesiredPassword: Set[bool]
   }
 
   // ============================================================================
@@ -137,13 +141,14 @@ module UserOperatorModel {
         potentialUsers : Set("Alice", "Bob", "Carol"),
         maxProcessedEvents : 1000,
         authTypes: Set("scram-sha-512", "tls", "none"),
-        quotasEnabled: Set(true, false)
+        quotasEnabled: Set(true, false),
+        useDesiredPassword: Set(true, false)
     },
     globalState' = {
       users: Map(),
       secrets : Set(),
       eventQueue: [],
-      processedEvents: 0
+      processedEvents: 0,
     }
   }
 
@@ -162,13 +167,9 @@ module UserOperatorModel {
   def queueEvent(ev: Event): GlobalState =
     { ...globalState, eventQueue: globalState.eventQueue.append(ev) }
 
-  def makeAuth(u: str, authType: str): KafkaUserAuthentication =
+  def makeAuth(authType: str, useDesiredPassword: bool): KafkaUserAuthentication =
     if (authType == "scram-sha-512")
-      ScramSha512Authentication({
-        secretName: u,
-        secretKey: "my-password",
-        optional: false
-      })
+     ScramSha512Authentication({ useDesiredPassword : useDesiredPassword })
     else if (authType == "tls")
       TlsAuthentication({ enabled: true })
     else
@@ -190,27 +191,48 @@ module UserOperatorModel {
         controllerMutationRate: 0
       }
 
-  def makeAcl(): Set[SimpleAclRule] = Set({
-     resource: { name: "*", typeAcl: topic, patternType: literal },
-     operation: Read,
-     host: "*",
-     kind: "allow"
-  })
+  def makeAcl(t : (ResourceType, PatternType, Operation)): Set[SimpleAclRule] =
+    Set({
+      resource: {
+        name: if (t._1 == Cluster) "my-cluster" else "*",
+        typeAcl: t._1,
+        patternType: t._2
+      },
+      operation: t._3,
+      host: "*",
+      kind: "allow"
+   })
 
-  def makeAuthz(enable: bool): KafkaUserAuthorization =
+   // globals for ACLs
+   pure val RESOURCE_TYPES = Set(Topic, Group, Cluster, TransactionalId)
+   pure val PATTERNS = Set(Literal, Prefix)
+   pure val OPS = Set(
+     Read, Write, Create, Delete, Alter,
+     Describe, ClusterAction, AlterConfigs,
+     DescribeConfigs, IdempotentWrite, All
+   )
+
+  def makeAuthz(enable: bool, t : (ResourceType, PatternType, Operation)): KafkaUserAuthorization =
     if (enable)
-        { typeAuthz: "simple", acls: makeAcl }
+        { typeAuthz: "simple", acls: makeAcl(t) }
     else
         { typeAuthz: "disabled", acls: Set() }
 
   // Each action appends its corresponding event to the eventQueue.
   action createUser(u, authType, quotasEnabled, aclsEnabled) = all {
-    globalState' = queueEvent(
+     nondet authzParams = tuples(RESOURCE_TYPES, PATTERNS, OPS).oneOf()
+     nondet reconciliationPaused = Set(true, false).oneOf()
+     nondet useDesiredPassword = parameters.useDesiredPassword.oneOf()
+
+     globalState' = queueEvent(
       UserCreatedWithSecret({
-        metadata: { name: u },
+        metadata: {
+          name: u,
+          annotations: if (reconciliationPaused) Map("strimzi.io/pause-reconciliation" -> "true") else Map()
+        },
         spec: {
-          authentication: makeAuth(u, authType),
-          authorization: makeAuthz(aclsEnabled),
+          authentication: makeAuth(authType, useDesiredPassword),
+          authorization: makeAuthz(aclsEnabled, authzParams),
           quotas: makeQuotas(quotasEnabled)
         },
         status: { conditions: { status: "Pending" } }
@@ -219,13 +241,20 @@ module UserOperatorModel {
   }
 
   action updateUser(u, authType, quotasEnabled, aclsEnabled) = all {
+    nondet authzParams = tuples(RESOURCE_TYPES, PATTERNS, OPS).oneOf()
+    nondet reconciliationPaused = Set(true, false).oneOf()
+    nondet useDesiredPassword = parameters.useDesiredPassword.oneOf()
+
     if (u.in(globalState.users.keys())) {
       globalState' = queueEvent(
         UserUpdated({
-          metadata: { name: u },
+          metadata: {
+            name: u,
+            annotations: if (reconciliationPaused) Map("strimzi.io/pause-reconciliation" -> "true") else Map()
+          },
           spec: {
-            authentication: makeAuth(u, authType),
-            authorization: makeAuthz(aclsEnabled),
+            authentication: makeAuth(authType, useDesiredPassword),
+            authorization: makeAuthz(aclsEnabled, authzParams),
             quotas: makeQuotas(quotasEnabled)
           },
           status: { conditions: { status: "Pending" } }
@@ -244,9 +273,9 @@ module UserOperatorModel {
     }
   }
 
-  action processNextEvent = all {
+  action processNextEvent(fault) = all {
     if (length(globalState.eventQueue) > 0)
-      globalState' = processEvent({ ...globalState, eventQueue: tail(globalState.eventQueue) }, head(globalState.eventQueue))
+      globalState' = processEvent({ ...globalState, eventQueue: tail(globalState.eventQueue) }, head(globalState.eventQueue), fault)
     else
       globalState' = globalState
   }
@@ -260,6 +289,7 @@ module UserOperatorModel {
     nondet u = parameters.potentialUsers.oneOf()
     nondet authType = parameters.authTypes.oneOf()
     nondet quotasEnabled = parameters.quotasEnabled.oneOf()
+    nondet fault = Set(None, Pause, Conflict, Gone, ServerError).oneOf()
 
     // the sum of (already processed + currently queued) is bounded.
     // we can never create more events than you will ever be allowed to process.
@@ -269,13 +299,25 @@ module UserOperatorModel {
         createUser(u, authType, quotasEnabled, parameters.aclsEnabled),
         updateUser(u, authType, quotasEnabled, parameters.aclsEnabled),
         deleteUser(u),
-        processNextEvent
+        processNextEvent(fault)
       }
     else
-      processNextEvent,
+      processNextEvent(fault),
 
     parameters' = parameters
   }
+
+  def getOrElse(m: str -> str, k: str, default: str): str =
+    if (k.in(m.keys())) m.get(k) else default
+
+
+  // helper
+  def reconciliationPaused(user: UserResource): bool =
+    getOrElse(user.metadata.annotations, "strimzi.io/pause-reconciliation", "") == "true"
+
+  // helper
+  def shouldSkipReconcile(f: Fault): bool =
+    f == Pause or f == Conflict or f == Gone or f == ServerError
 
   // ============================================================================
   // RECONCILIATION LOGIC (UserControllerLoop)
@@ -283,13 +325,24 @@ module UserOperatorModel {
   def reconcileUser(user: UserResource, ev: Event): UserResource =
     match ev {
       | UserCreatedWithSecret(cr) =>
-              {
-                metadata: cr.metadata,
-                spec: cr.spec,
-                status: { conditions: { status: "Ready" } }
-              }
-      | UserUpdated(cr) =>
               if (user.status.conditions.status == "Deleted")
+                // Re-create even if reconciliation is paused — spec should be replaced, status = Pending
+                {
+                  metadata: cr.metadata,
+                  spec: cr.spec,
+                  status: { conditions: { status: "Pending" } }
+                }
+              else
+                if (reconciliationPaused(cr))
+                    user
+                else
+                    {
+                      metadata: cr.metadata,
+                      spec: cr.spec,
+                      status: { conditions: { status: "Ready" } }
+                    }
+      | UserUpdated(cr) =>
+              if (user.status.conditions.status == "Deleted" or reconciliationPaused(cr))
                 user
               else
                 {
@@ -320,56 +373,56 @@ module UserOperatorModel {
               }
     }
 
-  def processEvent(state: GlobalState, ev: Event): GlobalState =
-    match ev {
-      | UserCreatedWithSecret(cr) =>
-        if (cr.metadata.name.in(state.users.keys()))
-          {
-            users: state.users.put(cr.metadata.name, reconcileUser(state.users.get(cr.metadata.name), ev)),
-            secrets: if (requiresSecret(cr.spec.authentication)) state.secrets.union(Set(cr.metadata.name)) else state.secrets,
-            eventQueue: state.eventQueue,
-            processedEvents: state.processedEvents + 1
-          }
-        else
-          {
-            users: state.users.put(cr.metadata.name, {
-              metadata: cr.metadata,
-              spec: cr.spec,
-              status: { conditions: { status: "Ready" } }
-            }),
-            secrets: if (requiresSecret(cr.spec.authentication)) state.secrets.union(Set(cr.metadata.name)) else state.secrets,
-            eventQueue: state.eventQueue,
-            processedEvents: state.processedEvents + 1
-          }
-      | UserUpdated(cr) =>
-          if (cr.metadata.name.in(state.users.keys()))
-            {
-              users: state.users.put(cr.metadata.name, reconcileUser(state.users.get(cr.metadata.name), ev)),
-              secrets:
-                // Ignores updates to deleted users.
-                // Doesn’t regenerate secrets for deleted users.
-                if (state.users.get(cr.metadata.name).status.conditions.status == "Deleted")
-                  state.secrets
-                else
-                  if (requiresSecret(cr.spec.authentication))
-                    state.secrets.union(Set(cr.metadata.name))
-                  else
-                    state.secrets.exclude(Set(cr.metadata.name)),
-              eventQueue: state.eventQueue,
-              processedEvents: state.processedEvents + 1
-            }
-          else
-            state
-       | UserDeleted(username) =>
-          if (username.in(state.users.keys()))
-            {
-              users: state.users.put(username, reconcileUser(state.users.get(username), ev)),
-              secrets: state.secrets.exclude(Set(username)),
-              eventQueue: state.eventQueue,
-              processedEvents: state.processedEvents + 1
-            }
-          else
-            state
+  def processEvent(state: GlobalState, ev: Event, fault : Fault): GlobalState =
+    if (shouldSkipReconcile(fault))
+        // Simulate skipping reconciliation due to an injected fault
+        { ...state, processedEvents: state.processedEvents + 1 }
+    else
+        match ev {
+          | UserCreatedWithSecret(cr) =>
+            if (cr.metadata.name.in(state.users.keys()))
+              {
+                users: state.users.put(cr.metadata.name, reconcileUser(state.users.get(cr.metadata.name), ev)),
+                secrets: if (requiresSecret(cr.spec.authentication)) state.secrets.union(Set(cr.metadata.name)) else state.secrets,
+                eventQueue: state.eventQueue,
+                processedEvents: state.processedEvents + 1
+              }
+            else
+              {
+                users: state.users.put(cr.metadata.name, reconcileUser(cr, ev)),
+                secrets: if (requiresSecret(cr.spec.authentication)) state.secrets.union(Set(cr.metadata.name)) else state.secrets,
+                eventQueue: state.eventQueue,
+                processedEvents: state.processedEvents + 1
+              }
+          | UserUpdated(cr) =>
+              if (cr.metadata.name.in(state.users.keys()))
+                {
+                  users: state.users.put(cr.metadata.name, reconcileUser(state.users.get(cr.metadata.name), ev)),
+                  secrets:
+                    // Ignores updates to deleted users.
+                    // Doesn’t regenerate secrets for deleted users.
+                    if (state.users.get(cr.metadata.name).status.conditions.status == "Deleted" or reconciliationPaused(cr))
+                      state.secrets
+                    else
+                      if (requiresSecret(cr.spec.authentication))
+                        state.secrets.union(Set(cr.metadata.name))
+                      else
+                        state.secrets.exclude(Set(cr.metadata.name)),
+                  eventQueue: state.eventQueue,
+                  processedEvents: state.processedEvents + 1
+                }
+              else
+                state
+           | UserDeleted(username) =>
+              if (username.in(state.users.keys()))
+                {
+                  users: state.users.put(username, reconcileUser(state.users.get(username), ev)),
+                  secrets: state.secrets.exclude(Set(username)),
+                  eventQueue: state.eventQueue,
+                  processedEvents: state.processedEvents + 1
+                }
+              else
+                state
   }
 
   // ========================================
@@ -498,22 +551,53 @@ module UserOperatorModel {
     )
 
   // ========================================
+  // === PAUSED RECONCILIATION INVARIANTS ===
+  // ========================================
+
+  // A paused KafkaUser must never transition to "Ready"
+  val NoStateChangeForPausedUsers =
+    globalState.users.keys().forall(u =>
+      reconciliationPaused(globalState.users.get(u)) implies
+        globalState.users.get(u).status.conditions.status != "Ready"
+    )
+
+  // ========================================
+  // ===== FAULTS INJECTION INVARIANTS ======
+  // ========================================
+  val FaultsDoNotAffectState =
+    Set(Pause, Conflict, Gone, ServerError).forall(f =>
+      (length(globalState.eventQueue) > 0) implies (
+        (processEvent({ ...globalState, eventQueue: tail(globalState.eventQueue) }, head(globalState.eventQueue), f).users == globalState.users)
+        and
+        (processEvent({ ...globalState, eventQueue: tail(globalState.eventQueue) }, head(globalState.eventQueue), f).secrets == globalState.secrets)
+      )
+    )
+
+  // ========================================
   // ========================================
   // ========================================
 
-  val AllInvariantsHold =
-    UserConsistency
-     and SecretsConsistency
-     and NoSecretsForDeletedUsers
-     and ReadyUsersMustHaveSecrets
-     and EventQueueWellFormed
-     and QuotasNonNegative
-     and QuotasRequestPercentageValid
-     and ReadyUsersQuotasValid
-     and AuthenticationPresent
-     and ACLsExistForAuthorizedUsers
-     and NoACLsForDeletedUsers
-     and ReadyUsersMustHaveACLs
+  // q::debug is not compatible with the TLA+ transpilation => workaround
+  //    i.)     debug with verifying Apalache        => q::debug(s,a)
+  //    ii.)    debug with TLC (liveness properties) => a
+  pure def debug(s, a) = q::debug(s,a)
+
+  val AllInvariantsHold = and {
+      if (UserConsistency) true else debug("UserConsistency", false),
+      if (SecretsConsistency) true else debug("SecretsConsistency", false),
+      if (NoSecretsForDeletedUsers) true else debug("NoSecretsForDeletedUsers", false),
+      if (ReadyUsersMustHaveSecrets) true else debug("ReadyUsersMustHaveSecrets", false),
+      if (EventQueueWellFormed) true else debug("EventQueueWellFormed", false),
+      if (QuotasNonNegative) true else debug("QuotasNonNegative", false),
+      if (QuotasRequestPercentageValid) true else debug("QuotasRequestPercentageValid", false),
+      if (ReadyUsersQuotasValid) true else debug("ReadyUsersQuotasValid", false),
+      if (AuthenticationPresent) true else debug("AuthenticationPresent", false),
+      if (ACLsExistForAuthorizedUsers) true else debug("ACLsExistForAuthorizedUsers", false),
+      if (NoACLsForDeletedUsers) true else debug("NoACLsForDeletedUsers", false),
+      if (ReadyUsersMustHaveACLs) true else debug("ReadyUsersMustHaveACLs", false),
+      if (NoStateChangeForPausedUsers) true else debug("NoStateChangeForPausedUsers", false),
+      if (FaultsDoNotAffectState) true else debug("FaultsDoNotAffectState", false),
+  }
 
   // ========================================
   // ======== TEMPORAL PROPERTIES ===========

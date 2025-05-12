@@ -43,7 +43,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Stream;
 
 /**
@@ -131,6 +134,7 @@ public class UserControllerModelMbtIT {
         final QuotasOperator quotasOperator = new QuotasOperator(adminClient, config, ForkJoinPool.commonPool());
         final CertManager certManager = new MockCertManager();
         final MetricsProvider metrics = new MicrometerMetricsProvider(new SimpleMeterRegistry());
+
         final KafkaUserOperator kafkaUserOperator = new KafkaUserOperator(
             config,
             certManager,
@@ -178,6 +182,8 @@ public class UserControllerModelMbtIT {
                 String patternType = null;
                 String operation = null;
                 Boolean reconciliationPaused = null;
+                String fault = null;
+                Boolean useDesiredPassword = null;
 
                 final Map<String, Object> nondet = (Map<String, Object>) state.get("mbt::nondetPicks");
                 if (nondet != null) {
@@ -197,6 +203,8 @@ public class UserControllerModelMbtIT {
                     }
 
                     reconciliationPaused = ResourceUtils.getOptionalValue(nondet, "reconciliationPaused", Boolean.class);
+                    fault = ResourceUtils.getOptionalEnumTag(nondet, "fault");
+                    useDesiredPassword = ResourceUtils.getOptionalValue(nondet, "useDesiredPassword", Boolean.class);
                 }
 
                 final InvariantChecker invariants = new InvariantChecker(kafkaUserOps, secretOperator);
@@ -210,7 +218,9 @@ public class UserControllerModelMbtIT {
                         ├─ resourceType='%s'
                         ├─ pattern='%s'
                         ├─ operation='%s'
-                        └─ reconciliationPaused='%s'
+                        ├─ reconciliationPaused='%s'
+                        ├─ fault='%s'
+                        └─ useDesiredPassword='%s'
                     """,
                     i,
                     "processNextEvent".equals(action) ? "Executing" : "Queueing",
@@ -222,7 +232,9 @@ public class UserControllerModelMbtIT {
                     resourceType,
                     patternType,
                     operation,
-                    reconciliationPaused
+                    reconciliationPaused,
+                    fault,
+                    useDesiredPassword
                 );
                 LOGGER.debug(stepInfo);
                 mbtTimeline.add(stepInfo);
@@ -234,11 +246,11 @@ public class UserControllerModelMbtIT {
                         case CREATE_USER ->
                             eventQueue.add(
                                 KafkaUserModelActions.EventsFactory.create(
-                                    username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation, reconciliationPaused));
+                                    username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation, reconciliationPaused, useDesiredPassword));
                         case UPDATE_USER ->
                             eventQueue.add(
                                 KafkaUserModelActions.EventsFactory.update(
-                                    username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation, reconciliationPaused));
+                                    username, authType, quotasEnabled, aclsEnabled, resourceType, patternType, operation, reconciliationPaused, useDesiredPassword));
                         case DELETE_USER ->
                             eventQueue.add(
                                 KafkaUserModelActions.EventsFactory.delete(username, authType));
@@ -265,6 +277,7 @@ public class UserControllerModelMbtIT {
                         default -> { /* no-op */ }
                     }
                 }
+                kafkaUserOps = maybeInjectFaultyOperator(mockKube.client(), ForkJoinPool.commonPool(), fault);
             }
         } finally {
             kafkaUserOperator.stop();
@@ -351,5 +364,28 @@ public class UserControllerModelMbtIT {
         if (kafkaCluster != null) {
             kafkaCluster.stop();
         }
+    }
+
+    private CrdOperator<KubernetesClient, KafkaUser, KafkaUserList> maybeInjectFaultyOperator(
+        final KubernetesClient client,
+        final ExecutorService executor,
+        final String fault) {
+
+        if (fault != null && !fault.contains("None")) {
+            final FaultyCrdOperator faulty = FaultyCrdOperator.create(executor, client);
+
+            switch (fault) {
+                case "ServerError" -> faulty.enableServerError();
+                case "Pause" -> faulty.enablePause();
+                case "Conflict" -> faulty.enableConflict();
+                case "Gone" -> faulty.enableGone();
+                default -> throw new RuntimeException("Not supported fault: " + fault);
+            }
+
+            LOGGER.info("⚠️ Injecting FaultyCrdOperator with fault: {}", fault);
+            return faulty;
+        }
+
+        return new CrdOperator<>(executor, client, KafkaUser.class, KafkaUserList.class, "KafkaUser");
     }
 }
