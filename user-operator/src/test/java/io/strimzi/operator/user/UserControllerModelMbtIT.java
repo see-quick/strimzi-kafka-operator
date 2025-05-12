@@ -157,7 +157,7 @@ public class UserControllerModelMbtIT {
         kafkaUserOperator.start();
         controller.start();
 
-        final KafkaUserModelActions actions = new KafkaUserModelActions(kafkaUserOps, secretOperator, namespace);
+        final KafkaUserModelActions actions = new KafkaUserModelActions(kafkaUserOps, secretOperator, namespace, mbtTimeline);
         final List<KafkaUserModelActions.ModelEvent> eventQueue = new ArrayList<>();
 
         try {
@@ -237,7 +237,6 @@ public class UserControllerModelMbtIT {
                     useDesiredPassword
                 );
                 LOGGER.debug(stepInfo);
-                mbtTimeline.add(stepInfo);
 
                 // i = 0 is init state
                 if (i > 0) {
@@ -279,11 +278,15 @@ public class UserControllerModelMbtIT {
                 }
                 kafkaUserOps = maybeInjectFaultyOperator(mockKube.client(), ForkJoinPool.commonPool(), fault);
             }
+        } catch (AssertionError e) {
+            LOGGER.error("❌ Invariant failure after processNextEvent. Printing timeline of events for trace: {}", tracePath);
+            mbtTimeline.forEach(LOGGER::error);
+            throw e;
         } finally {
             kafkaUserOperator.stop();
             controller.stop();
             LOGGER.info("ℹ️ MBT test trace for {}. Timeline of actions:", tracePath);
-            mbtTimeline.forEach(step -> LOGGER.debug(step));
+            mbtTimeline.forEach(LOGGER::debug);
         }
     }
 

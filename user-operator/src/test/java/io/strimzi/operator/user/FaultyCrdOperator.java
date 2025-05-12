@@ -97,16 +97,16 @@ public class FaultyCrdOperator extends CrdOperator<KubernetesClient, KafkaUser, 
      * @throws  InterruptedException if pause is injected
      */
     private void simulateFaults(String method) throws InterruptedException {
-        if (simulatePause) {
+        if (this.simulatePause) {
             Thread.sleep(ThreadLocalRandom.current().nextInt(50, 200));
         }
-        if (simulateConflict) {
+        if (this.simulateConflict) {
             throw mockKubeClientException(409, "Simulated conflict in " + method);
         }
-        if (simulateGone) {
+        if (this.simulateGone) {
             throw mockKubeClientException(404, "Simulated 404 Not Found in " + method);
         }
-        if (simulateServerError) {
+        if (this.simulateServerError) {
             throw mockKubeClientException(500, "Simulated 500 Internal Server Error in " + method);
         }
     }
