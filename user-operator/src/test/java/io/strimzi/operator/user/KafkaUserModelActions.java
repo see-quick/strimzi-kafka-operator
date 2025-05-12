@@ -62,18 +62,22 @@ public class KafkaUserModelActions {
     private static final long POLL_TIMEOUT_MS = Duration.ofMillis(15_000).toMillis();
     private static final Random RNG = new Random();
 
-    private final CrdOperator<KubernetesClient, KafkaUser, KafkaUserList> kafkaUserOps;
     private final SecretOperator secretOperator;
     private final String namespace;
+    private final List<String> processedStepsLog;
+
+    private CrdOperator<KubernetesClient, KafkaUser, KafkaUserList> kafkaUserOps;
 
     public KafkaUserModelActions(
         CrdOperator<KubernetesClient, KafkaUser, KafkaUserList> kafkaUserOps,
         SecretOperator secretOperator,
-        String namespace
+        String namespace,
+        List<String> processedStepsLog
     ) {
         this.kafkaUserOps = kafkaUserOps;
         this.secretOperator = secretOperator;
         this.namespace = namespace;
+        this.processedStepsLog = processedStepsLog;
     }
 
     public enum Action {
@@ -185,6 +189,10 @@ public class KafkaUserModelActions {
 
         ModelEvent next = eventQueue.remove(0);
         LOGGER.info("🌀 Processing next event from queue: {}", next);
+
+        // Log only executed actions
+        processedStepsLog.add("🌀 Processed: " + next.toString());
+
         next.apply(this);
     }
 
@@ -276,7 +284,9 @@ public class KafkaUserModelActions {
                 ResourceUtils.waitUntilKafkaUserReady(username, namespace, POLL_INTERVAL_MS, POLL_TIMEOUT_MS, kafkaUserOps);
             }
 
-            if (KafkaUserScramSha512ClientAuthentication.TYPE_SCRAM_SHA_512.equalsIgnoreCase(authType) || KafkaUserTlsClientAuthentication.TYPE_TLS.equalsIgnoreCase(authType)) {
+            if ((KafkaUserScramSha512ClientAuthentication.TYPE_SCRAM_SHA_512.equalsIgnoreCase(authType) &&
+                (useDesiredPassword == null || !useDesiredPassword)) ||
+                KafkaUserTlsClientAuthentication.TYPE_TLS.equalsIgnoreCase(authType)) {
                 waitUntilSecretCreated(username, namespace, POLL_TIMEOUT_MS);
             }
         } catch (Exception e) {
@@ -398,7 +408,8 @@ public class KafkaUserModelActions {
                 ResourceUtils.waitUntilKafkaUserReady(username, namespace, POLL_INTERVAL_MS, POLL_TIMEOUT_MS, kafkaUserOps);
             }
 
-            if (KafkaUserScramSha512ClientAuthentication.TYPE_SCRAM_SHA_512.equalsIgnoreCase(authType) ||
+            if ((KafkaUserScramSha512ClientAuthentication.TYPE_SCRAM_SHA_512.equalsIgnoreCase(authType) &&
+                (useDesiredPassword == null || !useDesiredPassword)) ||
                 KafkaUserTlsClientAuthentication.TYPE_TLS.equalsIgnoreCase(authType)) {
                 waitUntilSecretCreated(username, namespace, POLL_TIMEOUT_MS);
             }
