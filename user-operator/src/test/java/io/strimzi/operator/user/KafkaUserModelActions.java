@@ -282,7 +282,7 @@ public class KafkaUserModelActions {
         try {
             kafkaUserOps.resource(namespace, builder.build()).create();
 
-            if (Boolean.FALSE.equals(reconciliationPaused) && !(kafkaUserOps instanceof FaultyCrdOperator)) {
+            if (Boolean.FALSE.equals(reconciliationPaused)) {
                 ResourceUtils.waitUntilKafkaUserReady(username, namespace, POLL_INTERVAL_MS, POLL_TIMEOUT_MS, kafkaUserOps);
             }
 
@@ -420,7 +420,7 @@ public class KafkaUserModelActions {
 
             kafkaUserOps.resource(namespace, builder.build()).update();
 
-            if (Boolean.FALSE.equals(reconciliationPaused) && !(kafkaUserOps instanceof FaultyCrdOperator)) {
+            if (Boolean.FALSE.equals(reconciliationPaused)) {
                 ResourceUtils.waitUntilKafkaUserReady(username, namespace, POLL_INTERVAL_MS, POLL_TIMEOUT_MS, kafkaUserOps);
             }
 
