@@ -228,14 +228,16 @@ public class KafkaUserModelActions {
                     .endKafkaUserScramSha512ClientAuthentication()
                     .endSpec();
 
-                secretOperator.resource(namespace, new SecretBuilder()
-                    .withNewMetadata()
-                        .withName(username + "-custom")
-                        .withNamespace(namespace)
-                    .endMetadata()
-                        .withData(Map.of("my-password", Util.encodeToBase64("desiredpassword")))
-                    .build())
-                    .createOrReplace();
+                if (Boolean.FALSE.equals(reconciliationPaused)) {
+                    secretOperator.resource(namespace, new SecretBuilder()
+                            .withNewMetadata()
+                            .withName(username + "-custom")
+                            .withNamespace(namespace)
+                            .endMetadata()
+                            .withData(Map.of("my-password", Util.encodeToBase64("desiredpassword")))
+                            .build())
+                        .createOrReplace();
+                }
             } else {
                 builder
                     .editOrNewSpec()
@@ -289,13 +291,25 @@ public class KafkaUserModelActions {
                 KafkaUserTlsClientAuthentication.TYPE_TLS.equalsIgnoreCase(authType)) {
                 waitUntilSecretCreated(username, namespace, POLL_TIMEOUT_MS);
             }
-        } catch (Exception e) {
-            if (!e.getMessage().contains("409")) {
-                throw e; // Re-throw unexpected exceptions
+        } catch (KubernetesClientException e) {
+            int code = e.getCode();
+
+            if (code == 409) {
+                LOGGER.info("User '{}' already exists (409), asserting state matches model.", username);
+                assertThat("KafkaUser should exist but does not!", kafkaUserOps.get(namespace, username), notNullValue());
+            } else if (code == 404) {
+                LOGGER.warn("KafkaUser '{}' not found (404) when attempting creation. Skipping or retrying may be necessary.", username);
+                // Depending on logic, you could choose to retry, ignore, or escalate
+                throw e;
+            } else if (code >= 500 && code < 600) {
+                LOGGER.error("Server error ({}): {} while creating KafkaUser '{}'", code, e.getMessage(), username);
+                // Depending on test policy, could retry or throw
+                throw e;
+            } else {
+                throw e; // Propagate other exceptions
             }
-            // Log conflict (409), resource already exists
-            LOGGER.info("User '{}' already exists (409), asserting state matches model.", username);
-            assertThat("KafkaUser should exist but does not!", kafkaUserOps.get(namespace, username), notNullValue());
+        } catch (Exception e) {
+            throw e;
         }
     }
 
@@ -308,11 +322,11 @@ public class KafkaUserModelActions {
                                 final String operation,
                                 final Boolean reconciliationPaused,
                                 final Boolean useDesiredPassword) {
-        retryOnKubeException(() -> {
+        try {
             final KafkaUser existing = kafkaUserOps.get(namespace, username);
             if (existing == null) {
                 LOGGER.info("KafkaUser '{}' does not exist; skipping update.", username);
-                return true;
+                return;
             }
 
             KafkaUserBuilder builder = new KafkaUserBuilder(existing);
@@ -333,14 +347,16 @@ public class KafkaUserModelActions {
                             .endKafkaUserScramSha512ClientAuthentication()
                         .endSpec();
 
-                    secretOperator.resource(namespace, new SecretBuilder()
-                            .withNewMetadata()
+                    if (Boolean.FALSE.equals(reconciliationPaused)) {
+                        secretOperator.resource(namespace, new SecretBuilder()
+                                .withNewMetadata()
                                 .withName(username + "-custom")
                                 .withNamespace(namespace)
-                            .endMetadata()
-                            .withData(Map.of("my-password", Util.encodeToBase64("desiredpassword")))
-                            .build())
-                        .createOrReplace();
+                                .endMetadata()
+                                .withData(Map.of("my-password", Util.encodeToBase64("desiredpassword")))
+                                .build())
+                            .createOrReplace();
+                    }
                 } else {
                     builder
                         .editOrNewSpec()
@@ -413,9 +429,22 @@ public class KafkaUserModelActions {
                 KafkaUserTlsClientAuthentication.TYPE_TLS.equalsIgnoreCase(authType)) {
                 waitUntilSecretCreated(username, namespace, POLL_TIMEOUT_MS);
             }
-
-            return true;
-        });
+        } catch (KubernetesClientException e) {
+            int code = e.getCode();
+            if (code == 404) {
+                LOGGER.warn("KafkaUser '{}' not found (404) during update; skipping.", username);
+            } else if (code == 409) {
+                LOGGER.info("Conflict (409) while updating '{}'; assuming state is consistent.", username);
+            } else if (code >= 500 && code < 600) {
+                LOGGER.error("Server error ({}): {} during update of KafkaUser '{}'", code, e.getMessage(), username);
+                throw e;
+            } else {
+                throw e;
+            }
+        } catch (Exception e) {
+            LOGGER.error("Unexpected error while updating KafkaUser '{}': {}", username, e.getMessage());
+            throw new RuntimeException(e);
+        }
     }
 
     public void deleteKafkaUser(final String username,
@@ -430,29 +459,6 @@ public class KafkaUserModelActions {
         } else {
             LOGGER.info("KafkaUser '{}' already deleted (404).", username);
         }
-    }
-
-    private <T> T retryOnKubeException(Supplier<T> action) {
-        final int maxRetries = 5;
-        for (int attempt = 0; attempt < maxRetries; attempt++) {
-            try {
-                return action.get();
-            } catch (KubernetesClientException e) {
-                int code = e.getCode();
-                if (code == 409) {
-                    LOGGER.info("Conflict (409) occurred, asserting resource still exists and is consistent.");
-                    assertThat("KafkaUser still exists", notNullValue());
-                    return null;
-                } else if (code == 404) {
-                    LOGGER.warn("Resource not found (404) during update — skipping step.");
-                    return null;
-                } else {
-                    LOGGER.error("Kubernetes error (code {}) during update: {}", code, e.getMessage());
-                    throw e;
-                }
-            }
-        }
-        throw new RuntimeException("Max retries exceeded due to repeated KubernetesClientExceptions");
     }
 
     private void waitUntilSecretCreated(final String username,

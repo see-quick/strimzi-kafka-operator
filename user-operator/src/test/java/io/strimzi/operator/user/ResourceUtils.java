@@ -444,4 +444,17 @@ public class ResourceUtils {
         }
         return List.of();
     }
+
+    public static String getPasswordSecretName(final KafkaUser user) {
+        if (user.getSpec() != null
+            && user.getSpec().getAuthentication() instanceof KafkaUserScramSha512ClientAuthentication scramAuth
+            && scramAuth.getPassword() != null
+            && scramAuth.getPassword().getValueFrom() != null
+            && scramAuth.getPassword().getValueFrom().getSecretKeyRef() != null) {
+
+            return scramAuth.getPassword().getValueFrom().getSecretKeyRef().getName();
+        }
+
+        return user.getMetadata().getName();
+    }
 }

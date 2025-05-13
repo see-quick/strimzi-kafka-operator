@@ -20,6 +20,7 @@ import java.util.concurrent.ThreadLocalRandom;
  * Used in model-based tests to simulate reconciliation errors and delays (which are hard to simulate normally).
  * Faults auto-reset after each invocation.
  */
+// TODO: experiment with this a bit more :))
 public class FaultyCrdOperator extends CrdOperator<KubernetesClient, KafkaUser, KafkaUserList> {
 
     private boolean simulatePause;
@@ -66,7 +67,7 @@ public class FaultyCrdOperator extends CrdOperator<KubernetesClient, KafkaUser, 
         return CompletableFuture.supplyAsync(() -> {
             try {
                 simulateFaults("createOrUpdate");
-                return ReconcileResult.created(operation().inNamespace(resource.getMetadata().getNamespace()).resource(resource).createOrReplace());
+                return ReconcileResult.created(operation().inNamespace(resource.getMetadata().getNamespace()).resource(resource).create());
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             } finally {
@@ -80,9 +81,8 @@ public class FaultyCrdOperator extends CrdOperator<KubernetesClient, KafkaUser, 
         return CompletableFuture.supplyAsync(() -> {
             try {
                 simulateFaults("updateStatusAsync");
-                return operation().inNamespace(resource.getMetadata().getNamespace()).resource(resource).update();
+                return operation().inNamespace(resource.getMetadata().getNamespace()).resource(resource).updateStatus();
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
                 throw new RuntimeException(e);
             } finally {
                 disableAllFaults();

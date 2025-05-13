@@ -9,6 +9,7 @@ import io.strimzi.api.kafka.model.user.KafkaUserScramSha512ClientAuthentication;
 import io.strimzi.api.kafka.model.user.KafkaUserSpec;
 import io.strimzi.api.kafka.model.user.KafkaUserTlsClientAuthentication;
 import io.strimzi.api.kafka.model.user.acl.AclRule;
+import io.strimzi.operator.common.Annotations;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.operator.resource.concurrent.CrdOperator;
 import io.strimzi.operator.common.operator.resource.concurrent.SecretOperator;
@@ -20,6 +21,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -74,15 +76,16 @@ public class InvariantChecker {
     }
 
     public void assertSecretsConsistency(final String namespace) {
-        final Set<String> secretNames = secretOperator.list(namespace, kafkaUserLabels).stream()
-            .map(secret -> secret.getMetadata().getName())
-            .collect(Collectors.toSet());
-
         kafkaUserOps.list(namespace, kafkaUserLabels).forEach(user -> {
             if (hasStatusCondition(user, "Ready", "True") && !isReconciliationPaused(user)) {
                 if (requiresSecret(user)) {
-                    assertTrue(secretNames.contains(user.getMetadata().getName()),
-                        "❌ Secret missing for Ready KafkaUser: " + user.getMetadata().getName());
+                    final String expectedSecretName = ResourceUtils.getPasswordSecretName(user);
+                    final Secret actual = secretOperator.get(namespace, expectedSecretName);
+
+                    LOGGER.debug("🔍 Checking secret '{}' for KafkaUser '{}', requiresSecret={}, status={}",
+                        expectedSecretName, user.getMetadata().getName(), requiresSecret(user), user.getStatus());
+                    assertNotNull(actual,
+                        "❌ Secret '" + expectedSecretName + "' missing for Ready KafkaUser: " + user.getMetadata().getName());
                 } else {
                     LOGGER.info("ℹ️ Ready KafkaUser '{}' does not require a Secret", user.getMetadata().getName());
                 }
@@ -163,10 +166,10 @@ public class InvariantChecker {
         });
     }
 
-    private boolean isReconciliationPaused(KafkaUser user) {
-        return Optional.ofNullable(user.getStatus())
-            .map(s -> s.getConditions())
-            .map(conds -> conds.stream().anyMatch(c -> "ReconciliationPaused".equals(c.getType()) && "True".equals(c.getStatus())))
+    private boolean isReconciliationPaused(final KafkaUser user) {
+        return Optional.ofNullable(user.getMetadata())
+            .map(meta -> meta.getAnnotations())
+            .map(ann -> "true".equals(ann.get(Annotations.ANNO_STRIMZI_IO_PAUSE_RECONCILIATION)))
             .orElse(false);
     }
 
