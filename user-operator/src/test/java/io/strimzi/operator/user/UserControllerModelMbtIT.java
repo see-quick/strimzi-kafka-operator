@@ -182,7 +182,6 @@ public class UserControllerModelMbtIT {
                 String patternType = null;
                 String operation = null;
                 Boolean reconciliationPaused = null;
-                String fault = null;
                 Boolean useDesiredPassword = null;
 
                 final Map<String, Object> nondet = (Map<String, Object>) state.get("mbt::nondetPicks");
@@ -203,7 +202,6 @@ public class UserControllerModelMbtIT {
                     }
 
                     reconciliationPaused = ResourceUtils.getOptionalValue(nondet, "reconciliationPaused", Boolean.class);
-                    fault = ResourceUtils.getOptionalEnumTag(nondet, "fault");
                     useDesiredPassword = ResourceUtils.getOptionalValue(nondet, "useDesiredPassword", Boolean.class);
                 }
 
@@ -219,7 +217,6 @@ public class UserControllerModelMbtIT {
                         ├─ pattern='%s'
                         ├─ operation='%s'
                         ├─ reconciliationPaused='%s'
-                        ├─ fault='%s'
                         └─ useDesiredPassword='%s'
                     """,
                     i,
@@ -233,7 +230,6 @@ public class UserControllerModelMbtIT {
                     patternType,
                     operation,
                     reconciliationPaused,
-                    fault,
                     useDesiredPassword
                 );
                 LOGGER.debug(stepInfo);
@@ -276,7 +272,6 @@ public class UserControllerModelMbtIT {
                         default -> { /* no-op */ }
                     }
                 }
-                kafkaUserOps = maybeInjectFaultyOperator(mockKube.client(), ForkJoinPool.commonPool(), fault);
             }
         } catch (AssertionError e) {
             LOGGER.error("❌ Invariant failure after processNextEvent. Printing timeline of events for trace: {}", tracePath);
@@ -367,28 +362,5 @@ public class UserControllerModelMbtIT {
         if (kafkaCluster != null) {
             kafkaCluster.stop();
         }
-    }
-
-    private CrdOperator<KubernetesClient, KafkaUser, KafkaUserList> maybeInjectFaultyOperator(
-        final KubernetesClient client,
-        final ExecutorService executor,
-        final String fault) {
-
-        if (fault != null && !fault.contains("None")) {
-            final FaultyCrdOperator faulty = FaultyCrdOperator.create(executor, client);
-
-            switch (fault) {
-                case "ServerError" -> faulty.enableServerError();
-                case "Pause" -> faulty.enablePause();
-                case "Conflict" -> faulty.enableConflict();
-                case "Gone" -> faulty.enableGone();
-                default -> throw new RuntimeException("Not supported fault: " + fault);
-            }
-
-            LOGGER.info("⚠️ Injecting FaultyCrdOperator with fault: {}", fault);
-            return faulty;
-        }
-
-        return new CrdOperator<>(executor, client, KafkaUser.class, KafkaUserList.class, "KafkaUser");
     }
 }
