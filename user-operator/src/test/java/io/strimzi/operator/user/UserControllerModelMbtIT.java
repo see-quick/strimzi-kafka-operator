@@ -120,7 +120,7 @@ public class UserControllerModelMbtIT {
         final UserOperatorConfig config = ResourceUtils.createUserOperatorConfigForUserControllerTesting(
             namespace,
             Map.of(),
-            1000,
+            100,
             100,          // Batch queue size
             1,                      // Max batch size
             "",                     // Optional secret prefix
