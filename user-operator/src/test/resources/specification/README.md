@@ -20,7 +20,7 @@ This will execute the model nondeterministically and stop after a bounded number
 To formally verify that the invariants always hold:
 
 ```shell
-quint verify UserOperator3Users.qnt --invariant=AllInvariantsHold
+quint verify UserOperatorModel.qnt --invariant=AllInvariantsHold
 ```
 
 Use a reduced version like UserOperator3Users.qnt to keep the state space small.
@@ -30,7 +30,7 @@ Use a reduced version like UserOperator3Users.qnt to keep the state space small.
 To verify temporal properties like eventual reconciliation:
 
 ```shell
-sh ../tlc/check_with_tlc.sh --file UserOperatorModel.qnt --temporal EventuallyStableReconciliationProperty
+sh ../tlc/check_with_tlc.sh UserOperatorModel.qnt --temporal EventuallyStableReconciliationProperty
 ```
 
 TLC script available at:
