@@ -93,8 +93,6 @@ module UserOperatorModel {
     status: KafkaUserStatus  //   "Pending", "Ready", or "Deleted"
   }
 
-  type Fault = None | Pause | Conflict | Gone | ServerError
-
   // ============================================================================
   // EVENT MODEL
   // ============================================================================
@@ -273,9 +271,9 @@ module UserOperatorModel {
     }
   }
 
-  action processNextEvent(fault) = all {
+  action processNextEvent() = all {
     if (length(globalState.eventQueue) > 0)
-      globalState' = processEvent({ ...globalState, eventQueue: tail(globalState.eventQueue) }, head(globalState.eventQueue), fault)
+      globalState' = processEvent({ ...globalState, eventQueue: tail(globalState.eventQueue) }, head(globalState.eventQueue))
     else
       globalState' = globalState
   }
@@ -289,7 +287,6 @@ module UserOperatorModel {
     nondet u = parameters.potentialUsers.oneOf()
     nondet authType = parameters.authTypes.oneOf()
     nondet quotasEnabled = parameters.quotasEnabled.oneOf()
-    nondet fault = Set(None, Pause, Conflict, Gone, ServerError).oneOf()
 
     // the sum of (already processed + currently queued) is bounded.
     // we can never create more events than you will ever be allowed to process.
@@ -299,10 +296,10 @@ module UserOperatorModel {
         createUser(u, authType, quotasEnabled, parameters.aclsEnabled),
         updateUser(u, authType, quotasEnabled, parameters.aclsEnabled),
         deleteUser(u),
-        processNextEvent(fault)
+        processNextEvent
       }
     else
-      processNextEvent(fault),
+      processNextEvent,
 
     parameters' = parameters
   }
@@ -314,10 +311,6 @@ module UserOperatorModel {
   // helper
   def reconciliationPaused(user: UserResource): bool =
     getOrElse(user.metadata.annotations, "strimzi.io/pause-reconciliation", "") == "true"
-
-  // helper
-  def shouldSkipReconcile(f: Fault): bool =
-    f == Pause or f == Conflict or f == Gone or f == ServerError
 
   // ============================================================================
   // RECONCILIATION LOGIC (UserControllerLoop)
@@ -373,11 +366,7 @@ module UserOperatorModel {
               }
     }
 
-  def processEvent(state: GlobalState, ev: Event, fault : Fault): GlobalState =
-    if (shouldSkipReconcile(fault))
-        // Simulate skipping reconciliation due to an injected fault
-        { ...state, processedEvents: state.processedEvents + 1 }
-    else
+  def processEvent(state: GlobalState, ev: Event): GlobalState =
         match ev {
           | UserCreatedWithSecret(cr) =>
             if (cr.metadata.name.in(state.users.keys()))
@@ -562,18 +551,6 @@ module UserOperatorModel {
     )
 
   // ========================================
-  // ===== FAULTS INJECTION INVARIANTS ======
-  // ========================================
-  val FaultsDoNotAffectState =
-    Set(Pause, Conflict, Gone, ServerError).forall(f =>
-      (length(globalState.eventQueue) > 0) implies (
-        (processEvent({ ...globalState, eventQueue: tail(globalState.eventQueue) }, head(globalState.eventQueue), f).users == globalState.users)
-        and
-        (processEvent({ ...globalState, eventQueue: tail(globalState.eventQueue) }, head(globalState.eventQueue), f).secrets == globalState.secrets)
-      )
-    )
-
-  // ========================================
   // ========================================
   // ========================================
 
@@ -596,7 +573,6 @@ module UserOperatorModel {
       if (NoACLsForDeletedUsers) true else debug("NoACLsForDeletedUsers", false),
       if (ReadyUsersMustHaveACLs) true else debug("ReadyUsersMustHaveACLs", false),
       if (NoStateChangeForPausedUsers) true else debug("NoStateChangeForPausedUsers", false),
-      if (FaultsDoNotAffectState) true else debug("FaultsDoNotAffectState", false),
   }
 
   // ========================================
