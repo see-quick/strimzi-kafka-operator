@@ -1,0 +1,32 @@
+[
+  {
+    "mbt::actionTaken": "init",
+    "parameters": {
+      "maxProcessedEvents": {"#bigint": "3"},
+      "enableRollingUpdates": true,
+      "enableCertRotation": false,
+      "enableAutoRebalance": false
+    },
+    "globalState": {
+      "clusterId": "test-cluster-1",
+      "processedEvents": {"#bigint": "0"}
+    }
+  },
+  {
+    "mbt::actionTaken": "createCluster",
+    "mbt::nondetPicks": {
+      "clusterName": "my-cluster",
+      "replicas": 3,
+      "kafkaVersion": "3.0.0"
+    },
+    "globalState": {
+      "processedEvents": {"#bigint": "1"}
+    }
+  },
+  {
+    "mbt::actionTaken": "processNextEvent",
+    "globalState": {
+      "processedEvents": {"#bigint": "2"}
+    }
+  }
+]
