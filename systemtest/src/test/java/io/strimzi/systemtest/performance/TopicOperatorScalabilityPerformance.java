@@ -4,8 +4,6 @@
  */
 package io.strimzi.systemtest.performance;
 
-import io.fabric8.kubernetes.api.model.Quantity;
-import io.fabric8.kubernetes.api.model.ResourceRequirementsBuilder;
 import io.skodjob.testframe.resources.KubeResourceManager;
 import io.strimzi.api.kafka.model.topic.KafkaTopic;
 import io.strimzi.systemtest.AbstractST;
@@ -28,8 +26,6 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 
 import java.io.IOException;
-import java.time.LocalDateTime;
-import java.time.temporal.TemporalAccessor;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,7 +37,6 @@ import static io.strimzi.systemtest.TestTags.SCALABILITY;
 @Tag(SCALABILITY)
 public class TopicOperatorScalabilityPerformance extends AbstractST {
 
-    protected static final TemporalAccessor ACTUAL_TIME = LocalDateTime.now();
     protected static final String REPORT_DIRECTORY = "topic-operator";
 
     protected TopicOperatorPerformanceReporter topicOperatorPerformanceReporter = new TopicOperatorPerformanceReporter();
@@ -51,7 +46,8 @@ public class TopicOperatorScalabilityPerformance extends AbstractST {
     private TestStorage suiteTestStorage;
 
     // topic event batches to test
-    private final List<Integer> eventBatches = List.of(10, 100, 500, 1000);
+    // TODO: change it to real values this is just for testing PR comments
+    private final List<Integer> eventBatches = List.of(10, 15, 20, 30);
     private final int maxBatchSize = 100;
     private final int maxBatchLingerMs = 100;
     private final int maxQueueSize = Integer.MAX_VALUE;
@@ -84,7 +80,7 @@ public class TopicOperatorScalabilityPerformance extends AbstractST {
                 performanceAttributes.put(PerformanceConstants.OPERATOR_OUT_RECONCILIATION_INTERVAL, reconciliationTimeMs);
 
                 try {
-                    this.topicOperatorPerformanceReporter.logPerformanceData(this.suiteTestStorage, performanceAttributes, REPORT_DIRECTORY + "/" + PerformanceConstants.GENERAL_SCALABILITY_USE_CASE, ACTUAL_TIME, Environment.PERFORMANCE_DIR);
+                    this.topicOperatorPerformanceReporter.logPerformanceData(this.suiteTestStorage, performanceAttributes, REPORT_DIRECTORY + "/" + PerformanceConstants.GENERAL_SCALABILITY_USE_CASE, TimeHolder.getActualTime(), Environment.PERFORMANCE_DIR);
                 } catch (IOException e) {
                     throw new RuntimeException(e);
                 }
@@ -102,30 +98,30 @@ public class TopicOperatorScalabilityPerformance extends AbstractST {
         suiteTestStorage = new TestStorage(KubeResourceManager.get().getTestContext(), TestConstants.CO_NAMESPACE);
 
         KubeResourceManager.get().createResourceWithWait(
-            KafkaNodePoolTemplates.brokerPoolPersistentStorage(suiteTestStorage.getNamespaceName(), suiteTestStorage.getBrokerPoolName(), suiteTestStorage.getClusterName(), 3).build(),
-            KafkaNodePoolTemplates.controllerPoolPersistentStorage(suiteTestStorage.getNamespaceName(), suiteTestStorage.getControllerPoolName(), suiteTestStorage.getClusterName(), 3).build()
+            KafkaNodePoolTemplates.brokerPool(suiteTestStorage.getNamespaceName(), suiteTestStorage.getBrokerPoolName(), suiteTestStorage.getClusterName(), 3).build(),
+            KafkaNodePoolTemplates.controllerPool(suiteTestStorage.getNamespaceName(), suiteTestStorage.getControllerPoolName(), suiteTestStorage.getClusterName(), 3).build()
         );
 
         KubeResourceManager.get().createResourceWithWait(
             KafkaTemplates.kafka(suiteTestStorage.getNamespaceName(),  suiteTestStorage.getClusterName(), 3)
                 .editSpec()
                     .editKafka()
-                    .withResources(new ResourceRequirementsBuilder()
-                        .addToLimits("memory", new Quantity("768Mi"))
-                        .addToLimits("cpu", new Quantity("750m"))
-                        .addToRequests("memory", new Quantity("768Mi"))
-                        .addToRequests("cpu", new Quantity("750m"))
-                        .build())
+//                    .withResources(new ResourceRequirementsBuilder()
+//                        .addToLimits("memory", new Quantity("768Mi"))
+//                        .addToLimits("cpu", new Quantity("750m"))
+//                        .addToRequests("memory", new Quantity("768Mi"))
+//                        .addToRequests("cpu", new Quantity("750m"))
+//                        .build())
                     .endKafka()
                         .editEntityOperator()
                             .editTopicOperator()
                                 .withReconciliationIntervalMs(10_000L)
-                                .withResources(new ResourceRequirementsBuilder()
-                                    .addToLimits("memory", new Quantity("768Mi"))
-                                    .addToLimits("cpu", new Quantity("750m"))
-                                    .addToRequests("memory", new Quantity("768Mi"))
-                                    .addToRequests("cpu", new Quantity("750m"))
-                                    .build())
+//                                .withResources(new ResourceRequirementsBuilder()
+//                                    .addToLimits("memory", new Quantity("768Mi"))
+//                                    .addToLimits("cpu", new Quantity("750m"))
+//                                    .addToRequests("memory", new Quantity("768Mi"))
+//                                    .addToRequests("cpu", new Quantity("750m"))
+//                                    .build())
                             .endTopicOperator()
                             .editOrNewTemplate()
                                 .editOrNewTopicOperatorContainer()
