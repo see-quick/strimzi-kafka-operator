@@ -289,11 +289,6 @@
             <groupId>com.marcnuri.helm-java</groupId>
             <artifactId>helm-java</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.apache.kafka</groupId>
-            <artifactId>kafka_2.13</artifactId>
-            <scope>test</scope>
-        </dependency>
     </dependencies>
 
     <build>
