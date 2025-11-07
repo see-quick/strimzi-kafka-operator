@@ -4,8 +4,6 @@
  */
 package io.strimzi.systemtest.performance;
 
-import io.fabric8.kubernetes.api.model.Quantity;
-import io.fabric8.kubernetes.api.model.ResourceRequirementsBuilder;
 import io.skodjob.annotations.Desc;
 import io.skodjob.annotations.Label;
 import io.skodjob.annotations.Step;
@@ -34,8 +32,6 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 
 import java.io.IOException;
-import java.time.LocalDateTime;
-import java.time.temporal.TemporalAccessor;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -56,7 +52,6 @@ import static io.strimzi.systemtest.TestTags.SCALABILITY;
 @Tag(SCALABILITY)
 public class UserOperatorScalabilityPerformance extends AbstractST {
 
-    protected static final TemporalAccessor ACTUAL_TIME = LocalDateTime.now();
     protected static final String REPORT_DIRECTORY = "user-operator";
 
     protected UserOperatorPerformanceReporter userOperatorPerformanceReporter = new UserOperatorPerformanceReporter();
@@ -151,7 +146,7 @@ public class UserOperatorScalabilityPerformance extends AbstractST {
                 performanceAttributes.put(PerformanceConstants.OPERATOR_OUT_RECONCILIATION_INTERVAL, reconciliationTimeMs);
 
                 try {
-                    this.userOperatorPerformanceReporter.logPerformanceData(testStorage, performanceAttributes, REPORT_DIRECTORY + "/" + PerformanceConstants.GENERAL_SCALABILITY_USE_CASE, ACTUAL_TIME, Environment.PERFORMANCE_DIR);
+                    this.userOperatorPerformanceReporter.logPerformanceData(this.suiteTestStorage, performanceAttributes, REPORT_DIRECTORY + "/" + PerformanceConstants.GENERAL_SCALABILITY_USE_CASE, TimeHolder.getActualTime(), Environment.PERFORMANCE_DIR);
                 } catch (IOException e) {
                     throw new RuntimeException(e);
                 }
@@ -200,12 +195,12 @@ public class UserOperatorScalabilityPerformance extends AbstractST {
                         .editEntityOperator()
                             .editUserOperator()
                                 .withReconciliationIntervalMs(10_000L)
-                                .withResources(new ResourceRequirementsBuilder()
-                                    .addToLimits("memory", new Quantity("768Mi"))
-                                    .addToLimits("cpu", new Quantity("750m"))
-                                    .addToRequests("memory", new Quantity("768Mi"))
-                                    .addToRequests("cpu", new Quantity("750m"))
-                                    .build())
+//                                .withResources(new ResourceRequirementsBuilder()
+//                                    .addToLimits("memory", new Quantity("768Mi"))
+//                                    .addToLimits("cpu", new Quantity("750m"))
+//                                    .addToRequests("memory", new Quantity("768Mi"))
+//                                    .addToRequests("cpu", new Quantity("750m"))
+//                                    .build())
                             .endUserOperator()
                             .editOrNewTemplate()
                                 .editOrNewUserOperatorContainer()
