@@ -4,8 +4,6 @@
  */
 package io.strimzi.systemtest.performance;
 
-import io.fabric8.kubernetes.api.model.Quantity;
-import io.fabric8.kubernetes.api.model.ResourceRequirementsBuilder;
 import io.skodjob.annotations.Desc;
 import io.skodjob.annotations.Label;
 import io.skodjob.annotations.Step;
@@ -85,8 +83,8 @@ public class UserOperatorScalabilityPerformance extends AbstractST {
         final int maxWorkQueueSize = 1024;
 
         KubeResourceManager.get().createResourceWithWait(
-            KafkaNodePoolTemplates.brokerPoolPersistentStorage(testStorage.getNamespaceName(), testStorage.getBrokerPoolName(), testStorage.getClusterName(), 3).build(),
-            KafkaNodePoolTemplates.controllerPoolPersistentStorage(testStorage.getNamespaceName(), testStorage.getControllerPoolName(), testStorage.getClusterName(), 3).build()
+            KafkaNodePoolTemplates.brokerPool(testStorage.getNamespaceName(), testStorage.getBrokerPoolName(), testStorage.getClusterName(), 3).build(),
+            KafkaNodePoolTemplates.controllerPool(testStorage.getNamespaceName(), testStorage.getControllerPoolName(), testStorage.getClusterName(), 3).build()
         );
 
         KubeResourceManager.get().createResourceWithWait(
@@ -99,12 +97,12 @@ public class UserOperatorScalabilityPerformance extends AbstractST {
                         .editEntityOperator()
                             .editUserOperator()
                                 .withReconciliationIntervalMs(10_000L)
-                                .withResources(new ResourceRequirementsBuilder()
-                                    .addToLimits("memory", new Quantity("768Mi"))
-                                    .addToLimits("cpu", new Quantity("750m"))
-                                    .addToRequests("memory", new Quantity("768Mi"))
-                                    .addToRequests("cpu", new Quantity("750m"))
-                                    .build())
+//                                .withResources(new ResourceRequirementsBuilder()
+//                                    .addToLimits("memory", new Quantity("768Mi"))
+//                                    .addToLimits("cpu", new Quantity("750m"))
+//                                    .addToRequests("memory", new Quantity("768Mi"))
+//                                    .addToRequests("cpu", new Quantity("750m"))
+//                                    .build())
                             .endUserOperator()
                             .editOrNewTemplate()
                                 .editOrNewUserOperatorContainer()
@@ -173,7 +171,7 @@ public class UserOperatorScalabilityPerformance extends AbstractST {
     @Tag(SCALABILITY)
     void testLatencyUnderLoad() {
         final TestStorage testStorage = new TestStorage(KubeResourceManager.get().getTestContext());
-        final List<Integer> loadLevels = List.of(100, 200, 300);
+        final List<Integer> loadLevels = List.of(110, 200, 300);
         final int numberOfModifications = 100;
         // default configuration of UO
         final int maxBatchSize = 100;
@@ -182,8 +180,8 @@ public class UserOperatorScalabilityPerformance extends AbstractST {
         final int maxWorkQueueSize = 2048;
 
         KubeResourceManager.get().createResourceWithWait(
-            KafkaNodePoolTemplates.brokerPoolPersistentStorage(testStorage.getNamespaceName(), testStorage.getBrokerPoolName(), testStorage.getClusterName(), 3).build(),
-            KafkaNodePoolTemplates.controllerPoolPersistentStorage(testStorage.getNamespaceName(), testStorage.getControllerPoolName(), testStorage.getClusterName(), 3).build()
+            KafkaNodePoolTemplates.brokerPool(testStorage.getNamespaceName(), testStorage.getBrokerPoolName(), testStorage.getClusterName(), 3).build(),
+            KafkaNodePoolTemplates.controllerPool(testStorage.getNamespaceName(), testStorage.getControllerPoolName(), testStorage.getClusterName(), 3).build()
         );
 
         KubeResourceManager.get().createResourceWithWait(
@@ -196,12 +194,12 @@ public class UserOperatorScalabilityPerformance extends AbstractST {
                         .editEntityOperator()
                             .editUserOperator()
                                 .withReconciliationIntervalMs(10_000L)
-                                .withResources(new ResourceRequirementsBuilder()
-                                    .addToLimits("memory", new Quantity("768Mi"))
-                                    .addToLimits("cpu", new Quantity("750m"))
-                                    .addToRequests("memory", new Quantity("768Mi"))
-                                    .addToRequests("cpu", new Quantity("750m"))
-                                    .build())
+//                                .withResources(new ResourceRequirementsBuilder()
+//                                    .addToLimits("memory", new Quantity("768Mi"))
+//                                    .addToLimits("cpu", new Quantity("750m"))
+//                                    .addToRequests("memory", new Quantity("768Mi"))
+//                                    .addToRequests("cpu", new Quantity("750m"))
+//                                    .build())
                             .endUserOperator()
                             .editOrNewTemplate()
                                 .editOrNewUserOperatorContainer()
