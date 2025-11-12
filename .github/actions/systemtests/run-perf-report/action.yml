@@ -15,11 +15,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Checkout code
-      uses: actions/checkout@v5
-      with:
-        ref: ${{ inputs.ref }}
-
     - name: Download performance results
       uses: actions/download-artifact@v4
       with:
@@ -28,19 +23,19 @@ runs:
         # Each artifact gets its own subdirectory (not merged) to preserve arch-specific results
 
     - name: List downloaded artifacts
-      uses: .github/actions/utils/list-artifacts
+      uses: ./.github/actions/utils/list-artifacts
       with:
         artifacts-path: ${{ inputs.artifacts-path }}
 
     - name: Generate performance report
       id: generate_report
-      uses: .github/actions/systemtests/perf-report
+      uses: ./.github/actions/systemtests/perf-report
       with:
         performance-dir: ${{ inputs.artifacts-path }}
 
     - name: Add performance report comment
       if: ${{ steps.generate_report.outputs.has-results == 'true' }}
-      uses: .github/actions/utils/add-comment
+      uses: ./.github/actions/utils/add-comment
       with:
         commentMessage: |
           ## Performance Test Results
@@ -49,12 +44,12 @@ runs:
 
     - name: Add performance report to job summary
       if: ${{ steps.generate_report.outputs.has-results == 'true' }}
-      uses: .github/actions/utils/add-to-summary
+      uses: ./.github/actions/utils/add-to-summary
       with:
         content: ${{ steps.generate_report.outputs.summary }}
 
     - name: No results warning
       if: ${{ steps.generate_report.outputs.has-results == 'false' }}
-      uses: .github/actions/utils/create-warning
+      uses: ./.github/actions/utils/create-warning
       with:
         message: "No performance results found in artifacts"
