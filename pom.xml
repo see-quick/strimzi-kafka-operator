@@ -110,7 +110,7 @@
         <opentest4j.version>1.2.0</opentest4j.version>
         <jupiter.version>6.0.0</jupiter.version>
         <strimzi-test-container.version>0.114.0-RC1</strimzi-test-container.version>
-        <mockserver.version>5.13.2</mockserver.version>
+        <wiremock.version>3.10.0</wiremock.version>
         <valid4j.version>1.1</valid4j.version>
         <javax.json.version>1.1.4</javax.json.version>
         <bouncycastle.version>1.78.1</bouncycastle.version>
@@ -389,6 +389,13 @@
                 <groupId>org.apache.kafka</groupId>
                 <artifactId>connect-runtime</artifactId>
                 <version>${kafka.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <!-- Exclude old version; testcontainers 2.x provides 3.18.x -->
+                        <groupId>org.apache.commons</groupId>
+                        <artifactId>commons-lang3</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
             <dependency>
                 <groupId>org.apache.kafka</groupId>
@@ -605,26 +612,6 @@
                 <groupId>org.quartz-scheduler</groupId>
                 <artifactId>quartz</artifactId>
                 <version>${quartz.version}</version>
-            </dependency>
-            <dependency>
-                <!-- transitive dep; override here to avoid buggy version -->
-                <groupId>commons-codec</groupId>
-                <artifactId>commons-codec</artifactId>
-                <version>${commons-codec.version}</version>
-            </dependency>
-            <dependency>
-                <!-- transitive dep; override here to avoid version conflict between
-                testcontainers and mockserver uses 3.12.x whereas for testcontainers need 3.18.x -->
-                <groupId>org.apache.commons</groupId>
-                <artifactId>commons-lang3</artifactId>
-                <version>${commons-lang3.version}</version>
-            </dependency>
-            <dependency>
-                <!-- transitive dep; required by testcontainers 2.x to avoid
-                 java.lang.NoClassDefFoundError: org/apache/commons/io/file/attribute/FileTime -->
-                <groupId>commons-io</groupId>
-                <artifactId>commons-io</artifactId>
-                <version>${commons-io.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.opentelemetry</groupId>
