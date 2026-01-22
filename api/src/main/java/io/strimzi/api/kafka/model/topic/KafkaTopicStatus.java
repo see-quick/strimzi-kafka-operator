@@ -21,12 +21,13 @@ import lombok.ToString;
         builderPackage = Constants.FABRIC8_KUBERNETES_API
 )
 @JsonInclude(JsonInclude.Include.NON_NULL)
-@JsonPropertyOrder({ "conditions", "observedGeneration", "topicName", "topicId", "replicasChange" })
+@JsonPropertyOrder({ "conditions", "observedGeneration", "topicName", "topicId", "clusterId", "replicasChange" })
 @EqualsAndHashCode(callSuper = true)
 @ToString(callSuper = true)
 public class KafkaTopicStatus extends Status {
     private String topicName;
     private String topicId;
+    private String clusterId;
     private ReplicasChangeStatus replicasChange;
 
     @Description("Topic name")
@@ -46,6 +47,15 @@ public class KafkaTopicStatus extends Status {
 
     public void setTopicId(String topicId) {
         this.topicId = topicId;
+    }
+
+    @Description("Kafka cluster Id")
+    public String getClusterId() {
+        return clusterId;
+    }
+
+    public void setClusterId(String clusterId) {
+        this.clusterId = clusterId;
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

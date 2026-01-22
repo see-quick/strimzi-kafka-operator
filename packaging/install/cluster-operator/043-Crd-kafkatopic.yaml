@@ -107,6 +107,9 @@ spec:
               topicId:
                 type: string
                 description: "The topic's id. For a KafkaTopic with the ready condition, this will change only if the topic gets deleted and recreated with the same name."
+              clusterId:
+                type: string
+                description: Kafka cluster Id.
               replicasChange:
                 type: object
                 properties:
@@ -218,6 +221,9 @@ spec:
               topicId:
                 type: string
                 description: "The topic's id. For a KafkaTopic with the ready condition, this will change only if the topic gets deleted and recreated with the same name."
+              clusterId:
+                type: string
+                description: Kafka cluster Id.
               replicasChange:
                 type: object
                 properties:
@@ -327,6 +333,9 @@ spec:
               topicId:
                 type: string
                 description: "The topic's id. For a KafkaTopic with the ready condition, this will change only if the topic gets deleted and recreated with the same name."
+              clusterId:
+                type: string
+                description: Kafka cluster Id.
               replicasChange:
                 type: object
                 properties:
@@ -436,6 +445,9 @@ spec:
               topicId:
                 type: string
                 description: "The topic's id. For a KafkaTopic with the ready condition, this will change only if the topic gets deleted and recreated with the same name."
+              clusterId:
+                type: string
+                description: Kafka cluster Id.
               replicasChange:
                 type: object
                 properties:

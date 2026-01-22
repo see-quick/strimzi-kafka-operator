@@ -70,6 +70,7 @@ public class BatchingTopicController {
     /* test */ final Map<String, List<KubeRef>> topicRefs; // key: topic name, value: the KafkaTopics known to manage that topic
     private final Map<String, String> topicIds; // topic id cache updated on every reconciliation
     private final Set<String> alterableConfigs;
+    private final String clusterId;
     
     BatchingTopicController(TopicOperatorConfig config,
                             Map<String, String> selector,
@@ -97,6 +98,15 @@ public class BatchingTopicController {
         this.cruiseControlHandler = cruiseControlHandler;
         this.topicRefs = new HashMap<>();
         this.topicIds = new HashMap<>();
+
+        var fetchedClusterId = kafkaHandler.getClusterId();
+        if (fetchedClusterId.isPresent()) {
+            this.clusterId = fetchedClusterId.get();
+            LOGGER.infoOp("Topic Operator connected to Kafka cluster with ID: {}", this.clusterId);
+        } else {
+            this.clusterId = null;
+            LOGGER.warnOp("Unable to retrieve Kafka cluster ID. Cluster ID protection will be disabled");
+        }
 
         if (config.alterableTopicConfig() == null
                 || config.alterableTopicConfig().equalsIgnoreCase("ALL")
@@ -134,15 +144,28 @@ public class BatchingTopicController {
         metricsHolder.reconciliationsCounter(config.namespace()).increment(reconcilableTopics.size());
         var managedToDelete = reconcilableTopics.stream().filter(reconcilableTopic -> {
             if (TopicOperatorUtil.isManaged(reconcilableTopic.kt())) {
-                var e = validate(reconcilableTopic);
-                if (e.isRightEqual(true)) {
-                    // adminDelete, removeFinalizer, forgetTopic, updateStatus
+                // First validate general topic properties
+                var validationResult = validate(reconcilableTopic);
+                if (validationResult.isRightEqual(false)) {
+                    // do nothing
+                    return false;
+                } else if (!validationResult.isRight()) {
+                    // Left means error
+                    updateStatusForException(reconcilableTopic, validationResult.left());
+                    return false;
+                }
+                // validationResult.isRightEqual(true) - validation passed, continue
+
+                // Then validate deletion safety using the hybrid approach (topicId + clusterId fallback)
+                var deletionSafetyResult = validateDeletionSafety(reconcilableTopic);
+                if (deletionSafetyResult.isRightEqual(true)) {
+                    // Safe to delete
                     return true;
-                } else if (e.isRightEqual(false)) {
+                } else if (deletionSafetyResult.isRightEqual(false)) {
                     // do nothing
                     return false;
                 } else {
-                    updateStatusForException(reconcilableTopic, e.left());
+                    updateStatusForException(reconcilableTopic, deletionSafetyResult.left());
                     return false;
                 }
             } else {
@@ -154,11 +177,124 @@ public class BatchingTopicController {
         deleteManagedTopics(reconcilableTopics, onDeletePath, managedToDelete);
     }
 
+    /**
+     * Validates that it is safe to delete a topic using the hybrid approach:
+     * <ol>
+     *     <li>If status.topicId exists (normal topic): Compare with Kafka's actual topicId</li>
+     *     <li>If status.topicId is null (paused or never-reconciled): Fall back to clusterId check</li>
+     * </ol>
+     * This eliminates race conditions that existed with the claim-on-delete approach.
+     *
+     * @param reconcilableTopic The topic to validate for deletion.
+     * @return Either an error if deletion should be blocked, or true if deletion is safe.
+     */
+    private Either<TopicOperatorException, Boolean> validateDeletionSafety(ReconcilableTopic reconcilableTopic) {
+        if (clusterId == null) {
+            // Cluster ID protection is disabled
+            return Either.ofRight(true);
+        }
+
+        var kt = reconcilableTopic.kt();
+        var statusTopicId = kt.getStatus() != null ? kt.getStatus().getTopicId() : null;
+        var statusClusterId = kt.getStatus() != null ? kt.getStatus().getClusterId() : null;
+
+        if (statusTopicId != null) {
+            // Normal topic: compare topicId with Kafka's actual topicId
+            var kafkaTopicId = kafkaHandler.getTopicId(reconcilableTopic.topicName());
+
+            if (kafkaTopicId.isEmpty()) {
+                // Topic doesn't exist in Kafka - safe to proceed with deletion (cleanup)
+                LOGGER.debugCr(reconcilableTopic.reconciliation(),
+                    "Topic '{}' does not exist in Kafka, proceeding with deletion", reconcilableTopic.topicName());
+                return Either.ofRight(true);
+            }
+
+            if (statusTopicId.equals(kafkaTopicId.get())) {
+                // TopicIds match - safe to delete
+                LOGGER.debugCr(reconcilableTopic.reconciliation(),
+                    "TopicId '{}' matches Kafka, proceeding with deletion", statusTopicId);
+                return Either.ofRight(true);
+            } else {
+                // TopicId mismatch - this is a different topic (possibly on a different cluster)
+                LOGGER.warnCr(reconcilableTopic.reconciliation(),
+                    "TopicId mismatch: status.topicId='{}' but Kafka has topicId='{}'. " +
+                    "This topic belongs to a different Kafka cluster and will not be deleted.",
+                    statusTopicId, kafkaTopicId.get());
+                return Either.ofLeft(new TopicOperatorException.TopicIdMismatch(
+                    String.format("Topic in Kafka has different ID '%s' than expected '%s'. " +
+                        "This indicates the topic belongs to a different cluster.", kafkaTopicId.get(), statusTopicId)));
+            }
+        } else {
+            // Paused or never-reconciled topic: fall back to clusterId check
+            if (statusClusterId == null) {
+                // Never reconciled - block deletion until topic is properly reconciled
+                LOGGER.warnCr(reconcilableTopic.reconciliation(),
+                    "Cannot delete topic '{}' - it has never been successfully reconciled. " +
+                    "The topic must complete at least one reconciliation before it can be deleted.",
+                    reconcilableTopic.topicName());
+                return Either.ofLeft(new TopicOperatorException.NotReadyForDeletion(
+                    "KafkaTopic has never been successfully reconciled. " +
+                    "It must complete at least one reconciliation to establish ownership before deletion."));
+            }
+
+            if (clusterId.equals(statusClusterId)) {
+                // ClusterIds match - safe to delete (paused topic)
+                LOGGER.debugCr(reconcilableTopic.reconciliation(),
+                    "Paused topic with matching clusterId '{}', proceeding with deletion", statusClusterId);
+                return Either.ofRight(true);
+            } else {
+                // ClusterId mismatch - belongs to different cluster
+                LOGGER.warnCr(reconcilableTopic.reconciliation(),
+                    "ClusterId mismatch for paused topic: status.clusterId='{}' but operator clusterId='{}'. " +
+                    "This topic is managed by a different Kafka cluster and will not be deleted.",
+                    statusClusterId, clusterId);
+                return Either.ofLeft(new TopicOperatorException.ClusterMismatch(
+                    String.format("KafkaTopic is owned by cluster '%s', not this cluster '%s'", statusClusterId, clusterId)));
+            }
+        }
+    }
+
     private Either<TopicOperatorException, Boolean> validate(ReconcilableTopic reconcilableTopic) {
         var doReconcile = Either.<TopicOperatorException, Boolean>ofRight(true);
+        doReconcile = doReconcile.flatMapRight((Boolean x) -> x ? validateClusterId(reconcilableTopic) : Either.ofRight(false));
         doReconcile = doReconcile.flatMapRight((Boolean x) -> x ? validateUnchangedTopicName(reconcilableTopic) : Either.ofRight(false));
         doReconcile = doReconcile.mapRight((Boolean x) -> x && rememberReconcilableTopic(reconcilableTopic));
         return doReconcile;
+    }
+
+    /**
+     * Validates that the topic's cluster ID (if set in status) matches this operator's cluster ID.
+     * This prevents one Topic Operator from managing topics meant for another Kafka cluster.
+     *
+     * @param reconcilableTopic The topic to validate.
+     * @return Either an error if cluster ID mismatch, or true if validation passes.
+     */
+    private Either<TopicOperatorException, Boolean> validateClusterId(ReconcilableTopic reconcilableTopic) {
+        if (clusterId == null) {
+            // Cluster ID protection is disabled (couldn't fetch cluster ID)
+            return Either.ofRight(true);
+        }
+
+        var kt = reconcilableTopic.kt();
+        var statusClusterId = kt.getStatus() != null ? kt.getStatus().getClusterId() : null;
+
+        if (statusClusterId == null) {
+            // First time seeing this topic - will be assigned our cluster ID on success
+            return Either.ofRight(true);
+        }
+
+        if (clusterId.equals(statusClusterId)) {
+            // Cluster IDs match - proceed with reconciliation
+            return Either.ofRight(true);
+        }
+
+        // Cluster ID mismatch - this topic belongs to a different cluster
+        LOGGER.warnCr(reconcilableTopic.reconciliation(),
+            "KafkaTopic has status.clusterId '{}' which does not match this operator's cluster ID '{}'. " +
+            "This topic is managed by a different Kafka cluster and will be ignored.",
+            statusClusterId, clusterId);
+        return Either.ofLeft(new TopicOperatorException.ClusterMismatch(
+            String.format("KafkaTopic is owned by cluster '%s', not this cluster '%s'", statusClusterId, clusterId)));
     }
 
     private void deleteUnmanagedTopic(ReconcilableTopic reconcilableTopic) {
@@ -892,6 +1028,10 @@ public class BatchingTopicController {
                     (!TopicOperatorUtil.isManaged(reconcilableTopic.kt()) || TopicOperatorUtil.isPaused(reconcilableTopic.kt()))
                         ? null : topicIds.get(TopicOperatorUtil.topicName(reconcilableTopic.kt()))
                 )
+                .withClusterId(
+                    !TopicOperatorUtil.isManaged(reconcilableTopic.kt())
+                        ? null : clusterId
+                )
                 .withConditions(conditions)
                 .withReplicasChange(results.getReplicasChange(reconcilableTopic))
                 .build());
@@ -931,6 +1071,11 @@ public class BatchingTopicController {
                 .withTopicId(
                     (!TopicOperatorUtil.isManaged(reconcilableTopic.kt()) || TopicOperatorUtil.isPaused(reconcilableTopic.kt()))
                         ? null : topicIds.get(TopicOperatorUtil.topicName(reconcilableTopic.kt()))
+                )
+                .withClusterId(
+                    // Preserve the existing clusterId from status on error
+                    reconcilableTopic.kt().getStatus() != null
+                        ? reconcilableTopic.kt().getStatus().getClusterId() : null
                 )
                 .withConditions(conditions)
                 .build());

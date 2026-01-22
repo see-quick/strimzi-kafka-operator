@@ -79,6 +79,30 @@ public class KafkaHandler {
     }
 
     /**
+     * Retrieve the Kafka cluster ID.
+     *
+     * @return The cluster ID, or empty if it could not be retrieved.
+     */
+    public Optional<String> getClusterId() {
+        try {
+            var describeClusterResult = kafkaAdminClient.describeCluster();
+            if (describeClusterResult == null || describeClusterResult.clusterId() == null) {
+                LOGGER.warnOp("Unable to retrieve cluster ID - describeCluster returned null");
+                return Optional.empty();
+            }
+            var clusterId = describeClusterResult.clusterId().get();
+            return Optional.ofNullable(clusterId);
+        } catch (ExecutionException e) {
+            LOGGER.warnOp("Failed to get cluster ID: {}", e.getMessage());
+            return Optional.empty();
+        } catch (InterruptedException e) {
+            LOGGER.warnOp("Interrupted while getting cluster ID: {}", e.getMessage());
+            Thread.currentThread().interrupt();
+            return Optional.empty();
+        }
+    }
+
+    /**
      * Retrieve the specified configuration value for a Kafka cluster.
      * <br/><br/>
      * This method queries the Kafka cluster to obtain the configuration value associated with the given name.
@@ -88,7 +112,7 @@ public class KafkaHandler {
      *
      * @param configName The name of the configuration to retrieve.
      * @return A string containing the value of the requested configuration if found.
-     * @throws RuntimeException if there is an error during the operation. 
+     * @throws RuntimeException if there is an error during the operation.
      * This exception wraps the underlying exception's message.
      */
     public Optional<String> clusterConfig(String configName) {
@@ -367,8 +391,40 @@ public class KafkaHandler {
     }
 
     /**
+     * Get the topic ID for a single topic from Kafka.
+     * Used for deletion safety check to verify the topic in Kafka matches what we expect.
+     *
+     * @param topicName The topic name to describe.
+     * @return Optional containing the topic ID if found, empty if topic doesn't exist or on error.
+     */
+    public Optional<String> getTopicId(String topicName) {
+        try {
+            LOGGER.debugOp("Admin.describeTopics([{}]) for topicId check", topicName);
+            var timerSample = TopicOperatorUtil.startExternalRequestTimer(metricsHolder, config.enableAdditionalMetrics());
+            var describeTopicsResult = kafkaAdminClient.describeTopics(Set.of(topicName));
+            var description = describeTopicsResult.topicNameValues().get(topicName).get();
+            TopicOperatorUtil.stopExternalRequestTimer(timerSample, metricsHolder::describeTopicsTimer, config.enableAdditionalMetrics(), config.namespace());
+            if (description != null && description.topicId() != null) {
+                return Optional.of(description.topicId().toString());
+            }
+            return Optional.empty();
+        } catch (ExecutionException e) {
+            if (e.getCause() instanceof UnknownTopicOrPartitionException) {
+                // Topic doesn't exist in Kafka
+                return Optional.empty();
+            }
+            LOGGER.warnOp("Failed to get topic ID for '{}': {}", topicName, e.getMessage());
+            return Optional.empty();
+        } catch (InterruptedException e) {
+            LOGGER.warnOp("Interrupted while getting topic ID for '{}': {}", topicName, e.getMessage());
+            Thread.currentThread().interrupt();
+            return Optional.empty();
+        }
+    }
+
+    /**
      * Delete topics.
-     * 
+     *
      * @param reconcilableTopics List of topics.
      * @param topicNames Topic names to delete.
      * @return Result partitioned by error.

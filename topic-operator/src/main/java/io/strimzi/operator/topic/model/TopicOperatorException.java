@@ -19,8 +19,14 @@ public abstract class TopicOperatorException extends Exception {
         /** Kafka error wrapper. */
         KAFKA_ERROR("KafkaError"),
         /** Internal server error. */
-        INTERNAL_ERROR("InternalError");
-        
+        INTERNAL_ERROR("InternalError"),
+        /** Cluster ID mismatch (i.e., topic is owned by a different cluster). */
+        CLUSTER_MISMATCH("ClusterMismatch"),
+        /** Topic ID mismatch (i.e., topic in Kafka has a different ID than expected). */
+        TOPIC_ID_MISMATCH("TopicIdMismatch"),
+        /** Topic is not ready for deletion (i.e., has never been successfully reconciled). */
+        NOT_READY_FOR_DELETION("NotReadyForDeletion");
+
         /** Reason as a string. */
         public final String value;
         
@@ -117,6 +123,49 @@ public abstract class TopicOperatorException extends Exception {
          */
         public NotSupported(String message) {
             super(Reason.NOT_SUPPORTED, message);
+        }
+    }
+
+    /**
+     * Cluster ID mismatch - the topic is owned by a different Kafka cluster.
+     */
+    public static class ClusterMismatch extends TopicOperatorException {
+        /**
+         * Constructs a new ClusterMismatch exception.
+         *
+         * @param message The error message.
+         */
+        public ClusterMismatch(String message) {
+            super(Reason.CLUSTER_MISMATCH, message);
+        }
+    }
+
+    /**
+     * Topic ID mismatch - the topic in Kafka has a different ID than the one stored in status.
+     * This indicates the topic belongs to a different Kafka cluster.
+     */
+    public static class TopicIdMismatch extends TopicOperatorException {
+        /**
+         * Constructs a new TopicIdMismatch exception.
+         *
+         * @param message The error message.
+         */
+        public TopicIdMismatch(String message) {
+            super(Reason.TOPIC_ID_MISMATCH, message);
+        }
+    }
+
+    /**
+     * Topic is not ready for deletion - it has never been successfully reconciled.
+     */
+    public static class NotReadyForDeletion extends TopicOperatorException {
+        /**
+         * Constructs a new NotReadyForDeletion exception.
+         *
+         * @param message The error message.
+         */
+        public NotReadyForDeletion(String message) {
+            super(Reason.NOT_READY_FOR_DELETION, message);
         }
     }
 }
