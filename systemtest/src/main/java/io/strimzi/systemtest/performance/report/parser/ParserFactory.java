@@ -29,6 +29,7 @@ public class ParserFactory {
         return switch (type) {
             case TOPIC_OPERATOR -> new TopicOperatorMetricsParser();
             case USER_OPERATOR -> new UserOperatorMetricsParser();
+            case CLUSTER_OPERATOR -> throw new UnsupportedOperationException("Cluster Operator parser not yet implemented - use raw YAML output");
         };
     }
 }
