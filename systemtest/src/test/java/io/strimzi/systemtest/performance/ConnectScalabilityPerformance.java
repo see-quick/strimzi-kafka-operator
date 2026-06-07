@@ -10,6 +10,10 @@ import io.skodjob.annotations.Step;
 import io.skodjob.annotations.SuiteDoc;
 import io.skodjob.annotations.TestDoc;
 import io.skodjob.kubetest4j.resources.KubeResourceManager;
+import io.strimzi.api.kafka.model.connect.build.JarArtifactBuilder;
+import io.strimzi.api.kafka.model.connect.build.Plugin;
+import io.strimzi.api.kafka.model.connect.build.PluginBuilder;
+import io.strimzi.operator.common.Annotations;
 import io.strimzi.systemtest.AbstractST;
 import io.strimzi.systemtest.Environment;
 import io.strimzi.systemtest.TestConstants;
@@ -19,6 +23,7 @@ import io.strimzi.systemtest.metrics.ClusterOperatorMetricsComponent;
 import io.strimzi.systemtest.performance.gather.collectors.ClusterOperatorMetricsCollector;
 import io.strimzi.systemtest.performance.gather.schedulers.ClusterOperatorMetricsCollectionScheduler;
 import io.strimzi.systemtest.performance.report.ClusterOperatorPerformanceReporter;
+import io.strimzi.systemtest.performance.report.parser.BasePerformanceMetricsParser;
 import io.strimzi.systemtest.resources.CrdClients;
 import io.strimzi.systemtest.resources.ResourceConditions;
 import io.strimzi.systemtest.resources.operator.SetupClusterOperator;
@@ -31,6 +36,7 @@ import io.strimzi.systemtest.templates.specific.ScraperTemplates;
 import io.strimzi.systemtest.utils.kubeUtils.objects.NetworkPolicyUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 
@@ -38,6 +44,7 @@ import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 
 import static io.strimzi.systemtest.TestTags.PERFORMANCE;
 import static io.strimzi.systemtest.TestTags.SCALABILITY;
@@ -64,7 +71,7 @@ public class ConnectScalabilityPerformance extends AbstractST {
     @TestDoc(
         description = @Desc("Measures how long it takes to deploy and reconcile increasing numbers of KafkaConnector CRs (10, 25, 50)."),
         steps = {
-            @Step(value = "Deploy Kafka cluster and KafkaConnect with file sink plugin.", expected = "Kafka and KafkaConnect clusters are deployed and ready."),
+            @Step(value = "Deploy Kafka cluster and KafkaConnect with echo-sink plugin.", expected = "Kafka and KafkaConnect clusters are deployed and ready."),
             @Step(value = "Start Cluster Operator metrics collection.", expected = "Metrics collection is running."),
             @Step(value = "For each connector count (10, 25, 50): create N KafkaConnector CRs and measure time until all reach Ready state.", expected = "All connectors are Ready. Time recorded for each batch."),
             @Step(value = "Clean up connectors between iterations.", expected = "All connectors deleted."),
@@ -96,12 +103,34 @@ public class ConnectScalabilityPerformance extends AbstractST {
         testStorage.addToTestStorage(TestConstants.SCRAPER_POD_KEY,
             KubeResourceManager.get().kubeClient().listPodsByPrefixInName(testStorage.getNamespaceName(), testStorage.getScraperName()).get(0).getMetadata().getName());
 
-        // Deploy KafkaConnect with the file sink plugin and annotations for connectors
+        // Deploy KafkaConnect with echo-sink plugin build
+        final Plugin echoSinkPlugin = new PluginBuilder()
+            .withName(TestConstants.ECHO_SINK_CONNECTOR_NAME)
+            .withArtifacts(
+                new JarArtifactBuilder()
+                    .withUrl(TestConstants.ECHO_SINK_JAR_URL)
+                    .withSha512sum(TestConstants.ECHO_SINK_JAR_CHECKSUM)
+                    .build())
+            .build();
+
+        final String imageFullPath = Environment.getImageOutputRegistry(testStorage.getNamespaceName(),
+            TestConstants.ST_CONNECT_BUILD_IMAGE_NAME, String.valueOf(new Random().nextInt(Integer.MAX_VALUE)));
+
         KubeResourceManager.get().createResourceWithWait(
-            KafkaConnectTemplates.kafkaConnectWithFilePlugin(testStorage.getNamespaceName(), testStorage.getClusterName(), testStorage.getClusterName(), 1)
+            KafkaConnectTemplates.kafkaConnect(testStorage.getNamespaceName(), testStorage.getClusterName(), testStorage.getClusterName(), 1)
                 .editMetadata()
-                    .addToAnnotations("strimzi.io/use-connector-resources", "true")
+                    .addToAnnotations(Annotations.STRIMZI_IO_USE_CONNECTOR_RESOURCES, "true")
                 .endMetadata()
+                .editOrNewSpec()
+                    .addToConfig("key.converter.schemas.enable", false)
+                    .addToConfig("value.converter.schemas.enable", false)
+                    .addToConfig("key.converter", "org.apache.kafka.connect.storage.StringConverter")
+                    .addToConfig("value.converter", "org.apache.kafka.connect.storage.StringConverter")
+                    .withNewBuild()
+                        .withPlugins(echoSinkPlugin)
+                        .withOutput(KafkaConnectTemplates.dockerOutput(imageFullPath))
+                    .endBuild()
+                .endSpec()
                 .build()
         );
 
@@ -126,8 +155,9 @@ public class ConnectScalabilityPerformance extends AbstractST {
                     KubeResourceManager.get().createResourceWithoutWait(
                         KafkaConnectorTemplates.kafkaConnector(testStorage.getNamespaceName(), connectorName, testStorage.getClusterName(), 1)
                             .editSpec()
-                                .addToConfig("file", "/opt/kafka/LICENSE")
-                                .addToConfig("topic", "perf-topic-" + i)
+                                .withClassName(TestConstants.ECHO_SINK_CLASS_NAME)
+                                .addToConfig("topics", "perf-topic-" + i)
+                                .addToConfig("level", "INFO")
                             .endSpec()
                             .build()
                     );
@@ -172,6 +202,11 @@ public class ConnectScalabilityPerformance extends AbstractST {
         });
 
         metricsScheduler.stopCollecting();
+    }
+
+    @AfterAll
+    void tearDown() {
+        BasePerformanceMetricsParser.main(new String[]{PerformanceConstants.CLUSTER_OPERATOR_PARSER});
     }
 
     @BeforeAll

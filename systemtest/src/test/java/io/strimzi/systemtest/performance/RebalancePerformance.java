@@ -20,6 +20,7 @@ import io.strimzi.systemtest.metrics.ClusterOperatorMetricsComponent;
 import io.strimzi.systemtest.performance.gather.collectors.ClusterOperatorMetricsCollector;
 import io.strimzi.systemtest.performance.gather.schedulers.ClusterOperatorMetricsCollectionScheduler;
 import io.strimzi.systemtest.performance.report.ClusterOperatorPerformanceReporter;
+import io.strimzi.systemtest.performance.report.parser.BasePerformanceMetricsParser;
 import io.strimzi.systemtest.resources.operator.SetupClusterOperator;
 import io.strimzi.systemtest.storage.TestStorage;
 import io.strimzi.systemtest.templates.crd.KafkaNodePoolTemplates;
@@ -31,6 +32,7 @@ import io.strimzi.systemtest.utils.kafkaUtils.KafkaRebalanceUtils;
 import io.strimzi.systemtest.utils.kubeUtils.objects.NetworkPolicyUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 
@@ -162,6 +164,11 @@ public class RebalancePerformance extends AbstractST {
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    @AfterAll
+    void tearDown() {
+        BasePerformanceMetricsParser.main(new String[]{PerformanceConstants.CLUSTER_OPERATOR_PARSER});
     }
 
     @BeforeAll
