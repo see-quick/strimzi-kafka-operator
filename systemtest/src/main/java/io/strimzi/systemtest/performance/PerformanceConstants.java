@@ -115,6 +115,48 @@ public interface PerformanceConstants {
     String USER_OPERATOR_OUT_DELETION_TIME = "OUT: Deletion Time (ms)";
     String USER_OPERATOR_OUT_SUCCESSFUL_KAFKA_USERS_CREATED = "OUT: Successful KafkaUsers Created";
 
+    // --------------------------------------------------------------------------------
+    // ----------------------------- CLUSTER OPERATOR ---------------------------------
+    // --------------------------------------------------------------------------------
+    // Rolling Update
+    String CLUSTER_OPERATOR_IN_BROKER_COUNT = "IN: BROKER COUNT";
+    String CLUSTER_OPERATOR_IN_CONTROLLER_COUNT = "IN: CONTROLLER COUNT";
+    String CLUSTER_OPERATOR_OUT_BROKER_ROLLING_UPDATE_TIME = "OUT: Broker Rolling Update Time (ms)";
+    String CLUSTER_OPERATOR_OUT_CONTROLLER_ROLLING_UPDATE_TIME = "OUT: Controller Rolling Update Time (ms)";
+    String CLUSTER_OPERATOR_OUT_TOTAL_ROLLING_UPDATE_TIME = "OUT: Total Rolling Update Time (ms)";
+
+    // Node Pool Scaling
+    String CLUSTER_OPERATOR_IN_INITIAL_BROKER_COUNT = "IN: INITIAL BROKER COUNT";
+    String CLUSTER_OPERATOR_IN_SCALED_BROKER_COUNT = "IN: SCALED BROKER COUNT";
+    String CLUSTER_OPERATOR_OUT_SCALE_UP_TIME = "OUT: Scale Up Time (ms)";
+    String CLUSTER_OPERATOR_OUT_SCALE_DOWN_TIME = "OUT: Scale Down Time (ms)";
+
+    // CA Certificate Renewal
+    String CLUSTER_OPERATOR_IN_CA_TYPE = "IN: CA TYPE";
+    String CLUSTER_OPERATOR_OUT_CA_RENEWAL_TIME = "OUT: CA Renewal Time (ms)";
+    String CLUSTER_OPERATOR_OUT_CA_CERT_CHANGED = "OUT: CA Certificate Changed";
+
+    // KafkaRebalance
+    String CLUSTER_OPERATOR_IN_TOPIC_COUNT = "IN: TOPIC COUNT";
+    String CLUSTER_OPERATOR_OUT_PROPOSAL_READY_TIME = "OUT: Proposal Ready Time (ms)";
+    String CLUSTER_OPERATOR_OUT_REBALANCE_EXECUTION_TIME = "OUT: Rebalance Execution Time (ms)";
+    String CLUSTER_OPERATOR_OUT_TOTAL_REBALANCE_TIME = "OUT: Total Rebalance Time (ms)";
+
+    // KafkaConnect Scalability
+    String CLUSTER_OPERATOR_IN_CONNECTOR_COUNT = "IN: CONNECTOR COUNT";
+    String CLUSTER_OPERATOR_OUT_CONNECT_RECONCILIATION_TIME = "OUT: Connect Reconciliation Time (ms)";
+    String CLUSTER_OPERATOR_OUT_ALL_CONNECTORS_READY_TIME = "OUT: All Connectors Ready Time (ms)";
+
+    // Use cases
+    String CLUSTER_OPERATOR_ROLLING_UPDATE_USE_CASE = "rollingUpdateUseCase";
+    String CLUSTER_OPERATOR_NODE_POOL_SCALING_USE_CASE = "nodePoolScalingUseCase";
+    String CLUSTER_OPERATOR_CA_RENEWAL_USE_CASE = "caRenewalUseCase";
+    String CLUSTER_OPERATOR_REBALANCE_USE_CASE = "rebalanceUseCase";
+    String CLUSTER_OPERATOR_CONNECT_SCALABILITY_USE_CASE = "connectScalabilityUseCase";
+
+    // Parser
+    String CLUSTER_OPERATOR_PARSER = "cluster-operator";
+
     String METRICS_HISTORY = "Metrics History";
 
     String KAFKA_IN_CONFIGURATION = "IN: Kafka Configuration";
