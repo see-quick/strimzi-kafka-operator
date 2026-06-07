@@ -27,6 +27,7 @@ import io.strimzi.systemtest.templates.crd.KafkaTemplates;
 import io.strimzi.systemtest.templates.specific.ScraperTemplates;
 import io.strimzi.systemtest.utils.RollingUpdateUtils;
 import io.strimzi.systemtest.utils.kubeUtils.controllers.StrimziPodSetUtils;
+import io.strimzi.systemtest.utils.kubeUtils.objects.NetworkPolicyUtils;
 import io.strimzi.systemtest.utils.kubeUtils.objects.PodUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -56,6 +57,7 @@ public class RollingUpdatePerformance extends AbstractST {
     private static final String REPORT_DIRECTORY = "cluster-operator";
 
     private final ClusterOperatorPerformanceReporter reporter = new ClusterOperatorPerformanceReporter();
+    private String coScraperPodName;
 
     @TestDoc(
         description = @Desc("Measures the wall-clock time for a manual rolling update of brokers and controllers in a 3-broker, 3-controller Kafka cluster."),
@@ -93,7 +95,7 @@ public class RollingUpdatePerformance extends AbstractST {
             KubeResourceManager.get().kubeClient().listPodsByPrefixInName(testStorage.getNamespaceName(), testStorage.getScraperName()).get(0).getMetadata().getName());
 
         final ClusterOperatorMetricsCollector coCollector = new ClusterOperatorMetricsCollector.Builder()
-            .withScraperPodName(testStorage.getScraperPodName())
+            .withScraperPodName(coScraperPodName)
             .withNamespaceName(TestConstants.CO_NAMESPACE)
             .withComponent(ClusterOperatorMetricsComponent.create(TestConstants.CO_NAMESPACE, SetupClusterOperator.getInstance().getOperatorDeploymentName()))
             .build();
@@ -147,5 +149,15 @@ public class RollingUpdatePerformance extends AbstractST {
         SetupClusterOperator
             .getInstance()
             .install();
+
+        NetworkPolicyUtils.allowNetworkPolicySettingsForClusterOperator(TestConstants.CO_NAMESPACE);
+
+        KubeResourceManager.get().createResourceWithWait(
+            ScraperTemplates.scraperPod(TestConstants.CO_NAMESPACE, "co-perf-scraper").build()
+        );
+
+        coScraperPodName = KubeResourceManager.get().kubeClient()
+            .listPodsByPrefixInName(TestConstants.CO_NAMESPACE, "co-perf-scraper")
+            .get(0).getMetadata().getName();
     }
 }

@@ -27,6 +27,7 @@ import io.strimzi.systemtest.templates.crd.KafkaNodePoolTemplates;
 import io.strimzi.systemtest.templates.crd.KafkaTemplates;
 import io.strimzi.systemtest.templates.specific.ScraperTemplates;
 import io.strimzi.systemtest.utils.RollingUpdateUtils;
+import io.strimzi.systemtest.utils.kubeUtils.objects.NetworkPolicyUtils;
 import io.strimzi.systemtest.utils.kubeUtils.objects.PodUtils;
 import io.strimzi.systemtest.utils.kubeUtils.objects.SecretUtils;
 import org.apache.logging.log4j.LogManager;
@@ -56,6 +57,7 @@ public class CaRenewalPerformance extends AbstractST {
     private static final String REPORT_DIRECTORY = "cluster-operator";
 
     private final ClusterOperatorPerformanceReporter reporter = new ClusterOperatorPerformanceReporter();
+    private String coScraperPodName;
 
     @TestDoc(
         description = @Desc("Measures end-to-end time from force-renew annotation on Cluster CA to all broker and controller pods being restarted with the new certificate."),
@@ -93,7 +95,7 @@ public class CaRenewalPerformance extends AbstractST {
             KubeResourceManager.get().kubeClient().listPodsByPrefixInName(testStorage.getNamespaceName(), testStorage.getScraperName()).get(0).getMetadata().getName());
 
         final ClusterOperatorMetricsCollector coCollector = new ClusterOperatorMetricsCollector.Builder()
-            .withScraperPodName(testStorage.getScraperPodName())
+            .withScraperPodName(coScraperPodName)
             .withNamespaceName(TestConstants.CO_NAMESPACE)
             .withComponent(ClusterOperatorMetricsComponent.create(TestConstants.CO_NAMESPACE, SetupClusterOperator.getInstance().getOperatorDeploymentName()))
             .build();
@@ -162,5 +164,15 @@ public class CaRenewalPerformance extends AbstractST {
         SetupClusterOperator
             .getInstance()
             .install();
+
+        NetworkPolicyUtils.allowNetworkPolicySettingsForClusterOperator(TestConstants.CO_NAMESPACE);
+
+        KubeResourceManager.get().createResourceWithWait(
+            ScraperTemplates.scraperPod(TestConstants.CO_NAMESPACE, "co-perf-scraper").build()
+        );
+
+        coScraperPodName = KubeResourceManager.get().kubeClient()
+            .listPodsByPrefixInName(TestConstants.CO_NAMESPACE, "co-perf-scraper")
+            .get(0).getMetadata().getName();
     }
 }

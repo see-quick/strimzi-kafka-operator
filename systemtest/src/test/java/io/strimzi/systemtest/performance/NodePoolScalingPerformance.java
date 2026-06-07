@@ -26,6 +26,7 @@ import io.strimzi.systemtest.templates.crd.KafkaTemplates;
 import io.strimzi.systemtest.templates.specific.ScraperTemplates;
 import io.strimzi.systemtest.utils.RollingUpdateUtils;
 import io.strimzi.systemtest.utils.kafkaUtils.KafkaNodePoolUtils;
+import io.strimzi.systemtest.utils.kubeUtils.objects.NetworkPolicyUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.BeforeAll;
@@ -55,6 +56,7 @@ public class NodePoolScalingPerformance extends AbstractST {
     private static final String REPORT_DIRECTORY = "cluster-operator";
 
     private final ClusterOperatorPerformanceReporter reporter = new ClusterOperatorPerformanceReporter();
+    private String coScraperPodName;
 
     @TestDoc(
         description = @Desc("Measures the wall-clock time to scale a broker node pool from 3 to 5 and back to 3 replicas."),
@@ -92,7 +94,7 @@ public class NodePoolScalingPerformance extends AbstractST {
             KubeResourceManager.get().kubeClient().listPodsByPrefixInName(testStorage.getNamespaceName(), testStorage.getScraperName()).get(0).getMetadata().getName());
 
         final ClusterOperatorMetricsCollector coCollector = new ClusterOperatorMetricsCollector.Builder()
-            .withScraperPodName(testStorage.getScraperPodName())
+            .withScraperPodName(coScraperPodName)
             .withNamespaceName(TestConstants.CO_NAMESPACE)
             .withComponent(ClusterOperatorMetricsComponent.create(TestConstants.CO_NAMESPACE, SetupClusterOperator.getInstance().getOperatorDeploymentName()))
             .build();
@@ -143,5 +145,15 @@ public class NodePoolScalingPerformance extends AbstractST {
         SetupClusterOperator
             .getInstance()
             .install();
+
+        NetworkPolicyUtils.allowNetworkPolicySettingsForClusterOperator(TestConstants.CO_NAMESPACE);
+
+        KubeResourceManager.get().createResourceWithWait(
+            ScraperTemplates.scraperPod(TestConstants.CO_NAMESPACE, "co-perf-scraper").build()
+        );
+
+        coScraperPodName = KubeResourceManager.get().kubeClient()
+            .listPodsByPrefixInName(TestConstants.CO_NAMESPACE, "co-perf-scraper")
+            .get(0).getMetadata().getName();
     }
 }

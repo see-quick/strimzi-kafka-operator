@@ -28,6 +28,7 @@ import io.strimzi.systemtest.templates.crd.KafkaTemplates;
 import io.strimzi.systemtest.templates.crd.KafkaTopicTemplates;
 import io.strimzi.systemtest.templates.specific.ScraperTemplates;
 import io.strimzi.systemtest.utils.kafkaUtils.KafkaRebalanceUtils;
+import io.strimzi.systemtest.utils.kubeUtils.objects.NetworkPolicyUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.BeforeAll;
@@ -55,6 +56,7 @@ public class RebalancePerformance extends AbstractST {
     private static final String REPORT_DIRECTORY = "cluster-operator";
 
     private final ClusterOperatorPerformanceReporter reporter = new ClusterOperatorPerformanceReporter();
+    private String coScraperPodName;
 
     @TestDoc(
         description = @Desc("Measures end-to-end rebalance time: from KafkaRebalance CR creation through ProposalReady to Ready state."),
@@ -110,7 +112,7 @@ public class RebalancePerformance extends AbstractST {
         }
 
         final ClusterOperatorMetricsCollector coCollector = new ClusterOperatorMetricsCollector.Builder()
-            .withScraperPodName(testStorage.getScraperPodName())
+            .withScraperPodName(coScraperPodName)
             .withNamespaceName(TestConstants.CO_NAMESPACE)
             .withComponent(ClusterOperatorMetricsComponent.create(TestConstants.CO_NAMESPACE, SetupClusterOperator.getInstance().getOperatorDeploymentName()))
             .build();
@@ -167,5 +169,15 @@ public class RebalancePerformance extends AbstractST {
         SetupClusterOperator
             .getInstance()
             .install();
+
+        NetworkPolicyUtils.allowNetworkPolicySettingsForClusterOperator(TestConstants.CO_NAMESPACE);
+
+        KubeResourceManager.get().createResourceWithWait(
+            ScraperTemplates.scraperPod(TestConstants.CO_NAMESPACE, "co-perf-scraper").build()
+        );
+
+        coScraperPodName = KubeResourceManager.get().kubeClient()
+            .listPodsByPrefixInName(TestConstants.CO_NAMESPACE, "co-perf-scraper")
+            .get(0).getMetadata().getName();
     }
 }
