@@ -12,7 +12,7 @@ import java.util.regex.Pattern;
 
 public class ClusterOperatorMetricsCollector extends BaseMetricsCollector {
 
-    public ClusterOperatorMetricsCollector(MetricsCollector.Builder builder) {
+    protected ClusterOperatorMetricsCollector(MetricsCollector.Builder builder) {
         super(builder);
     }
 
