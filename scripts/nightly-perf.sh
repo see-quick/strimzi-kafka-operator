@@ -97,6 +97,10 @@ if [[ "${DRY_RUN}" == "false" ]]; then
 
     kubectl cluster-info >>"${LOG_FILE}" 2>&1 || die "No Kubernetes cluster accessible"
 
+    # Set Connect build image path to the Kind registry's IP (accessible from inside the cluster)
+    export CONNECT_BUILD_IMAGE_PATH=$(podman inspect -f '{{.NetworkSettings.Networks.kind.IPAddress}}' kind-registry):5000/strimzi-connect-build
+    log "CONNECT_BUILD_IMAGE_PATH=${CONNECT_BUILD_IMAGE_PATH}"
+
     # ---- Step 2: Build systemtest module and deploy Strimzi ----
     log "Building systemtest module..."
     cd "${PROJECT_DIR}"

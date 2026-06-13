@@ -135,6 +135,16 @@ public class StrimziPodSetUtils {
         replace(namespaceName, resourceName, strimziPodSet -> strimziPodSet.getMetadata().setAnnotations(annotations));
     }
 
+    public static void waitForAnnotationRemoval(String namespaceName, String resourceName, String annotationKey) {
+        LOGGER.info("Waiting for StrimziPodSet: {}/{} annotation {} to be removed by the operator", namespaceName, resourceName, annotationKey);
+        TestUtils.waitFor("StrimziPodSet: " + namespaceName + "/" + resourceName + " annotation " + annotationKey + " to be removed",
+            TestConstants.POLL_INTERVAL_FOR_RESOURCE_READINESS, TestConstants.GLOBAL_TIMEOUT, () -> {
+                Map<String, String> annotations = strimziPodSetClient().inNamespace(namespaceName).withName(resourceName).get().getMetadata().getAnnotations();
+                return annotations == null || !annotations.containsKey(annotationKey);
+            });
+        LOGGER.info("StrimziPodSet: {}/{} annotation {} has been removed", namespaceName, resourceName, annotationKey);
+    }
+
     public static Map<String, String> getAnnotationsOfStrimziPodSet(String namespaceName, String resourceName) {
         return strimziPodSetClient().inNamespace(namespaceName).withName(resourceName).get().getMetadata().getAnnotations();
     }

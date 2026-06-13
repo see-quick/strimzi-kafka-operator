@@ -118,6 +118,12 @@ public class RollingUpdatePerformance extends AbstractST {
         RollingUpdateUtils.waitTillComponentHasRolledAndPodsReady(testStorage.getNamespaceName(), testStorage.getBrokerSelector(), brokerCount, brokerPods);
         long brokerRollTime = System.currentTimeMillis() - brokerRollStart;
 
+        // Wait for operator to remove the manual-rolling-update annotation from broker SPS
+        // before annotating controllers, to avoid a race where the operator removes both annotations
+        // in a single reconciliation cycle without rolling the controllers
+        StrimziPodSetUtils.waitForAnnotationRemoval(testStorage.getNamespaceName(), testStorage.getBrokerComponentName(),
+            ResourceAnnotations.ANNO_STRIMZI_IO_MANUAL_ROLLING_UPDATE);
+
         // --- Roll controllers ---
         long controllerRollStart = System.currentTimeMillis();
         StrimziPodSetUtils.annotateStrimziPodSet(testStorage.getNamespaceName(), testStorage.getControllerComponentName(),
