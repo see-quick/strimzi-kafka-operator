@@ -53,7 +53,7 @@ public abstract class BasePerformanceMetricsParser {
      *
      * @throws IOException          If an I/O error occurs reading from the file.
      */
-    protected abstract void parseMetrics() throws IOException;
+    public abstract void parseMetrics() throws IOException;
 
     /**
      * Abstract method to display parsed metrics. Subclasses should implement this method to
@@ -535,5 +535,9 @@ public abstract class BasePerformanceMetricsParser {
 
     public String getParentPath() {
         return parentPath;
+    }
+
+    public Map<String, List<ExperimentMetrics>> getUseCaseExperiments() {
+        return useCaseExperiments;
     }
 }

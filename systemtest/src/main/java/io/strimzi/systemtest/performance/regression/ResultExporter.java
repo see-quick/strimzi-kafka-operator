@@ -6,11 +6,18 @@ package io.strimzi.systemtest.performance.regression;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import io.strimzi.systemtest.performance.report.parser.BasePerformanceMetricsParser;
+import io.strimzi.systemtest.performance.report.parser.ExperimentMetrics;
+import io.strimzi.systemtest.performance.report.parser.ParserFactory;
+import io.strimzi.systemtest.performance.report.parser.ParserType;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -117,5 +124,100 @@ public class ResultExporter {
         }
         name.append("Performance");
         return name.toString();
+    }
+
+    public static void exportFromParserOutput(Path outputDir, String commitSha) throws IOException {
+        String timestamp = Instant.now().toString();
+        int exported = 0;
+
+        for (ParserType parserType : ParserType.values()) {
+            String component = parserType.getParserName();
+            try {
+                BasePerformanceMetricsParser parser = ParserFactory.createParser(parserType);
+                parser.parseMetrics();
+
+                Map<String, List<ExperimentMetrics>> experiments = parser.getUseCaseExperiments();
+                if (experiments == null || experiments.isEmpty()) {
+                    continue;
+                }
+
+                for (Map.Entry<String, List<ExperimentMetrics>> entry : experiments.entrySet()) {
+                    String useCase = entry.getKey();
+                    List<ExperimentMetrics> experimentList = entry.getValue();
+
+                    for (ExperimentMetrics experiment : experimentList) {
+                        TestResult result = convertMetrics(
+                            experiment.getTestMetrics(),
+                            component,
+                            useCase,
+                            timestamp,
+                            commitSha
+                        );
+
+                        if (!result.getMetrics().isEmpty()) {
+                            writeResult(result, outputDir);
+                            exported++;
+                            System.out.printf("Exported: %s / %s (%d metrics)%n",
+                                component, useCase, result.getMetrics().size());
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                System.err.printf("No data for %s (skipping): %s%n", component, e.getMessage());
+            }
+        }
+
+        System.out.printf("%nTotal exported: %d test results%n", exported);
+    }
+
+    public static void main(String[] args) throws IOException {
+        Path outputDir = null;
+        String commitSha = "unknown";
+        String resultsRepo = null;
+
+        for (int i = 0; i < args.length; i++) {
+            switch (args[i]) {
+                case "--output-dir":
+                    outputDir = Path.of(args[++i]);
+                    break;
+                case "--commit":
+                    commitSha = args[++i];
+                    break;
+                case "--results-repo":
+                    resultsRepo = args[++i];
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        if (resultsRepo != null && outputDir == null) {
+            outputDir = Path.of(resultsRepo, "results", LocalDate.now().toString());
+        }
+
+        if (outputDir == null) {
+            System.err.println("Usage: ResultExporter --results-repo <path> [--output-dir <path>] [--commit <sha>]");
+            System.exit(1);
+        }
+
+        System.out.println("=== Exporting Performance Results ===");
+        System.out.println("Output: " + outputDir);
+        System.out.println("Commit: " + commitSha);
+        System.out.println();
+
+        exportFromParserOutput(outputDir, commitSha);
+
+        if (resultsRepo != null) {
+            System.out.println();
+            System.out.println("=== Running Baseline Comparison ===");
+            PerformanceBaselineComparator comparator = new PerformanceBaselineComparator(
+                Path.of(resultsRepo), 10, 2.0
+            );
+            List<RegressionResult> results = comparator.compareLatest();
+            boolean hasRegression = results.stream().anyMatch(r -> !r.isPassed());
+            if (hasRegression) {
+                System.exit(1);
+            }
+        }
     }
 }
