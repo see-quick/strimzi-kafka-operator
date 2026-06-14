@@ -68,7 +68,20 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# ---- Step 0: Validate prerequisites ----
+# ---- Ensure SSH agent is available for git push ----
+if [[ -z "${SSH_AUTH_SOCK:-}" ]]; then
+    SSH_AUTH_SOCK=$(launchctl getenv SSH_AUTH_SOCK 2>/dev/null || true)
+    export SSH_AUTH_SOCK
+fi
+
+# ---- Step 0: Update worktree to latest perf-fork ----
+log "Updating to latest perf-fork..."
+cd "${PROJECT_DIR}"
+git fetch origin perf-fork
+git checkout --detach origin/perf-fork
+log "Now at: $(git rev-parse --short HEAD)"
+
+# ---- Step 1: Validate prerequisites ----
 log "=== Strimzi Nightly Performance Tests ==="
 log "Project: ${PROJECT_DIR}"
 log "Results repo: ${RESULTS_REPO}"
@@ -88,7 +101,7 @@ COMMIT_SHA=$(cd "${PROJECT_DIR}" && git rev-parse --short HEAD)
 log "Commit: ${COMMIT_SHA}"
 
 if [[ "${DRY_RUN}" == "false" ]]; then
-    # ---- Step 1: Create Kind cluster ----
+    # ---- Step 2: Create Kind cluster ----
     if [[ "${SKIP_CLUSTER}" == "false" ]]; then
         log "Creating Kind cluster..."
         "${KIND_SCRIPT}" create --workers 1 --no-cloud-provider --configure-insecure 2>&1 | tee -a "${LOG_FILE}"
@@ -101,12 +114,12 @@ if [[ "${DRY_RUN}" == "false" ]]; then
     export CONNECT_BUILD_IMAGE_PATH=$(podman inspect -f '{{.NetworkSettings.Networks.kind.IPAddress}}' kind-registry):5000/strimzi-connect-build
     log "CONNECT_BUILD_IMAGE_PATH=${CONNECT_BUILD_IMAGE_PATH}"
 
-    # ---- Step 2: Build systemtest module and deploy Strimzi ----
+    # ---- Step 3: Build systemtest module and deploy Strimzi ----
     log "Building systemtest module..."
     cd "${PROJECT_DIR}"
     mvn install -DskipTests -Dcheckstyle.skip=true -pl systemtest -am 2>&1 | tail -5 | tee -a "${LOG_FILE}"
 
-    # ---- Step 3: Run performance tests ----
+    # ---- Step 4: Run performance tests ----
     log "Running performance tests (non-capacity)..."
     cd "${PROJECT_DIR}"
     mvn verify -pl systemtest -Pperformance -DskipTests=false \
@@ -117,7 +130,7 @@ if [[ "${DRY_RUN}" == "false" ]]; then
     log "Performance tests complete."
 fi
 
-# ---- Step 4: Export results and compare ----
+# ---- Step 5: Export results and compare ----
 log "Exporting results and running baseline comparison..."
 cd "${PROJECT_DIR}"
 
@@ -131,7 +144,7 @@ java -cp "${CLASSPATH}" \
 
 COMPARATOR_EXIT=$?
 
-# ---- Step 5: Push results ----
+# ---- Step 6: Push results ----
 if [[ "${SKIP_PUSH}" == "false" ]]; then
     log "Pushing results to remote..."
     cd "${RESULTS_REPO}"
@@ -140,7 +153,7 @@ if [[ "${SKIP_PUSH}" == "false" ]]; then
         log "No new results to push."
     else
         git commit -s -m "Nightly results $(date +%Y-%m-%d) (${COMMIT_SHA})"
-        git push
+        git push origin main
         log "Results pushed."
     fi
 else

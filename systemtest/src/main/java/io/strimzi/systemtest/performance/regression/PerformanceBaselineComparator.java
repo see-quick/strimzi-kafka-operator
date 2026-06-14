@@ -146,7 +146,7 @@ public class PerformanceBaselineComparator {
             .orElse("unknown");
 
         System.out.println("=== Performance Regression Report ===");
-        System.out.println("Commit: " + commitSha + " | Date: " + Instant.now().toString().substring(0, 10));
+        System.out.println("Commit: " + commitSha + " | Date: " + Instant.now().toString().substring(0, 16));
         System.out.println();
 
         for (RegressionResult result : results) {

@@ -15,7 +15,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,6 +26,7 @@ import java.util.regex.Pattern;
 public class ResultExporter {
 
     private static final ObjectMapper MAPPER = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
+    private static final DateTimeFormatter DIR_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH").withZone(ZoneOffset.UTC);
     private static final Pattern UNIT_SUFFIX = Pattern.compile("\\s*\\(([^)]+)\\)\\s*$");
 
     public static TestResult convertMetrics(
@@ -192,7 +194,7 @@ public class ResultExporter {
         }
 
         if (resultsRepo != null && outputDir == null) {
-            outputDir = Path.of(resultsRepo, "results", LocalDate.now().toString());
+            outputDir = Path.of(resultsRepo, "results", DIR_DATE_FORMAT.format(Instant.now()));
         }
 
         if (outputDir == null) {
