@@ -140,9 +140,7 @@ java -cp "${CLASSPATH}" \
     io.strimzi.systemtest.performance.regression.ResultExporter \
     --results-repo "${RESULTS_REPO}" \
     --commit "${COMMIT_SHA}" \
-    2>&1 | tee -a "${LOG_FILE}"
-
-COMPARATOR_EXIT=$?
+    2>&1 | tee -a "${LOG_FILE}" || true
 
 # ---- Step 6: Push results ----
 if [[ "${SKIP_PUSH}" == "false" ]]; then
@@ -156,7 +154,7 @@ if [[ "${SKIP_PUSH}" == "false" ]]; then
         log "No new results to push."
     else
         git commit -s -m "Nightly results $(date +%Y-%m-%d) (${COMMIT_SHA})"
-        git push origin main
+        git push -u origin main
         log "Results pushed."
     fi
 else
@@ -164,10 +162,11 @@ else
 fi
 
 # ---- Summary ----
-if [[ ${COMPARATOR_EXIT} -ne 0 ]]; then
-    log "REGRESSION DETECTED. Check results at: ${RESULTS_REPO}"
-    exit 1
-else
+REGRESSIONS_FILE="${RESULTS_REPO}/regressions/current.json"
+if [[ -f "${REGRESSIONS_FILE}" ]] && python3 -c "import json,sys; r=json.load(open(sys.argv[1])); sys.exit(0 if not r.get('regressions') else 1)" "${REGRESSIONS_FILE}" 2>/dev/null; then
     log "All metrics within baseline. Run complete."
     exit 0
+else
+    log "REGRESSION DETECTED. Check results at: ${RESULTS_REPO}"
+    exit 1
 fi
