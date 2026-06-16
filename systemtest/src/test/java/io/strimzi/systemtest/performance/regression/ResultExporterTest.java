@@ -40,10 +40,11 @@ class ResultExporterTest {
         assertEquals(1, result.getMetrics().size());
         assertEquals(74596.0, result.getMetrics().get("reconciliationIntervalMs"));
         assertEquals(2, result.getParameters().size());
+        assertTrue(result.getTestName().contains("numberOfTopics=250"));
     }
 
     @Test
-    void testWriteResultToFile(@TempDir Path outputDir) throws Exception {
+    void testWriteResultWithParameterSuffix(@TempDir Path outputDir) throws Exception {
         Map<String, Double> metrics = new LinkedHashMap<>();
         metrics.put("reconciliationIntervalMs", 74596.0);
 
@@ -51,7 +52,7 @@ class ResultExporterTest {
         parameters.put("numberOfTopics", 250);
 
         TestResult result = new TestResult(
-            "TopicOperatorScalabilityPerformance",
+            "TopicOperatorScalabilityPerformance (numberOfTopics=250)",
             "topic-operator",
             "scalability",
             "2026-06-13T02:00:00Z",
@@ -62,12 +63,36 @@ class ResultExporterTest {
 
         ResultExporter.writeResult(result, outputDir);
 
-        File outputFile = outputDir.resolve("topic-operator-scalability.json").toFile();
+        File outputFile = outputDir.resolve("topic-operator-scalability-numberOfTopics-250.json").toFile();
         assertTrue(outputFile.exists());
 
         TestResult loaded = mapper.readValue(outputFile, TestResult.class);
         assertEquals("topic-operator", loaded.getComponent());
         assertEquals(74596.0, loaded.getMetrics().get("reconciliationIntervalMs"));
+    }
+
+    @Test
+    void testWriteResultWithoutDistinguishingParam(@TempDir Path outputDir) throws Exception {
+        Map<String, Double> metrics = new LinkedHashMap<>();
+        metrics.put("caRenewalTimeMs", 165058.0);
+
+        Map<String, Object> parameters = new LinkedHashMap<>();
+        parameters.put("brokerCount", 3);
+
+        TestResult result = new TestResult(
+            "ClusterOperatorCaRenewalPerformance",
+            "cluster-operator",
+            "caRenewal",
+            "2026-06-13T02:00:00Z",
+            "abc1234",
+            parameters,
+            metrics
+        );
+
+        ResultExporter.writeResult(result, outputDir);
+
+        File outputFile = outputDir.resolve("cluster-operator-caRenewal.json").toFile();
+        assertTrue(outputFile.exists());
     }
 
     @Test

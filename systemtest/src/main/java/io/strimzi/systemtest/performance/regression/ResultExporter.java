@@ -60,14 +60,33 @@ public class ResultExporter {
             }
         }
 
-        String testName = buildTestName(component, useCase);
+        String testName = buildTestName(component, useCase, parameters);
         return new TestResult(testName, component, useCase, timestamp, commitSha, parameters, metrics);
     }
 
     public static void writeResult(TestResult result, Path outputDir) throws IOException {
         Files.createDirectories(outputDir);
-        String fileName = result.getComponent() + "-" + result.getUseCase() + ".json";
+        String suffix = buildParameterSuffix(result.getParameters());
+        String fileName = result.getComponent() + "-" + result.getUseCase() + suffix + ".json";
         MAPPER.writeValue(outputDir.resolve(fileName).toFile(), result);
+    }
+
+    static String buildParameterSuffix(Map<String, Object> parameters) {
+        String key = findDistinguishingParameter(parameters);
+        if (key == null) {
+            return "";
+        }
+        Object value = parameters.get(key);
+        return "-" + key + "-" + value;
+    }
+
+    private static String findDistinguishingParameter(Map<String, Object> parameters) {
+        for (String candidate : List.of("numberOfTopics", "numberOfKafkaUsers", "connectorCount")) {
+            if (parameters.containsKey(candidate)) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     public static void writeMetadata(ResultMetadata metadata, Path outputDir) throws IOException {
@@ -109,7 +128,7 @@ public class ResultExporter {
         return camelCase.toString();
     }
 
-    private static String buildTestName(String component, String useCase) {
+    private static String buildTestName(String component, String useCase, Map<String, Object> parameters) {
         String[] componentParts = component.split("-");
         StringBuilder name = new StringBuilder();
         for (String part : componentParts) {
@@ -125,6 +144,12 @@ public class ResultExporter {
             }
         }
         name.append("Performance");
+
+        String distinguishing = findDistinguishingParameter(parameters);
+        if (distinguishing != null) {
+            name.append(" (").append(distinguishing).append("=").append(parameters.get(distinguishing)).append(")");
+        }
+
         return name.toString();
     }
 
