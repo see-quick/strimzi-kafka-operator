@@ -146,6 +146,9 @@ COMPARATOR_EXIT=$?
 
 # ---- Step 6: Push results ----
 if [[ "${SKIP_PUSH}" == "false" ]]; then
+    # Load SSH key from macOS Keychain for non-interactive launchd sessions
+    ssh-add --apple-use-keychain 2>>"${LOG_FILE}" || true
+
     log "Pushing results to remote..."
     cd "${RESULTS_REPO}"
     git add -A
