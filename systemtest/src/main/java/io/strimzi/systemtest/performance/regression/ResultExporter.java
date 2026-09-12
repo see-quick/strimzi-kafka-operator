@@ -153,6 +153,88 @@ public class ResultExporter {
         return name.toString();
     }
 
+    /**
+     * Derives summary statistics from the raw operator time-series that the metrics
+     * schedulers scrape during each experiment (JVM memory, CPU, GC pauses,
+     * reconciliation durations). The parser already loads these files into
+     * {@link ExperimentMetrics#getComponentMetrics()}; without this step they would
+     * be collected and then thrown away.
+     *
+     * @param componentMetrics  raw metric file name to sampled values, as parsed
+     * @return                  derived metric name to summary value
+     */
+    static Map<String, Double> deriveComponentMetrics(Map<String, List<Double>> componentMetrics) {
+        Map<String, Double> derived = new LinkedHashMap<>();
+
+        List<Double> memory = componentMetrics.get("jvm_memory_used_megabytes_total.txt");
+        putIfPresent(derived, "jvmMemoryUsedMaxMb", maxOf(memory));
+        putIfPresent(derived, "jvmMemoryUsedAvgMb", avgOf(memory));
+
+        List<Double> cpu = componentMetrics.get("process_cpu_usage.txt");
+        putIfPresent(derived, "processCpuUsageMax", maxOf(cpu));
+        putIfPresent(derived, "processCpuUsageAvg", avgOf(cpu));
+
+        putIfPresent(derived, "jvmThreadsLiveMax", maxOf(componentMetrics.get("jvm_threads_live_threads.txt")));
+
+        // GC pause samples are persisted per action/cause/gc tag combination,
+        // e.g. "action=end of major GC,cause=Allocation Failure,gc=MarkSweepCompact.txt"
+        Double gcPauseMax = maxOf(componentMetrics.entrySet().stream()
+            .filter(e -> e.getKey().startsWith("action="))
+            .flatMap(e -> e.getValue().stream())
+            .toList());
+        putIfPresent(derived, "jvmGcPauseMaxSeconds", gcPauseMax);
+
+        putIfPresent(derived, "reconciliationDurationMaxSeconds",
+            maxOf(componentMetrics.get("strimzi_reconciliations_duration_seconds_max.txt")));
+
+        // sum and total are cumulative counters, so their max is the latest scrape
+        Double durationSum = maxOf(componentMetrics.get("strimzi_reconciliations_duration_seconds_sum.txt"));
+        Double reconciliations = maxOf(componentMetrics.get("strimzi_reconciliations_total.txt"));
+        if (durationSum != null && reconciliations != null && reconciliations > 0) {
+            putIfPresent(derived, "reconciliationDurationAvgSeconds", durationSum / reconciliations);
+        }
+
+        putIfPresent(derived, "reconciliationsFailedTotal",
+            maxOf(componentMetrics.get("strimzi_reconciliations_failed_total.txt")));
+
+        return derived;
+    }
+
+    private static final List<String> INFORMATIONAL_METRIC_PREFIXES =
+        List.of("jvm", "processCpu", "reconciliationDuration", "reconciliationsFailed");
+
+    /**
+     * Resource and JVM health metrics derived by {@link #deriveComponentMetrics(Map)} are
+     * exported for the dashboard but are too noisy night-to-night for the sigma-based
+     * regression gate; the baseline comparator tracks their baselines without flagging them.
+     *
+     * @param metricName    metric name as exported
+     * @return              true when the metric is informational (not regression-gated)
+     */
+    public static boolean isInformationalMetric(String metricName) {
+        return INFORMATIONAL_METRIC_PREFIXES.stream().anyMatch(metricName::startsWith);
+    }
+
+    private static Double maxOf(List<Double> values) {
+        if (values == null || values.isEmpty()) {
+            return null;
+        }
+        return values.stream().mapToDouble(Double::doubleValue).max().orElse(0);
+    }
+
+    private static Double avgOf(List<Double> values) {
+        if (values == null || values.isEmpty()) {
+            return null;
+        }
+        return values.stream().mapToDouble(Double::doubleValue).average().orElse(0);
+    }
+
+    private static void putIfPresent(Map<String, Double> metrics, String key, Double value) {
+        if (value != null) {
+            metrics.put(key, Math.round(value * 10000.0) / 10000.0);
+        }
+    }
+
     public static void exportFromParserOutput(Path outputDir, String commitSha) throws IOException {
         String timestamp = Instant.now().toString();
         int exported = 0;
@@ -182,6 +264,7 @@ public class ResultExporter {
                         );
 
                         if (!result.getMetrics().isEmpty()) {
+                            result.getMetrics().putAll(deriveComponentMetrics(experiment.getComponentMetrics()));
                             writeResult(result, outputDir);
                             exported++;
                             System.out.printf("Exported: %s / %s (%d metrics)%n",

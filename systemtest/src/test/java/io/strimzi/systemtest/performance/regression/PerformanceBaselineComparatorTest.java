@@ -155,6 +155,53 @@ class PerformanceBaselineComparatorTest {
     }
 
     @Test
+    void testInformationalMetricTrackedButNotGated(@TempDir Path repoDir) throws Exception {
+        Map<String, Map<String, BaselineMetric>> baselines = new LinkedHashMap<>();
+        BaselineMetric durationMetric = new BaselineMetric(10);
+        BaselineMetric memoryMetric = new BaselineMetric(10);
+        for (int i = 0; i < 5; i++) {
+            durationMetric.addValue(70000.0);
+            memoryMetric.addValue(160.0);
+        }
+        baselines.put("topic-operator-scalability", Map.of(
+            "reconciliationIntervalMs", durationMetric,
+            "jvmMemoryUsedMaxMb", memoryMetric
+        ));
+
+        Files.createDirectories(repoDir.resolve("regressions"));
+        mapper.writeValue(repoDir.resolve("baselines.json").toFile(), baselines);
+
+        Path resultsDir = repoDir.resolve("results").resolve("2026-06-14");
+        Files.createDirectories(resultsDir);
+
+        // memory far above its baseline, duration within: no regression may be reported
+        TestResult result = new TestResult(
+            "TopicOperatorScalabilityPerformance",
+            "topic-operator", "scalability",
+            "2026-06-14T02:00:00Z", "def5678",
+            Map.of("numberOfTopics", 250),
+            Map.of("reconciliationIntervalMs", 70500.0, "jvmMemoryUsedMaxMb", 900.0)
+        );
+        mapper.writeValue(resultsDir.resolve("topic-operator-scalability.json").toFile(), result);
+
+        PerformanceBaselineComparator comparator = new PerformanceBaselineComparator(repoDir, 10, 2.0);
+        List<RegressionResult> results = comparator.compareLatest();
+
+        assertEquals(1, results.size());
+        assertEquals("reconciliationIntervalMs", results.get(0).getMetricName());
+        assertTrue(results.get(0).isPassed());
+
+        // the informational value still updates its baseline window
+        Map<String, Map<String, BaselineMetric>> updated = mapper.readValue(
+            repoDir.resolve("baselines.json").toFile(),
+            new TypeReference<>() { }
+        );
+        List<Double> window = updated.get("topic-operator-scalability").get("jvmMemoryUsedMaxMb").getWindow();
+        assertEquals(6, window.size());
+        assertTrue(window.contains(900.0));
+    }
+
+    @Test
     void testRegressedValueNotAddedToBaseline(@TempDir Path repoDir) throws Exception {
         Map<String, Map<String, BaselineMetric>> baselines = new LinkedHashMap<>();
         BaselineMetric metric = new BaselineMetric(10);

@@ -54,7 +54,11 @@ public class PerformanceBaselineComparator {
                 BaselineMetric baseline = testBaseline.get(metricName);
                 boolean passed = true;
 
-                if (baseline != null && !isFirstRun) {
+                // Informational metrics (JVM memory, CPU, GC, reconciliation stats)
+                // get baselines for dashboard bands but never gate the run: they are
+                // too noisy night-to-night for the sigma threshold, and a withheld
+                // noisy value could otherwise keep a stale baseline flagging forever.
+                if (!ResultExporter.isInformationalMetric(metricName) && baseline != null && !isFirstRun) {
                     double deviations = baseline.getDeviations(currentValue);
                     passed = !baseline.isRegression(currentValue, threshold);
 

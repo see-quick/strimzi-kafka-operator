@@ -191,6 +191,7 @@ public class ConnectScalabilityPerformance extends AbstractST {
                 performanceAttributes.put(PerformanceConstants.CLUSTER_OPERATOR_IN_CONTROLLER_COUNT, controllerCount);
                 performanceAttributes.put(PerformanceConstants.CLUSTER_OPERATOR_IN_CONNECTOR_COUNT, numberOfConnectors);
                 performanceAttributes.put(PerformanceConstants.CLUSTER_OPERATOR_OUT_ALL_CONNECTORS_READY_TIME, allConnectorsReadyTime);
+                performanceAttributes.put(PerformanceConstants.METRICS_HISTORY, metricsScheduler.getMetricsStore());
 
                 try {
                     this.reporter.logPerformanceData(testStorage, performanceAttributes,
