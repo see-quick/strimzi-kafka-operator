@@ -4,6 +4,7 @@
  */
 package io.strimzi.operator.cluster.operator.assembly;
 
+import io.fabric8.kubernetes.api.model.ConfigMap;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import io.strimzi.api.kafka.Crds;
 import io.strimzi.api.kafka.model.common.ConditionBuilder;
@@ -28,11 +29,12 @@ import io.strimzi.operator.cluster.KafkaVersionTestUtils;
 import io.strimzi.operator.cluster.PlatformFeaturesAvailability;
 import io.strimzi.operator.cluster.ResourceUtils;
 import io.strimzi.operator.cluster.model.KafkaVersion;
+import io.strimzi.operator.cluster.operator.VertxUtil;
 import io.strimzi.operator.cluster.operator.resource.ResourceOperatorSupplier;
 import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.model.PasswordGenerator;
-import io.strimzi.operator.common.operator.MockCertManager;
+import io.strimzi.operator.common.operator.MockCertIssuer;
 import io.strimzi.platform.KubernetesVersion;
 import io.strimzi.test.mockkube3.MockKube3;
 import io.vertx.core.Vertx;
@@ -61,13 +63,17 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletionException;
 import java.util.function.Function;
 
 import static io.strimzi.api.ResourceAnnotations.ANNO_STRIMZI_IO_NEXT_NODE_IDS;
 import static io.strimzi.api.ResourceAnnotations.ANNO_STRIMZI_IO_REBALANCE;
 import static io.strimzi.api.ResourceAnnotations.ANNO_STRIMZI_IO_REBALANCE_TEMPLATE;
 import static io.strimzi.api.ResourceAnnotations.ANNO_STRIMZI_IO_REMOVE_NODE_IDS;
+import static org.hamcrest.CoreMatchers.containsString;
+import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.CoreMatchers.not;
 import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -79,7 +85,7 @@ public class KafkaAutoRebalancingMockTest {
     private static final String CLUSTER_NAME = "my-cluster";
     private static final KafkaVersion.Lookup VERSIONS = KafkaVersionTestUtils.getKafkaVersionLookup();
     private static final PlatformFeaturesAvailability PFA = new PlatformFeaturesAvailability(false, KubernetesVersion.MINIMAL_SUPPORTED_VERSION);
-    private static final MockCertManager CERT_MANAGER = new MockCertManager();
+    private static final MockCertIssuer CERT_ISSUER = new MockCertIssuer();
     private static final PasswordGenerator PASSWORD_GENERATOR = new PasswordGenerator(10, "a", "a");
     private static final Function<Integer, Node> NODE = id -> new Node(id, Node.noNode().host(), Node.noNode().port());
 
@@ -190,14 +196,14 @@ public class KafkaAutoRebalancingMockTest {
         // getting the default admin client to mock it when needed for blocked nodes (on scale down)
         admin = ResourceUtils.adminClient();
 
-        ResourceOperatorSupplier supplier = new ResourceOperatorSupplier(vertx, client, ResourceUtils.adminClientProvider(admin),
-                ResourceUtils.kafkaAgentClientProvider(), ResourceUtils.metricsProvider(), PFA);
+        ResourceOperatorSupplier supplier = new ResourceOperatorSupplier(VertxUtil.asExecutor(vertx.createSharedWorkerExecutor("kubernetes-ops-pool")),
+                client, ResourceUtils.adminClientProvider(admin), ResourceUtils.kafkaAgentClientProvider(), ResourceUtils.metricsProvider(), PFA);
 
         podSetController = new StrimziPodSetController(namespace, Labels.EMPTY, supplier.kafkaOperator, supplier.connectOperator, supplier.mirrorMaker2Operator, supplier.strimziPodSetOperator, supplier.podOperations, supplier.metricsProvider, Integer.parseInt(ClusterOperatorConfig.POD_SET_CONTROLLER_WORK_QUEUE_SIZE.defaultValue()));
         podSetController.start();
 
         ClusterOperatorConfig config = ResourceUtils.dummyClusterOperatorConfig(VERSIONS);
-        operator = new KafkaAssemblyOperator(vertx, PFA, CERT_MANAGER, PASSWORD_GENERATOR, supplier, config);
+        operator = new KafkaAssemblyOperator(vertx, PFA, CERT_ISSUER, PASSWORD_GENERATOR, supplier, config);
     }
 
     @AfterEach
@@ -770,7 +776,8 @@ public class KafkaAutoRebalancingMockTest {
                 // 2nd reconcile, auto-rebalancing for scaling up can't run, no mode specified in the auto-rebalance configuration
                 .compose(v -> operator.reconcile(new Reconciliation("test-trigger", Kafka.RESOURCE_KIND, namespace, CLUSTER_NAME)))
                 .onComplete(context.failing(e -> context.verify(() -> {
-                    assertThat(e.getMessage(), is("No auto-rebalancing configuration specified for mode " + KafkaAutoRebalanceMode.ADD_BROKERS));
+                    assertThat(e, instanceOf(CompletionException.class));
+                    assertThat(e.getMessage(), is("java.lang.RuntimeException: No auto-rebalancing configuration specified for mode " + KafkaAutoRebalanceMode.ADD_BROKERS));
                     reconciliation.flag();
                 })));
     }
@@ -1222,6 +1229,44 @@ public class KafkaAutoRebalancingMockTest {
 
                     KafkaRebalance kr = Crds.kafkaRebalanceOperation(client).inNamespace(namespace).withName(KafkaResources.autoRebalancingKafkaRebalanceResourceName(CLUSTER_NAME, KafkaAutoRebalanceMode.ADD_BROKERS)).get();
                     assertThat(kr, is(nullValue()));
+
+                    reconciliation.flag();
+                })));
+    }
+
+    @Test
+    public void testCordoningOnScaleDown(VertxTestContext context) {
+        hostPartitionsOnBrokers(List.of(3, 4));
+
+        KafkaRebalance kafkaRebalanceTemplate = buildKafkaRebalanceTemplate("my-add-remove-brokers-rebalancing-template", List.of("CpuCapacityGoal"));
+        Crds.kafkaRebalanceOperation(client).inNamespace(namespace).resource(kafkaRebalanceTemplate).create();
+
+        Checkpoint reconciliation = context.checkpoint();
+        // 1st reconcile, Kafka cluster creation
+        operator.reconcile(new Reconciliation("initial-reconciliation", Kafka.RESOURCE_KIND, namespace, CLUSTER_NAME))
+                .onComplete(context.succeeding(v -> context.verify(() -> {
+                    // scaling down the brokers
+                    scaleKafkaCluster(3);
+                })))
+                // 2nd reconcile, getting the scaling down with brokers 3 and 4 blocked
+                .compose(v -> operator.reconcile(new Reconciliation("test-trigger", Kafka.RESOURCE_KIND, namespace, CLUSTER_NAME)))
+                .onComplete(context.succeeding(v -> context.verify(() -> {
+                    Kafka k = Crds.kafkaOperation(client).inNamespace(namespace).withName(CLUSTER_NAME).get();
+                    assertKafkaAutoRebalanceStatus(k, KafkaAutoRebalanceState.RebalanceOnScaleDown, KafkaAutoRebalanceMode.REMOVE_BROKERS, List.of(3, 4));
+
+                    // verify cordoned brokers (3, 4) have cordoned.log.dirs=* in their ConfigMap
+                    for (int nodeId : List.of(3, 4)) {
+                        ConfigMap cm = client.configMaps().inNamespace(namespace).withName(CLUSTER_NAME + "-brokers-" + nodeId).get();
+                        assertThat(cm, is(notNullValue()));
+                        assertThat(cm.getData().get("server.config"), containsString("cordoned.log.dirs=*"));
+                    }
+
+                    // verify non-cordoned brokers (0, 1, 2) do not have cordoned.log.dirs in their ConfigMap
+                    for (int nodeId : List.of(0, 1, 2)) {
+                        ConfigMap cm = client.configMaps().inNamespace(namespace).withName(CLUSTER_NAME + "-brokers-" + nodeId).get();
+                        assertThat(cm, is(notNullValue()));
+                        assertThat(cm.getData().get("server.config"), not(containsString("cordoned.log.dirs")));
+                    }
 
                     reconciliation.flag();
                 })));

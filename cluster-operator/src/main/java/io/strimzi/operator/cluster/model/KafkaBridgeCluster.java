@@ -41,12 +41,12 @@ import io.strimzi.api.kafka.model.common.authentication.KafkaClientAuthenticatio
 import io.strimzi.api.kafka.model.common.metrics.JmxPrometheusExporterMetrics;
 import io.strimzi.api.kafka.model.common.metrics.StrimziMetricsReporter;
 import io.strimzi.api.kafka.model.common.template.ContainerTemplate;
-import io.strimzi.api.kafka.model.common.template.DeploymentStrategy;
 import io.strimzi.api.kafka.model.common.template.DeploymentTemplate;
 import io.strimzi.api.kafka.model.common.template.InternalServiceTemplate;
 import io.strimzi.api.kafka.model.common.template.PodDisruptionBudgetTemplate;
 import io.strimzi.api.kafka.model.common.template.PodTemplate;
 import io.strimzi.api.kafka.model.common.template.ResourceTemplate;
+import io.strimzi.api.kafka.model.common.template.StrimziDeploymentStrategy;
 import io.strimzi.api.kafka.model.common.tracing.Tracing;
 import io.strimzi.operator.cluster.ClusterOperatorConfig;
 import io.strimzi.operator.cluster.model.logging.LoggingModel;
@@ -314,7 +314,8 @@ public class KafkaBridgeCluster extends AbstractModel implements SupportsLogging
     }
 
     protected List<Volume> getVolumes(boolean isOpenShift) {
-        List<Volume> volumeList = new ArrayList<>(2);
+        List<Volume> volumeList = new ArrayList<>(3);
+        volumeList.add(VolumeUtils.createServiceAccountVolume());
         volumeList.add(VolumeUtils.createTempDirVolume(templatePod));
         volumeList.add(VolumeUtils.createConfigMapVolume(KAFKA_BRIDGE_CONFIG_VOLUME_NAME, KafkaBridgeResources.configMapName(cluster)));
 
@@ -343,6 +344,7 @@ public class KafkaBridgeCluster extends AbstractModel implements SupportsLogging
     protected List<VolumeMount> getVolumeMounts() {
         List<VolumeMount> volumeMountList = new ArrayList<>(2);
 
+        volumeMountList.add(VolumeUtils.createServiceAccountVolumeMount());
         volumeMountList.add(VolumeUtils.createTempDirVolumeMount());
         volumeMountList.add(VolumeUtils.createVolumeMount(KAFKA_BRIDGE_CONFIG_VOLUME_NAME, KAFKA_BRIDGE_CONFIG_VOLUME_MOUNT));
 
@@ -367,6 +369,7 @@ public class KafkaBridgeCluster extends AbstractModel implements SupportsLogging
 
     private List<VolumeMount> getInitContainerVolumeMounts() {
         List<VolumeMount> volumeMountList = new ArrayList<>();
+        volumeMountList.add(VolumeUtils.createServiceAccountVolumeMount());
         volumeMountList.add(VolumeUtils.createVolumeMount(INIT_VOLUME_NAME, INIT_VOLUME_MOUNT));
 
         TemplateUtils.addAdditionalVolumeMounts(volumeMountList, templateInitContainer);
@@ -395,7 +398,7 @@ public class KafkaBridgeCluster extends AbstractModel implements SupportsLogging
                 templateDeployment,
                 replicas,
                 null,
-                WorkloadUtils.deploymentStrategy(TemplateUtils.deploymentStrategy(templateDeployment, DeploymentStrategy.ROLLING_UPDATE)),
+                WorkloadUtils.deploymentStrategy(TemplateUtils.deploymentStrategy(templateDeployment, StrimziDeploymentStrategy.ROLLING_UPDATE)),
                 WorkloadUtils.createPodTemplateSpec(
                         componentName,
                         labels,
@@ -451,7 +454,10 @@ public class KafkaBridgeCluster extends AbstractModel implements SupportsLogging
     protected List<EnvVar> getEnvVars() {
         List<EnvVar> varList = new ArrayList<>();
         varList.add(ContainerUtils.createEnvVar(ENV_VAR_STRIMZI_GC_LOG_ENABLED, String.valueOf(gcLoggingEnabled)));
-        JvmOptionUtils.javaOptions(varList, jvmOptions);
+
+        JvmOptionUtils.heapOptions(varList, 75, 0L, jvmOptions, resources);
+        JvmOptionUtils.jvmPerformanceOptions(varList, jvmOptions);
+        JvmOptionUtils.jvmSystemProperties(varList, jvmOptions);
 
         // Add shared environment variables used for all containers
         varList.addAll(sharedEnvironmentProvider.variables());

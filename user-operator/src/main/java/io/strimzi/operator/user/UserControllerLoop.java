@@ -22,8 +22,8 @@ import io.strimzi.operator.common.controller.ReconciliationLockManager;
 import io.strimzi.operator.common.metrics.ControllerMetricsHolder;
 import io.strimzi.operator.common.model.StatusDiff;
 import io.strimzi.operator.common.model.StatusUtils;
-import io.strimzi.operator.common.operator.resource.concurrent.CrdOperator;
-import io.strimzi.operator.common.operator.resource.concurrent.Informer;
+import io.strimzi.operator.common.operator.resource.kubernetes.CrdOperator;
+import io.strimzi.operator.common.operator.resource.kubernetes.Informer;
 import io.strimzi.operator.user.model.KafkaUserModel;
 import io.strimzi.operator.user.operator.KafkaUserOperator;
 
@@ -153,7 +153,7 @@ public class UserControllerLoop extends AbstractControllerLoop {
      */
     private void maybeUpdateStatus(Reconciliation reconciliation, KafkaUser kafkaUser, KafkaUserStatus desiredStatus) {
         // KafkaUser or desiredStatus being null means deletion => no status to update
-        if (kafkaUser != null && desiredStatus != null && !new StatusDiff(kafkaUser.getStatus(), desiredStatus).isEmpty()) {
+        if (kafkaUser != null && desiredStatus != null && !new StatusDiff(reconciliation, kafkaUser.getStatus(), desiredStatus).isEmpty()) {
             LOGGER.debugCr(reconciliation, "Updating status of {} {} in namespace {}", reconciliation.kind(), reconciliation.name(), reconciliation.namespace());
             KafkaUser latestKafkaUser = userInformer.get(reconciliation.namespace(), reconciliation.name());
 

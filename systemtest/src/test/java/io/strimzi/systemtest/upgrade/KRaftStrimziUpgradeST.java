@@ -13,6 +13,7 @@ import io.strimzi.systemtest.resources.crd.KafkaComponents;
 import io.strimzi.systemtest.storage.TestStorage;
 import io.strimzi.systemtest.utils.RollingUpdateUtils;
 import io.strimzi.systemtest.utils.StUtils;
+import io.strimzi.systemtest.utils.TestKafkaVersion;
 import io.strimzi.systemtest.utils.kafkaUtils.KafkaUtils;
 import io.strimzi.systemtest.utils.kubeUtils.controllers.DeploymentUtils;
 import io.strimzi.systemtest.utils.kubeUtils.objects.PodUtils;
@@ -43,13 +44,6 @@ public class KRaftStrimziUpgradeST extends AbstractKRaftUpgradeST {
 
     private static final Logger LOGGER = LogManager.getLogger(KRaftStrimziUpgradeST.class);
     private final BundleVersionModificationData acrossUpgradeData = new VersionModificationDataLoader(VersionModificationDataLoader.ModificationType.BUNDLE_UPGRADE).buildDataForUpgradeAcrossVersionsForKRaft();
-    // TODO: Remove this after 1.1.0 release - https://github.com/strimzi/strimzi-kafka-operator/issues/12692
-    private final BundleVersionModificationData conversionUpgradeData = new VersionModificationDataLoader(VersionModificationDataLoader.ModificationType.BUNDLE_UPGRADE)
-        .getBundleUpgradeOrDowngradeDataList()
-        .stream()
-        .filter(data -> data.getFromVersion().equals("0.51.0"))
-        .findFirst()
-        .get();
 
     @MicroShiftNotSupported("Due to lack of Kafka Connect build feature")
     @KindIPv6NotSupported("Our current CI setup doesn't allow pushing into internal registries that is needed in this test")
@@ -67,20 +61,6 @@ public class KRaftStrimziUpgradeST extends AbstractKRaftUpgradeST {
         LOGGER.debug("Running upgrade test from version {} to {} (FG: {} -> {})",
             fromVersion, toVersion, fgBefore, fgAfter);
         doKafkaConnectAndKafkaConnectorUpgradeOrDowngradeProcedure(CO_NAMESPACE, testStorage, upgradeData, upgradeKafkaVersion);
-    }
-
-    // TODO: Remove this after 1.1.0 release - https://github.com/strimzi/strimzi-kafka-operator/issues/12692
-    @IsolatedTest
-    void testUpgradeWithCrAndCrdConversion() throws IOException {
-        final TestStorage testStorage = new TestStorage(KubeResourceManager.get().getTestContext());
-        BundleVersionModificationData crdUpgradeData = conversionUpgradeData;
-        crdUpgradeData.setConvertCrsAndCrds(true);
-
-        UpgradeKafkaVersion upgradeKafkaVersion = new UpgradeKafkaVersion(crdUpgradeData.getDeployKafkaVersion());
-        // setting metadata version to null, similarly to the examples, which are not configuring metadataVersion
-        upgradeKafkaVersion.setMetadataVersion(null);
-
-        doKafkaConnectAndKafkaConnectorUpgradeOrDowngradeProcedure(CO_NAMESPACE, testStorage, crdUpgradeData, upgradeKafkaVersion);
     }
 
     @IsolatedTest
@@ -118,8 +98,9 @@ public class KRaftStrimziUpgradeST extends AbstractKRaftUpgradeST {
         String controllerPodName = KubeResourceManager.get().kubeClient().listPodsByPrefixInName(testStorage.getNamespaceName(), KafkaComponents.getPodSetName(CLUSTER_NAME, CONTROLLER_NODE_NAME)).get(0).getMetadata().getName();
         String brokerPodName = KubeResourceManager.get().kubeClient().listPodsByPrefixInName(testStorage.getNamespaceName(), KafkaComponents.getPodSetName(CLUSTER_NAME, BROKER_NODE_NAME)).get(0).getMetadata().getName();
 
-        assertThat(KafkaUtils.getVersionFromKafkaPodLibs(testStorage.getNamespaceName(), controllerPodName), containsString(acrossUpgradeData.getProcedures().getVersion()));
-        assertThat(KafkaUtils.getVersionFromKafkaPodLibs(testStorage.getNamespaceName(), brokerPodName), containsString(acrossUpgradeData.getProcedures().getVersion()));
+        TestKafkaVersion versionTo = TestKafkaVersion.getSpecificVersion(acrossUpgradeData.getProcedures().getVersion());
+        assertThat(KafkaUtils.getVersionFromKafkaPodLibs(testStorage.getNamespaceName(), controllerPodName), containsString(versionTo.mavenVersion()));
+        assertThat(KafkaUtils.getVersionFromKafkaPodLibs(testStorage.getNamespaceName(), brokerPodName), containsString(versionTo.mavenVersion()));
     }
 
     @IsolatedTest

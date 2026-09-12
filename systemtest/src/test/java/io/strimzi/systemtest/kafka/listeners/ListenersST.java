@@ -28,7 +28,7 @@ import io.strimzi.api.kafka.model.kafka.listener.KafkaListenerType;
 import io.strimzi.api.kafka.model.kafka.listener.ListenerAddress;
 import io.strimzi.api.kafka.model.kafka.listener.ListenerStatus;
 import io.strimzi.api.kafka.model.user.KafkaUser;
-import io.strimzi.api.kafka.model.user.acl.AclOperation;
+import io.strimzi.api.kafka.model.user.acl.StrimziAclOperation;
 import io.strimzi.operator.common.Util;
 import io.strimzi.systemtest.AbstractST;
 import io.strimzi.systemtest.Environment;
@@ -74,6 +74,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.Comparator;
@@ -584,13 +585,13 @@ public class ListenersST extends AbstractST {
                             .withNewAclRuleTopicResource()
                                 .withName(testStorage.getTopicName())
                             .endAclRuleTopicResource()
-                            .withOperations(AclOperation.READ, AclOperation.WRITE, AclOperation.DESCRIBE, AclOperation.CREATE)
+                            .withOperations(StrimziAclOperation.READ, StrimziAclOperation.WRITE, StrimziAclOperation.DESCRIBE, StrimziAclOperation.CREATE)
                         .endAcl()
                         .addNewAcl()
                             .withNewAclRuleGroupResource()
                                 .withName("*")
                             .endAclRuleGroupResource()
-                            .withOperations(AclOperation.READ, AclOperation.WRITE, AclOperation.DESCRIBE, AclOperation.CREATE)
+                            .withOperations(StrimziAclOperation.READ, StrimziAclOperation.WRITE, StrimziAclOperation.DESCRIBE, StrimziAclOperation.CREATE)
                         .endAcl()
                     .endKafkaUserAuthorizationSimple()
                 .endSpec().build(),
@@ -765,7 +766,7 @@ public class ListenersST extends AbstractST {
                     List<String> nodeIPsBrokers = KubeResourceManager.get().kubeClient().listPods(testStorage.getNamespaceName(), testStorage.getBrokerSelector())
                             .stream().map(pods -> pods.getStatus().getHostIP()).distinct().sorted(Comparator.comparing(String::toString)).toList();
 
-                    List<String> nodeIPsControllers = new java.util.ArrayList<>(KubeResourceManager.get().kubeClient().listPods(testStorage.getNamespaceName(), testStorage.getControllerSelector())
+                    List<String> nodeIPsControllers = new ArrayList<>(KubeResourceManager.get().kubeClient().listPods(testStorage.getNamespaceName(), testStorage.getControllerSelector())
                             .stream().map(pods -> pods.getStatus().getHostIP()).distinct().sorted(Comparator.comparing(String::toString)).toList());
 
                     // Remove all nodes that contains broker nodes

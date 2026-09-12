@@ -14,7 +14,7 @@ import io.strimzi.api.kafka.model.common.HasLivenessProbe;
 import io.strimzi.api.kafka.model.common.HasReadinessProbe;
 import io.strimzi.api.kafka.model.common.JvmOptions;
 import io.strimzi.api.kafka.model.common.Logging;
-import io.strimzi.api.kafka.model.common.Probe;
+import io.strimzi.api.kafka.model.common.StrimziProbe;
 import io.strimzi.api.kafka.model.common.UnknownPropertyPreserving;
 import io.strimzi.api.kafka.model.common.metrics.MetricsConfig;
 import io.strimzi.crdgenerator.annotations.CelValidation;
@@ -44,15 +44,15 @@ import java.util.Map;
 public class CruiseControlSpec implements HasConfigurableMetrics, HasConfigurableLogging, HasLivenessProbe, HasReadinessProbe, UnknownPropertyPreserving {
     // For the full configuration list refer to https://github.com/linkedin/cruise-control/wiki/Configurations
     public static final String FORBIDDEN_PREFIXES = "bootstrap.servers, client.id, zookeeper., network., security., failed.brokers.zk.path,"
-        + "webserver.http., webserver.api.urlprefix, webserver.session.path, webserver.accesslog., two.step., request.reason.required,"
+        + "webserver.http., webserver.ssl., webserver.api.urlprefix, webserver.session.path, webserver.accesslog., two.step., request.reason.required,"
         + "metric.reporter.sampler.bootstrap.servers, capacity.config.file, self.healing., ssl., kafka.broker.failure.detection.enable, topic.config.provider.class";
     public static final String FORBIDDEN_PREFIX_EXCEPTIONS = "ssl.cipher.suites, ssl.protocol, ssl.enabled.protocols, webserver.http.cors.enabled, "
-        + "webserver.http.cors.origin, webserver.http.cors.exposeheaders, webserver.security.enable, webserver.ssl.enable";
+        + "webserver.http.cors.origin, webserver.http.cors.exposeheaders, webserver.security.enable";
 
     private String image;
     private ResourceRequirements resources;
-    private Probe livenessProbe;
-    private Probe readinessProbe;
+    private StrimziProbe livenessProbe;
+    private StrimziProbe readinessProbe;
     private JvmOptions jvmOptions;
     private Logging logging;
     private CruiseControlTemplate template;
@@ -165,21 +165,21 @@ public class CruiseControlSpec implements HasConfigurableMetrics, HasConfigurabl
 
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     @Description("Pod liveness checking for the Cruise Control container")
-    public Probe getLivenessProbe() {
+    public StrimziProbe getLivenessProbe() {
         return livenessProbe;
     }
 
-    public void setLivenessProbe(Probe livenessProbe) {
+    public void setLivenessProbe(StrimziProbe livenessProbe) {
         this.livenessProbe = livenessProbe;
     }
 
     @JsonInclude(JsonInclude.Include.NON_DEFAULT)
     @Description("Pod readiness checking for the Cruise Control container.")
-    public Probe getReadinessProbe() {
+    public StrimziProbe getReadinessProbe() {
         return readinessProbe;
     }
 
-    public void setReadinessProbe(Probe readinessProbe) {
+    public void setReadinessProbe(StrimziProbe readinessProbe) {
         this.readinessProbe = readinessProbe;
     }
 

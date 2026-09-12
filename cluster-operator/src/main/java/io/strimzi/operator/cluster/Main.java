@@ -8,9 +8,10 @@ import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import io.fabric8.kubernetes.client.KubernetesClientException;
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
-import io.strimzi.certs.OpenSslCertManager;
+import io.strimzi.certs.OpenSslCertIssuer;
 import io.strimzi.operator.cluster.leaderelection.LeaderElectionManager;
 import io.strimzi.operator.cluster.model.securityprofiles.PodSecurityProviderFactory;
+import io.strimzi.operator.cluster.operator.VertxUtil;
 import io.strimzi.operator.cluster.operator.assembly.KafkaAssemblyOperator;
 import io.strimzi.operator.cluster.operator.assembly.KafkaBridgeAssemblyOperator;
 import io.strimzi.operator.cluster.operator.assembly.KafkaConnectAssemblyOperator;
@@ -21,12 +22,15 @@ import io.strimzi.operator.common.MetricsProvider;
 import io.strimzi.operator.common.MicrometerMetricsProvider;
 import io.strimzi.operator.common.OperatorKubernetesClientBuilder;
 import io.strimzi.operator.common.Util;
+import io.strimzi.operator.common.gatekeeper.GatekeeperPluginFactory;
+import io.strimzi.operator.common.gatekeeper.impl.GatekeeperPluginConfigurationContextImpl;
 import io.strimzi.operator.common.model.PasswordGenerator;
 import io.vertx.core.CompositeFuture;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.VertxOptions;
+import io.vertx.core.WorkerExecutor;
 import io.vertx.core.http.HttpServer;
 import io.vertx.micrometer.MicrometerMetricsOptions;
 import io.vertx.micrometer.VertxPrometheusOptions;
@@ -40,6 +44,7 @@ import java.security.Security;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * The main class used to start the Strimzi Cluster Operator
@@ -150,8 +155,14 @@ public class Main {
      */
     static CompositeFuture deployClusterOperatorVerticles(Vertx vertx, KubernetesClient client, MetricsProvider metricsProvider,
                                                           PlatformFeaturesAvailability pfa, ClusterOperatorConfig config, ShutdownHook shutdownHook) {
+        // Shared Vert.x worker pool on which the resource operators run their blocking Kubernetes API calls. It is
+        // created with the configured operations thread-pool size here - before the ResourceOperatorSupplier - so that
+        // the configured size is the one actually used (a Vert.x shared worker pool keeps the settings of its first
+        // creation). The same named pool is reused by the rest of the operator (e.g. VertxUtil.async).
+        WorkerExecutor sharedWorkerExecutor = vertx.createSharedWorkerExecutor("kubernetes-ops-pool", config.getOperationsThreadPoolSize(), TimeUnit.SECONDS.toNanos(120));
+
         ResourceOperatorSupplier resourceOperatorSupplier = new ResourceOperatorSupplier(
-                vertx,
+                VertxUtil.asExecutor(sharedWorkerExecutor),
                 client,
                 metricsProvider,
                 pfa,
@@ -162,6 +173,9 @@ public class Main {
         // Initialize the PodSecurityProvider factory to provide the user configured provider
         PodSecurityProviderFactory.initialize(config.getPodSecurityProviderClass(), pfa);
 
+        // Load and configure the Gatekeeper plugins
+        GatekeeperPluginFactory.initialize(config.getGatekeeperPlugins(), new GatekeeperPluginConfigurationContextImpl(client));
+
         KafkaAssemblyOperator kafkaClusterOperations = null;
         KafkaConnectAssemblyOperator kafkaConnectClusterOperations = null;
         KafkaMirrorMaker2AssemblyOperator kafkaMirrorMaker2AssemblyOperator = null;
@@ -169,7 +183,7 @@ public class Main {
         KafkaRebalanceAssemblyOperator kafkaRebalanceAssemblyOperator = null;
 
         if (!config.isPodSetReconciliationOnly()) {
-            OpenSslCertManager certManager = new OpenSslCertManager();
+            OpenSslCertIssuer certIssuer = new OpenSslCertIssuer();
             PasswordGenerator passwordGenerator = new PasswordGenerator(12,
                     "abcdefghijklmnopqrstuvwxyz" +
                             "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
@@ -177,10 +191,10 @@ public class Main {
                             "ABCDEFGHIJKLMNOPQRSTUVWXYZ" +
                             "0123456789");
 
-            kafkaClusterOperations = new KafkaAssemblyOperator(vertx, pfa, certManager, passwordGenerator, resourceOperatorSupplier, config);
+            kafkaClusterOperations = new KafkaAssemblyOperator(vertx, pfa, certIssuer, passwordGenerator, resourceOperatorSupplier, config);
             kafkaConnectClusterOperations = new KafkaConnectAssemblyOperator(vertx, pfa, resourceOperatorSupplier, config);
             kafkaMirrorMaker2AssemblyOperator = new KafkaMirrorMaker2AssemblyOperator(vertx, pfa, resourceOperatorSupplier, config);
-            kafkaBridgeAssemblyOperator = new KafkaBridgeAssemblyOperator(vertx, pfa, certManager, passwordGenerator, resourceOperatorSupplier, config);
+            kafkaBridgeAssemblyOperator = new KafkaBridgeAssemblyOperator(vertx, pfa, certIssuer, passwordGenerator, resourceOperatorSupplier, config);
             kafkaRebalanceAssemblyOperator = new KafkaRebalanceAssemblyOperator(vertx, resourceOperatorSupplier, config);
         }
 

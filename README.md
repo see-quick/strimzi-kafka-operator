@@ -2,12 +2,15 @@
 
 # Run Apache Kafka on Kubernetes and OpenShift
 
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13184/badge)](https://www.bestpractices.dev/projects/13184)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/strimzi/strimzi-kafka-operator/badge)](https://scorecard.dev/viewer/?uri=github.com/strimzi/strimzi-kafka-operator)
 [![Build Status](https://github.com/strimzi/strimzi-kafka-operator/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/strimzi/strimzi-kafka-operator/actions/workflows/build.yml?query=branch%3Amain)
 [![GitHub release](https://img.shields.io/github/release/strimzi/strimzi-kafka-operator.svg)](https://github.com/strimzi/strimzi-kafka-operator/releases/latest)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](http://www.apache.org/licenses/LICENSE-2.0)
 [![Twitter Follow](https://img.shields.io/twitter/follow/strimziio?style=social)](https://twitter.com/strimziio)
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/strimzi-kafka-operator)](https://artifacthub.io/packages/search?repo=strimzi-kafka-operator)
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fstrimzi%2Fstrimzi-kafka-operator.svg?type=shield&issueType=license)](https://app.fossa.com/projects/git%2Bgithub.com%2Fstrimzi%2Fstrimzi-kafka-operator?ref=badge_shield&issueType=license)
+[![Known Vulnerabilities](https://snyk.io/test/github/strimzi/strimzi-kafka-operator/badge.svg)](https://snyk.io/test/github/strimzi/strimzi-kafka-operator)
 
 Strimzi provides a way to run an [Apache Kafka®][kafka] cluster on 
 [Kubernetes][k8s] or [OpenShift][os] in various deployment configurations.
@@ -29,7 +32,7 @@ The roadmap of the Strimzi Operator project is maintained as [GitHub Project](ht
 
 If you encounter any issues while using Strimzi, you can get help using:
 
-- [#strimzi channel on CNCF Slack](https://slack.cncf.io/)
+- [#strimzi channel on CNCF Slack](https://cloud-native.slack.com/archives/CMH3Q3SNP)
 - [Strimzi Users mailing list](https://lists.cncf.io/g/cncf-strimzi-users/topics)
 - [GitHub Discussions](https://github.com/strimzi/strimzi-kafka-operator/discussions)
 
@@ -53,9 +56,8 @@ You can contribute by:
 - Improving Strimzi documentation
 - Talking about Strimzi
 
-All bugs, tasks or enhancements are tracked as [GitHub issues](https://github.com/strimzi/strimzi-kafka-operator/issues). Issues which 
-might be a good start for new contributors are marked with ["good-start"](https://github.com/strimzi/strimzi-kafka-operator/labels/good-start)
-label.
+All bugs, tasks or enhancements are tracked as [GitHub issues](https://github.com/strimzi/strimzi-kafka-operator/issues). 
+Issues which might be a good start for new contributors are marked with ["good-start"](https://github.com/strimzi/strimzi-kafka-operator/labels/good-start) label.
 
 The [development guide](development-docs/DEV_GUIDE.md) describes how to quickly get set up to build Strimzi from source.
 Before submitting a patch, make sure you understand how to test your changes by reading the [Test guide](development-docs/TESTING.md).
@@ -85,9 +87,11 @@ If you have already made a commit and forgot to include the sign-off, you can am
 git commit --amend -s
 ```
 
+### Getting help with your contributions
+
 If you want to get in touch with us first before contributing, you can use:
 
-- [#strimzi channel on CNCF Slack](https://slack.cncf.io/)
+- [#strimzi-dev channel on CNCF Slack](https://cloud-native.slack.com/archives/C018247K8T0)
 - [Strimzi Dev mailing list](https://lists.cncf.io/g/cncf-strimzi-dev/topics)
 
 ## License

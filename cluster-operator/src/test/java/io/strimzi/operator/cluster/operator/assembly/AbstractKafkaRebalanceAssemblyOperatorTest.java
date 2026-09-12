@@ -12,25 +12,28 @@ import io.strimzi.api.kafka.model.common.Condition;
 import io.strimzi.api.kafka.model.common.ConditionBuilder;
 import io.strimzi.api.kafka.model.kafka.Kafka;
 import io.strimzi.api.kafka.model.kafka.KafkaBuilder;
+import io.strimzi.api.kafka.model.kafka.KafkaResources;
 import io.strimzi.api.kafka.model.kafka.cruisecontrol.CruiseControlResources;
 import io.strimzi.api.kafka.model.kafka.listener.GenericKafkaListenerBuilder;
 import io.strimzi.api.kafka.model.kafka.listener.KafkaListenerType;
 import io.strimzi.api.kafka.model.rebalance.KafkaRebalance;
+import io.strimzi.api.kafka.model.rebalance.KafkaRebalanceAnnotation;
 import io.strimzi.api.kafka.model.rebalance.KafkaRebalanceBuilder;
 import io.strimzi.api.kafka.model.rebalance.KafkaRebalanceSpec;
 import io.strimzi.api.kafka.model.rebalance.KafkaRebalanceSpecBuilder;
 import io.strimzi.api.kafka.model.rebalance.KafkaRebalanceState;
-import io.strimzi.certs.Subject;
+import io.strimzi.certs.StrimziSubject;
 import io.strimzi.operator.cluster.ClusterOperatorConfig;
 import io.strimzi.operator.cluster.PlatformFeaturesAvailability;
 import io.strimzi.operator.cluster.ResourceUtils;
+import io.strimzi.operator.cluster.operator.VertxUtil;
 import io.strimzi.operator.cluster.operator.resource.ResourceOperatorSupplier;
 import io.strimzi.operator.cluster.operator.resource.cruisecontrol.CruiseControlApi;
 import io.strimzi.operator.cluster.operator.resource.cruisecontrol.CruiseControlApiImpl;
 import io.strimzi.operator.cluster.operator.resource.cruisecontrol.MockCruiseControl;
 import io.strimzi.operator.common.Annotations;
 import io.strimzi.operator.common.model.Labels;
-import io.strimzi.operator.common.operator.MockCertManager;
+import io.strimzi.operator.common.operator.MockCertIssuer;
 import io.strimzi.platform.KubernetesVersion;
 import io.strimzi.test.ReadWriteUtils;
 import io.strimzi.test.TestUtils;
@@ -111,8 +114,8 @@ public abstract class AbstractKafkaRebalanceAssemblyOperatorTest {
         tlsKeyFile = ReadWriteUtils.tempFile(KafkaRebalanceAssemblyOperatorTest.class.getSimpleName(), ".key");
         tlsCrtFile = ReadWriteUtils.tempFile(KafkaRebalanceAssemblyOperatorTest.class.getSimpleName(), ".crt");
 
-        new MockCertManager().generateSelfSignedCert(tlsKeyFile, tlsCrtFile,
-                new Subject.Builder().withCommonName("Trusted Test CA").build(), 365);
+        new MockCertIssuer().generateSelfSignedCert(tlsKeyFile, tlsCrtFile,
+                new StrimziSubject.Builder().withCommonName("Trusted Test CA").build(), 365);
 
         cruiseControlServer = new MockCruiseControl(cruiseControlPort, tlsKeyFile, tlsCrtFile);
     }
@@ -140,8 +143,8 @@ public abstract class AbstractKafkaRebalanceAssemblyOperatorTest {
             cruiseControlServer.reset();
         }
 
-        supplier = new ResourceOperatorSupplier(vertx, client, ResourceUtils.adminClientProvider(),
-                ResourceUtils.kafkaAgentClientProvider(), ResourceUtils.metricsProvider(), PFA);
+        supplier = new ResourceOperatorSupplier(VertxUtil.asExecutor(vertx.createSharedWorkerExecutor("kubernetes-ops-pool")),
+                client, ResourceUtils.adminClientProvider(), ResourceUtils.kafkaAgentClientProvider(), ResourceUtils.metricsProvider(), PFA);
 
         // Override to inject mocked cruise control address so real cruise control not required
         krao = createKafkaRebalanceAssemblyOperator(ResourceUtils.dummyClusterOperatorConfig());
@@ -153,21 +156,29 @@ public abstract class AbstractKafkaRebalanceAssemblyOperatorTest {
     }
 
     protected KafkaRebalanceAssemblyOperator createKafkaRebalanceAssemblyOperator(ClusterOperatorConfig config) {
-        return new KafkaRebalanceAssemblyOperator(vertx, supplier, config, cruiseControlPort) {
+        return createKafkaRebalanceAssemblyOperator(config, cruiseControlPort);
+    }
+
+    protected KafkaRebalanceAssemblyOperator createKafkaRebalanceAssemblyOperator(ClusterOperatorConfig config, int port) {
+        return new KafkaRebalanceAssemblyOperator(vertx, supplier, config, port) {
             @Override
             public String cruiseControlHost(String clusterName, String clusterNamespace) {
                 return HOST;
             }
 
             @Override
-            public CruiseControlApi cruiseControlClientProvider(Secret ccSecret, Secret ccApiSecret, boolean apiAuthEnabled, boolean apiSslEnabled) {
-                return new CruiseControlApiImpl(1, ccSecret, ccApiSecret, true, true);
+            public CruiseControlApi cruiseControlClientProvider(Secret clusterCaCertSecret, Secret ccApiSecret, boolean apiAuthEnabled, boolean apiSslEnabled) {
+                return new CruiseControlApiImpl(1, clusterCaCertSecret, ccApiSecret, apiAuthEnabled, apiSslEnabled);
             }
         };
     }
 
     protected void crdCreateKafka() {
-        Kafka kafka = new KafkaBuilder(KAFKA)
+        crdCreateKafka(KAFKA);
+    }
+
+    protected void crdCreateKafka(Kafka source) {
+        Kafka kafka = new KafkaBuilder(source)
                 .withNewStatus()
                     .withObservedGeneration(1L)
                     .withConditions(new ConditionBuilder()
@@ -182,11 +193,12 @@ public abstract class AbstractKafkaRebalanceAssemblyOperatorTest {
     }
 
     protected void crdCreateCruiseControlSecrets() {
-        Secret ccSecret = new SecretBuilder(MockCruiseControl.CC_SECRET)
-                .editMetadata()
-                    .withName(CruiseControlResources.secretName(CLUSTER_NAME))
+        Secret clusterCaCertSecret = new SecretBuilder()
+                .withNewMetadata()
+                    .withName(KafkaResources.clusterCaCertificateSecretName(CLUSTER_NAME))
                     .withNamespace(namespace)
                 .endMetadata()
+                .addToData("ca.crt", MockCertIssuer.clusterCaCert())
                 .build();
 
         Secret ccApiSecret = new SecretBuilder(MockCruiseControl.CC_API_SECRET)
@@ -196,7 +208,7 @@ public abstract class AbstractKafkaRebalanceAssemblyOperatorTest {
                 .endMetadata()
                 .build();
 
-        client.secrets().inNamespace(namespace).resource(ccSecret).create();
+        client.secrets().inNamespace(namespace).resource(clusterCaCertSecret).create();
         client.secrets().inNamespace(namespace).resource(ccApiSecret).create();
     }
 
@@ -211,6 +223,17 @@ public abstract class AbstractKafkaRebalanceAssemblyOperatorTest {
                 .endMetadata()
                 .withSpec(kafkaRebalanceSpec)
                 .build();
+    }
+
+    /**
+     * annotate the KafkaRebalance, patch the (mocked) server with the resource and then return the annotated resource
+     */
+    protected void annotate(KubernetesClient kubernetesClient, String namespace, String resource, KafkaRebalanceAnnotation annotationValue) {
+        Crds.kafkaRebalanceOperation(kubernetesClient).inNamespace(namespace).withName(resource).edit(kr -> new KafkaRebalanceBuilder(kr)
+                .editMetadata()
+                    .addToAnnotations(Annotations.ANNO_STRIMZI_IO_REBALANCE, annotationValue.toString())
+                .endMetadata()
+                .build());
     }
 
     protected void assertState(VertxTestContext context, KubernetesClient kubernetesClient, String namespace, String resource, KafkaRebalanceState state) {

@@ -6,6 +6,7 @@ package io.strimzi.operator.common.auth;
 
 import io.fabric8.kubernetes.api.model.Secret;
 import io.strimzi.operator.common.Util;
+import org.apache.kafka.common.config.SslConfigs;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -20,19 +21,17 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 
 /**
  * Represents the identity used during TLS client authentication.
  * This consists of an X509 end-entity certificate, corresponding private key, and a (possibly empty) chain of X509 intermediate CA certificates, all in PEM format.
  */
-public class PemAuthIdentity {
-    /**
-     * Filename suffix for certificate chain as PEM
-     */
-    public static final String PEM_SUFFIX = "pem";
-    private final byte[] privateKeyAsPemBytes;
-    private final byte[] certificateChainAsPemBytes;
+public class PemAuthIdentity implements AuthIdentity {
+    private final String privateKeyAsPem;
+    private final String certificateChainAsPem;
     private final String certificateName;
     private final String secretName;
     private final String secretNamespace;
@@ -48,8 +47,24 @@ public class PemAuthIdentity {
         this.certificateName = certificateName;
         this.secretName = secret.getMetadata().getName();
         this.secretNamespace = secret.getMetadata().getNamespace();
-        privateKeyAsPemBytes = Util.decodeBase64FieldFromSecret(secret, keyName);
-        certificateChainAsPemBytes = Util.decodeBase64FieldFromSecret(secret, certificateName);
+        this.privateKeyAsPem = Util.decodeStringFieldFromSecret(secret, keyName);
+        this.certificateChainAsPem = Util.decodeStringFieldFromSecret(secret, certificateName);
+    }
+
+    @Override
+    public boolean isSasl() {
+        return false;
+    }
+
+    @Override
+    public Map<String, String> kafkaClientProperties() {
+        Map<String, String> config = new HashMap<>();
+
+        config.put(SslConfigs.SSL_KEYSTORE_TYPE_CONFIG, "PEM");
+        config.put(SslConfigs.SSL_KEYSTORE_CERTIFICATE_CHAIN_CONFIG, certificateChainAsPem());
+        config.put(SslConfigs.SSL_KEYSTORE_KEY_CONFIG, privateKeyAsPem());
+
+        return config;
     }
 
     /**
@@ -81,28 +96,10 @@ public class PemAuthIdentity {
     /**
      * End-entity certificate and (possibly empty) chain of intermediate CA certificates for this authentication identity.
      *
-     * @return The certificate chain for this authentication identity as a byte array
-     */
-    public byte[] certificateChainAsPemBytes() {
-        return certificateChainAsPemBytes;
-    }
-
-    /**
-     * End-entity certificate and (possibly empty) chain of intermediate CA certificates for this authentication identity.
-     *
      * @return The certificate chain for this authentication identity as a String
      */
-    public String certificateChainAsPem() {
-        return Util.fromAsciiBytes(certificateChainAsPemBytes);
-    }
-
-    /**
-     * Private key corresponding to the end-entity certificate for this authentication identity.
-     *
-     * @return The private key for this authentication identity as a byte array
-     */
-    public byte[] privateKeyAsPemBytes() {
-        return privateKeyAsPemBytes;
+    private String certificateChainAsPem() {
+        return certificateChainAsPem;
     }
 
     /**
@@ -110,28 +107,18 @@ public class PemAuthIdentity {
      *
      * @return The private key for this authentication identity as a String
      */
-    public String privateKeyAsPem() {
-        return Util.fromAsciiBytes(privateKeyAsPemBytes);
+    private String privateKeyAsPem() {
+        return privateKeyAsPem;
     }
 
     /**
      * KeyStore to use for TLS connections.
-     * @return KeyStore file in PEM format
-     */
-    public byte[] pemKeyStore() {
-        return (privateKeyAsPem() + certificateChainAsPem()).getBytes(StandardCharsets.US_ASCII);
-    }
-
-    /**
-     * KeyStore to use for TLS connections.
-     *
-     * @param password to use to secure the KeyStore
      *
      * @return In-memory KeyStore using the JVM's default keystore type
      * @throws GeneralSecurityException if something goes wrong when creating the truststore
      * @throws IOException if there is an I/O or format problem with the data used to load the truststore.
      */
-    public KeyStore keyStore(char[] password) throws GeneralSecurityException, IOException {
+    public KeyStore keyStore() throws GeneralSecurityException, IOException {
         String strippedPrivateKey = privateKeyAsPem()
                 .replace("-----BEGIN PRIVATE KEY-----", "")
                 .replaceAll(System.lineSeparator(), "")
@@ -143,7 +130,7 @@ public class PemAuthIdentity {
 
         KeyStore coKeyStore = KeyStore.getInstance(KeyStore.getDefaultType());
         coKeyStore.load(null);
-        coKeyStore.setKeyEntry("cluster-operator", key, password, new Certificate[]{certificateChain()});
+        coKeyStore.setKeyEntry("cluster-operator", key, null, new Certificate[]{certificateChain()});
         return coKeyStore;
     }
 
@@ -156,7 +143,7 @@ public class PemAuthIdentity {
     private X509Certificate certificateChain() {
         try {
             final CertificateFactory certificateFactory = CertificateFactory.getInstance("X.509");
-            return (X509Certificate) certificateFactory.generateCertificate(new ByteArrayInputStream(certificateChainAsPemBytes));
+            return (X509Certificate) certificateFactory.generateCertificate(new ByteArrayInputStream(certificateChainAsPem.getBytes(StandardCharsets.US_ASCII)));
         } catch (CertificateException e) {
             throw new RuntimeException("Bad/corrupt certificate found in data." + certificateName + " of Secret "
                     + secretName + " in namespace " + secretNamespace);

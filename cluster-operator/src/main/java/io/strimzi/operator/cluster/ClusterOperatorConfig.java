@@ -16,9 +16,8 @@ import io.strimzi.operator.common.config.ConfigParameter;
 import io.strimzi.operator.common.config.ConfigParameterParser;
 import io.strimzi.operator.common.featuregates.FeatureGates;
 import io.strimzi.operator.common.model.Labels;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -27,6 +26,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static io.strimzi.operator.common.config.ConfigParameterParser.BOOLEAN;
+import static io.strimzi.operator.common.config.ConfigParameterParser.COMMA_SEPARATED_LIST;
 import static io.strimzi.operator.common.config.ConfigParameterParser.INTEGER;
 import static io.strimzi.operator.common.config.ConfigParameterParser.LABEL_PREDICATE;
 import static io.strimzi.operator.common.config.ConfigParameterParser.LOCAL_OBJECT_REFERENCE_LIST;
@@ -39,10 +39,7 @@ import static io.strimzi.operator.common.config.ConfigParameterParser.parseFeatu
  * Cluster Operator configuration
  */
 public class ClusterOperatorConfig {
-
     private static final Map<String, ConfigParameter<?>> CONFIG_VALUES = new HashMap<>();
-
-    private static final Logger LOGGER = LogManager.getLogger(ClusterOperatorConfig.class.getName());
 
     // Env vars for configuring images
     /**
@@ -61,12 +58,13 @@ public class ClusterOperatorConfig {
     public static final String STRIMZI_KAFKA_MIRROR_MAKER_2_IMAGES = "STRIMZI_KAFKA_MIRROR_MAKER_2_IMAGES";
 
     /**
-     * Configures the Entity Operator TLS sidecar container images.
-     * Used only to produce warning if defined at startup.
+     * List of mandatory Gatekeeper plugins that are not user-configurable but are hardcoded by Strimzi
      */
-    private static final String STRIMZI_DEFAULT_TLS_SIDECAR_KAFKA_IMAGE = "STRIMZI_DEFAULT_TLS_SIDECAR_KAFKA_IMAGE";
-    private static final String STRIMZI_DEFAULT_TLS_SIDECAR_CRUISE_CONTROL_IMAGE = "STRIMZI_DEFAULT_TLS_SIDECAR_CRUISE_CONTROL_IMAGE";
-    private static final String STRIMZI_DEFAULT_TLS_SIDECAR_ENTITY_OPERATOR_IMAGE = "STRIMZI_DEFAULT_TLS_SIDECAR_ENTITY_OPERATOR_IMAGE";
+    private static final List<String> MANDATORY_GATEKEEPER_PLUGINS = List.of();
+    /**
+     * List of default Gatekeeper plugins that are used by default, but users can change / reconfigure them.
+     */
+    private static final List<String> DEFAULT_GATEKEEPER_PLUGINS = List.of();
 
     /**
      * Configures the Kafka Exporter container image
@@ -125,14 +123,9 @@ public class ClusterOperatorConfig {
     public static final String HTTPS_PROXY = "HTTPS_PROXY";
 
     /**
-     * Server which should not use proxy to connect to
+     * Server that should not use proxy to connect to
      */
     public static final String NO_PROXY = "NO_PROXY";
-
-    /**
-     * Enabled or disables the FIPS mode
-     */
-    public static final String FIPS_MODE = "FIPS_MODE";
 
     // Default values
     /**
@@ -213,7 +206,7 @@ public class ClusterOperatorConfig {
 
 
     /**
-     * The Pod name of the cluster operator, used to identify source of K8s events the operator creates
+     * The Pod name of the cluster operator, used as the source of Kubernetes events the operator creates
      */
     public static final ConfigParameter<String> OPERATOR_NAME = new ConfigParameter<>("STRIMZI_OPERATOR_NAME", STRING, "cluster-operator-name-unset", CONFIG_VALUES);
 
@@ -255,29 +248,24 @@ public class ClusterOperatorConfig {
     public static final ConfigParameter<Boolean> PKCS12_KEYSTORE_GENERATION = new ConfigParameter<>("STRIMZI_PKCS12_KEYSTORE_GENERATION", BOOLEAN, "true", CONFIG_VALUES);
 
     /**
+     * Set true to enable watched namespace feature for Entity Operators (Topic Operator and User Operator)
+     */
+    public static final ConfigParameter<Boolean> ENTITY_OPERATOR_WATCHED_NAMESPACE_ENABLED = new ConfigParameter<>("STRIMZI_ENTITY_OPERATOR_WATCHED_NAMESPACE_ENABLED", BOOLEAN, "false", CONFIG_VALUES);
+
+    /**
+     * Comma-separated list of custom Gatekeeper plugins that should be enabled
+     */
+    public static final ConfigParameter<List<String>> GATEKEEPER_CUSTOM_PLUGINS = new ConfigParameter<>("STRIMZI_GATEKEEPER_CUSTOM_PLUGINS", COMMA_SEPARATED_LIST, "", CONFIG_VALUES);
+
+    /**
+     * Comma-separated list of default Gatekeeper plugins. If not set, the default list of default plugins is used.
+     */
+    public static final ConfigParameter<List<String>> GATEKEEPER_DEFAULT_PLUGINS = new ConfigParameter<>("STRIMZI_GATEKEEPER_DEFAULT_PLUGINS", COMMA_SEPARATED_LIST, "", CONFIG_VALUES);
+
+    /**
      * The configured Kafka versions
      */
     private final KafkaVersion.Lookup versions;
-
-    /**
-     * Logs warnings for removed / deprecated environment variables
-     *
-     * @param map   map from which loading configuration parameters
-     */
-    private static void warningsForRemovedEndVars(Map<String, String> map) {
-        if (map.containsKey(STRIMZI_DEFAULT_TLS_SIDECAR_KAFKA_IMAGE))    {
-            LOGGER.warn("Kafka TLS sidecar container has been removed and the environment variable {} is not used anymore. " +
-                    "You can remove it from the Strimzi Cluster Operator deployment.", STRIMZI_DEFAULT_TLS_SIDECAR_KAFKA_IMAGE);
-        }
-        if (map.containsKey(STRIMZI_DEFAULT_TLS_SIDECAR_CRUISE_CONTROL_IMAGE))    {
-            LOGGER.warn("Cruise Control TLS sidecar container has been removed and the environment variable {} is not used anymore. " +
-                    "You can remove it from the Strimzi Cluster Operator deployment.", STRIMZI_DEFAULT_TLS_SIDECAR_CRUISE_CONTROL_IMAGE);
-        }
-        if (map.containsKey(STRIMZI_DEFAULT_TLS_SIDECAR_ENTITY_OPERATOR_IMAGE))    {
-            LOGGER.warn("Entity Operator TLS sidecar container has been removed and the environment variable {} is not used anymore. " +
-                "You can remove it from the Strimzi Cluster Operator deployment.", STRIMZI_DEFAULT_TLS_SIDECAR_ENTITY_OPERATOR_IMAGE);
-        }
-    }
 
     /**
      * Loads configuration parameters from a related map
@@ -287,7 +275,6 @@ public class ClusterOperatorConfig {
      */
 
     public static ClusterOperatorConfig buildFromMap(Map<String, String> map) {
-        warningsForRemovedEndVars(map);
         KafkaVersion.Lookup lookup = parseKafkaVersions(map.get(STRIMZI_KAFKA_IMAGES), map.get(STRIMZI_KAFKA_CONNECT_IMAGES), map.get(STRIMZI_KAFKA_MIRROR_MAKER_2_IMAGES));
         return buildFromMap(map, lookup);
 
@@ -376,7 +363,7 @@ public class ClusterOperatorConfig {
      * Container Security Contexts
      *
      * @param envVar The value of the environment variable configuring the Pod Security Provider
-     * @return The full name of the class which should be used as the Pod security Provider
+     * @return The full name of the class that should be used as the Pod security Provider
      */
     /* test */ static String parsePodSecurityProviderClass(String envVar) {
         String value = envVar != null ? envVar : POD_SECURITY_PROVIDER_CLASS.defaultValue();
@@ -470,7 +457,7 @@ public class ClusterOperatorConfig {
     /**
      * Gets the timeout in milliseconds for Kubernetes operations.
      *
-     * @return  how many milliseconds should we wait for Kubernetes operations
+     * @return  Number of milliseconds to wait for Kubernetes operations
      */
     public long getOperationTimeoutMs() {
         return get(OPERATION_TIMEOUT_MS);
@@ -479,7 +466,7 @@ public class ClusterOperatorConfig {
     /**
      * Gets the timeout in milliseconds for Kafka Connect build completion.
      *
-     * @return  How many milliseconds should we wait for Kafka Connect build to complete
+     * @return  Number of milliseconds to wait for a Kafka Connect build to complete
      */
     public long getConnectBuildTimeoutMs() {
         return get(CONNECT_BUILD_TIMEOUT_MS);
@@ -642,6 +629,61 @@ public class ClusterOperatorConfig {
         return get(PKCS12_KEYSTORE_GENERATION);
     }
 
+    /**
+     * Checks whether Entity Operator watched namespace feature is enabled.
+     *
+     * @return  Indicates whether Entity Operator watched namespace feature is enabled.
+     */
+    public boolean isEntityOperatorWatchedNamespaceEnabled() {
+        return get(ENTITY_OPERATOR_WATCHED_NAMESPACE_ENABLED);
+    }
+
+    /**
+     * Gets the list of custom Gatekeeper plugins.
+     *
+     * @return List of custom Gatekeeper plugins
+     */
+    public List<String> getGatekeeperCustomPlugins() {
+        return get(GATEKEEPER_CUSTOM_PLUGINS);
+    }
+
+    /**
+     * Gets the list of default Gatekeeper plugins.
+     *
+     * @return List of default Gatekeeper plugins
+     */
+    public List<String> getGatekeeperDefaultPlugins() {
+        return get(GATEKEEPER_DEFAULT_PLUGINS);
+    }
+
+    /**
+     * Gets the full list of the Gatekeeper plugins that should be used. This is constructed from the partial lists:
+     *   - Custom
+     *   - Default
+     *   - Mandatory
+     *
+     * @return  List of all Gatekeeper plugins that should be used
+     */
+    public List<String> getGatekeeperPlugins() {
+        List<String> plugins = new ArrayList<>();
+
+        List<String> customPlugins = get(GATEKEEPER_CUSTOM_PLUGINS);
+        if (customPlugins != null) {
+            plugins.addAll(customPlugins);
+        }
+
+        List<String> defaultPlugins = get(GATEKEEPER_DEFAULT_PLUGINS);
+        if (defaultPlugins != null) {
+            plugins.addAll(defaultPlugins);
+        } else {
+            plugins.addAll(DEFAULT_GATEKEEPER_PLUGINS);
+        }
+
+        plugins.addAll(MANDATORY_GATEKEEPER_PLUGINS);
+
+        return plugins;
+    }
+
     @Override
     public String toString() {
         return "ClusterOperatorConfig{" +
@@ -665,6 +707,10 @@ public class ClusterOperatorConfig {
                 "\n\tleaderElectionConfig='" + getLeaderElectionConfig() + '\'' +
                 "\n\tpodDisruptionBudgetGeneration=" + isPodDisruptionBudgetGeneration() + '\'' +
                 "\n\tisPkcs12KeystoreGeneration='" + isPkcs12KeystoreGeneration() +
+                "\n\tisEntityOperatorWatchedNamespaceEnabled='" + isEntityOperatorWatchedNamespaceEnabled() +
+                "\n\tgatekeeperCustomPlugins='" + getGatekeeperCustomPlugins() + "'" +
+                "\n\tgatekeeperDefaultPlugins='" + getGatekeeperDefaultPlugins() + "'" +
+                "\n\tgatekeeperPlugins='" + getGatekeeperPlugins() + "'" +
                 "}";
     }
 }

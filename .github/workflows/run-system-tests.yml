@@ -27,6 +27,16 @@ on:
         required: false
         default: ""
         type: string
+      clusterSecurityEncryption:
+        description: "Encryption used for the internal Kafka cluster communication ('tls' or 'none')"
+        required: false
+        default: "tls"
+        type: string
+      clusterSecurityAuthentication:
+        description: "Authentication used for the internal Kafka cluster communication ('mtls', 'service-account' or 'none')"
+        required: false
+        default: "mtls"
+        type: string
       # Checkout ref params
       ref:
         description: "Repository ref that will be checkout"
@@ -71,7 +81,10 @@ jobs:
       STRIMZI_RBAC_SCOPE: ${{ matrix.config.strimzi_rbac_scope }}
       CLUSTER_OPERATOR_INSTALL_TYPE: ${{ matrix.config.cluster_operator_install_type }}
       STRIMZI_FEATURE_GATES: ${{ matrix.config.strimzi_feature_gates }}
+      CLUSTER_SECURITY_ENCRYPTION: ${{ inputs.clusterSecurityEncryption }}
+      CLUSTER_SECURITY_AUTHENTICATION: ${{ inputs.clusterSecurityAuthentication }}
       PARALLEL: ${{ matrix.config.parallel }}
+      IP_FAMILY: ${{ matrix.config.ipFamily }}
       STRIMZI_DEFAULT_LOG_LEVEL: DEBUG
       OPERATOR_IMAGE_PULL_POLICY: IfNotPresent
       COMPONENTS_IMAGE_PULL_POLICY: IfNotPresent
@@ -81,7 +94,7 @@ jobs:
       KUBE_VERSION: ${{ inputs.kubeVersion }}
     # Job steps
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
 
@@ -94,28 +107,28 @@ jobs:
           checkDescription: "Test run for ${{ matrix.config.jobName }}"
 
       - name: Setup Java and Maven
-        uses: strimzi/github-actions/.github/actions/dependencies/setup-java@v1
+        uses: strimzi/github-actions/.github/actions/dependencies/setup-java@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
         with:
           javaVersion: "21"
 
       - name: Install yq
-        uses: strimzi/github-actions/.github/actions/dependencies/install-yq@v1
+        uses: strimzi/github-actions/.github/actions/dependencies/install-yq@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
         with:
           version: "v4.6.3"
           architecture: ${{ matrix.config.arch }}
 
       - name: Install Shellcheck
-        uses: strimzi/github-actions/.github/actions/dependencies/install-shellcheck@v1
+        uses: strimzi/github-actions/.github/actions/dependencies/install-shellcheck@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
         with:
           version: "0.11.0"
 
       - name: Install Helm
-        uses: strimzi/github-actions/.github/actions/dependencies/install-helm@v1
+        uses: strimzi/github-actions/.github/actions/dependencies/install-helm@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
         with:
           helmVersion: "v3.16.0"
 
       - name: Setup Kind cluster
-        uses: strimzi/github-actions/.github/actions/dependencies/setup-kind@v1
+        uses: strimzi/github-actions/.github/actions/dependencies/setup-kind@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
         with:
           architecture: ${{ matrix.config.arch }}
           controlNodes: 1
@@ -137,8 +150,11 @@ jobs:
         run: |
           echo "DOCKER_TAG=${{ inputs.releaseVersion }}" >> $GITHUB_ENV
 
-      - name: Set DOCKER_REGISTRY to quay.io if releaseVersion != latest
-        if: ${{ inputs.releaseVersion != 'latest' }}
+      # This has to match the negation of the condition of the "Load Strimzi images" step below. When the images are
+      # built locally and loaded into the Kind registry, DOCKER_REGISTRY has to keep pointing to the Kind registry.
+      # Otherwise, the `docker_e2e` Make target would push the locally built images into quay.io.
+      - name: Set DOCKER_REGISTRY to quay.io when testing already published images
+        if: ${{ inputs.releaseVersion != 'latest' || inputs.ref == 'refs/heads/main' }}
         run: |
           echo "DOCKER_REGISTRY=quay.io" >> $GITHUB_ENV
 
@@ -153,7 +169,7 @@ jobs:
       - name: Download container images from Build workflow
         id: download-containers
         if: ${{ inputs.buildRunId != '' }}
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: "containers-operators-${{ matrix.config.arch }}.tar"
           run-id: ${{ inputs.buildRunId }}
@@ -162,7 +178,7 @@ jobs:
       - name: Download container images from this build
         id: download-containers-local
         if: ${{ inputs.buildRunId == '' }}
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: "containers-operators-${{ matrix.config.arch }}.tar"
 
@@ -175,14 +191,14 @@ jobs:
           registry: "kind"
 
       - name: Restore Maven cache
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.m2/repository
           key: maven-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
             maven-
       - name: Restore Kafka cache
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: docker-images/artifacts/binaries/kafka/archives
           key: kafka-binaries-${{ hashFiles('kafka-versions.yaml') }}
@@ -287,27 +303,27 @@ jobs:
 
       - name: Archive JUnit test results
         if: ${{ always() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: junit-results-${{ matrix.config.pipeline }}-${{ matrix.config.profile }}-${{ matrix.config.agent }}
           path: systemtest/target/failsafe-reports/**/TEST-*.xml
 
       - name: Archive systemtest logs
         if: ${{ always() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: systemtest-logs-${{ matrix.config.pipeline }}-${{ matrix.config.profile }}-${{ matrix.config.agent }}
           path: systemtest-logs
 
       - name: Archive performance results
         if: ${{ always() && matrix.config.profile == 'performance' }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: performance-results-${{ matrix.config.pipeline }}-${{ matrix.config.profile }}-${{ matrix.config.agent }}
           path: systemtest/target/performance
 
       - name: Publish test results
-        uses: dorny/test-reporter@v3
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         if: always()
         with:
           name: 'System tests'

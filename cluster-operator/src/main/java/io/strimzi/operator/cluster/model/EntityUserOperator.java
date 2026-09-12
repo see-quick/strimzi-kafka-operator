@@ -25,22 +25,28 @@ import io.strimzi.api.kafka.model.kafka.KafkaResources;
 import io.strimzi.api.kafka.model.kafka.entityoperator.EntityUserOperatorSpec;
 import io.strimzi.certs.CertAndKey;
 import io.strimzi.operator.cluster.ClusterOperatorConfig;
+import io.strimzi.operator.cluster.model.clustersecurity.kafka.KafkaClusterSecurityContext;
+import io.strimzi.operator.cluster.model.clustersecurity.kafka.MtlsAuthenticationConfiguration;
+import io.strimzi.operator.cluster.model.clustersecurity.kafka.ServiceAccountAuthenticationConfiguration;
+import io.strimzi.operator.cluster.model.clustersecurity.kafka.TlsEncryptionConfiguration;
 import io.strimzi.operator.cluster.model.logging.LoggingModel;
 import io.strimzi.operator.cluster.model.logging.SupportsLogging;
 import io.strimzi.operator.cluster.model.securityprofiles.ContainerSecurityProviderContextImpl;
 import io.strimzi.operator.common.Reconciliation;
+import io.strimzi.operator.common.ca.Ca;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletionStage;
 
 /**
  * Represents the User Operator deployment
  */
 public class EntityUserOperator extends AbstractModel implements SupportsLogging {
     protected static final String COMPONENT_TYPE = "entity-user-operator";
-    
+
     protected static final String USER_OPERATOR_CONTAINER_NAME = "user-operator";
     private static final String NAME_SUFFIX = "-entity-user-operator";
 
@@ -63,6 +69,7 @@ public class EntityUserOperator extends AbstractModel implements SupportsLogging
     /* test */ static final String ENV_VAR_CLIENTS_CA_RENEWAL = "STRIMZI_CA_RENEWAL";
     /* test */ static final String ENV_VAR_CLUSTER_CA_CERT_SECRET_NAME = "STRIMZI_CLUSTER_CA_CERT_SECRET_NAME";
     /* test */ static final String ENV_VAR_EO_KEY_SECRET_NAME = "STRIMZI_EO_KEY_SECRET_NAME";
+    /* test */ static final String ENV_VAR_SERVICE_ACCOUNT_TOKEN_PATH = "STRIMZI_SERVICE_ACCOUNT_TOKEN_PATH";
     /* test */ static final String ENV_VAR_SECRET_PREFIX = "STRIMZI_SECRET_PREFIX";
     /* test */ static final String ENV_VAR_ACLS_ADMIN_API_SUPPORTED = "STRIMZI_ACLS_ADMIN_API_SUPPORTED";
     /* test */ static final String ENV_VAR_MAINTENANCE_TIME_WINDOWS = "STRIMZI_MAINTENANCE_TIME_WINDOWS";
@@ -80,6 +87,7 @@ public class EntityUserOperator extends AbstractModel implements SupportsLogging
     /* test */ int clientsCaRenewalDays;
     private ResourceTemplate templateRoleBinding;
     private String featureGatesEnvVarValue;
+    private KafkaClusterSecurityContext securityContext;
 
     private boolean aclsAdminApiSupported = false;
     private List<String> maintenanceWindows;
@@ -113,13 +121,15 @@ public class EntityUserOperator extends AbstractModel implements SupportsLogging
      * @param kafkaAssembly                 Desired resource with cluster configuration containing the Entity User Operator one
      * @param sharedEnvironmentProvider     Shared environment provider
      * @param config                        Cluster Operator configuration
+     * @param securityContext               Kafka Cluster Security Context
      *
-     * @return Entity User Operator instance, null if not configured
+     * @return  Entity User Operator instance, null if not configured
      */
     public static EntityUserOperator fromCrd(Reconciliation reconciliation,
                                              Kafka kafkaAssembly,
                                              SharedEnvironmentProvider sharedEnvironmentProvider,
-                                             ClusterOperatorConfig config) {
+                                             ClusterOperatorConfig config,
+                                             KafkaClusterSecurityContext securityContext) {
         if (kafkaAssembly.getSpec().getEntityOperator() != null
                 && kafkaAssembly.getSpec().getEntityOperator().getUserOperator() != null) {
             EntityUserOperatorSpec userOperatorSpec = kafkaAssembly.getSpec().getEntityOperator().getUserOperator();
@@ -143,6 +153,7 @@ public class EntityUserOperator extends AbstractModel implements SupportsLogging
             result.livenessProbeOptions = ProbeUtils.extractLivenessProbeOptionsOrDefault(userOperatorSpec, EntityOperator.DEFAULT_HEALTHCHECK_OPTIONS);
             result.featureGatesEnvVarValue = config.featureGates().toEnvironmentVariable();
             result.generatePkcs12Stores = config.isPkcs12KeystoreGeneration();
+            result.securityContext = securityContext;
 
             if (kafkaAssembly.getSpec().getEntityOperator().getTemplate() != null)  {
                 result.templateRoleBinding = kafkaAssembly.getSpec().getEntityOperator().getTemplate().getUserOperatorRoleBinding();
@@ -203,8 +214,17 @@ public class EntityUserOperator extends AbstractModel implements SupportsLogging
         varList.add(ContainerUtils.createEnvVar(ENV_VAR_CLIENTS_CA_NAMESPACE, namespace));
         varList.add(ContainerUtils.createEnvVar(ENV_VAR_CLIENTS_CA_VALIDITY, Integer.toString(clientsCaValidityDays)));
         varList.add(ContainerUtils.createEnvVar(ENV_VAR_CLIENTS_CA_RENEWAL, Integer.toString(clientsCaRenewalDays)));
-        varList.add(ContainerUtils.createEnvVar(ENV_VAR_CLUSTER_CA_CERT_SECRET_NAME, KafkaCluster.clusterCaCertSecretName(cluster)));
-        varList.add(ContainerUtils.createEnvVar(ENV_VAR_EO_KEY_SECRET_NAME, KafkaResources.entityUserOperatorSecretName(cluster)));
+
+        if (securityContext.encryption() instanceof TlsEncryptionConfiguration) {
+            varList.add(ContainerUtils.createEnvVar(ENV_VAR_CLUSTER_CA_CERT_SECRET_NAME, KafkaCluster.clusterCaCertSecretName(cluster)));
+        }
+
+        if (securityContext.authentication() instanceof MtlsAuthenticationConfiguration) {
+            varList.add(ContainerUtils.createEnvVar(ENV_VAR_EO_KEY_SECRET_NAME, KafkaResources.entityUserOperatorSecretName(cluster)));
+        } else if (securityContext.authentication() instanceof ServiceAccountAuthenticationConfiguration) {
+            varList.add(ContainerUtils.createEnvVar(ENV_VAR_SERVICE_ACCOUNT_TOKEN_PATH, "/var/run/secrets/strimzi.io/token"));
+        }
+
         varList.add(ContainerUtils.createEnvVar(ENV_VAR_STRIMZI_GC_LOG_ENABLED, String.valueOf(gcLoggingEnabled)));
         varList.add(ContainerUtils.createEnvVar(ENV_VAR_SECRET_PREFIX, secretPrefix));
         varList.add(ContainerUtils.createEnvVar(ENV_VAR_ACLS_ADMIN_API_SUPPORTED, String.valueOf(aclsAdminApiSupported)));
@@ -239,8 +259,13 @@ public class EntityUserOperator extends AbstractModel implements SupportsLogging
 
     private List<VolumeMount> getVolumeMounts() {
         List<VolumeMount> volumeMounts = new ArrayList<>();
+        volumeMounts.add(VolumeUtils.createServiceAccountVolumeMount());
         volumeMounts.add(VolumeUtils.createTempDirVolumeMount(USER_OPERATOR_TMP_DIRECTORY_DEFAULT_VOLUME_NAME));
         volumeMounts.add(VolumeUtils.createVolumeMount(LOG_AND_METRICS_CONFIG_VOLUME_NAME, LOG_AND_METRICS_CONFIG_VOLUME_MOUNT));
+
+        if (securityContext.authentication() instanceof ServiceAccountAuthenticationConfiguration)   {
+            volumeMounts.add(VolumeUtils.createStrimziAuthenticationTokenVolumeMount());
+        }
 
         TemplateUtils.addAdditionalVolumeMounts(volumeMounts, templateContainer);
 
@@ -290,21 +315,22 @@ public class EntityUserOperator extends AbstractModel implements SupportsLogging
      *
      * @return The generated Secret.
      */
-    public Secret generateCertificatesSecret(ClusterCa clusterCa, Secret existingSecret, boolean isMaintenanceTimeWindowsSatisfied) {
-        CertAndKey existingCertAndKey = CertUtils.keyStoreCertAndKey(existingSecret, EntityOperator.COMPONENT_TYPE, clusterCa.caCertGenerationAnnotation());
+    public CompletionStage<Secret> generateCertificatesSecret(Ca clusterCa, Secret existingSecret, boolean isMaintenanceTimeWindowsSatisfied) {
+        CertAndKey existingCertAndKey = CertSecretUtils.keyStoreCertAndKey(existingSecret, EntityOperator.COMPONENT_TYPE, clusterCa.caCertGenerationAnnotation());
 
-        CertAndKey updatedCert = clusterCa.maybeCopyOrGenerateClientCert(reconciliation, componentName, existingCertAndKey, isMaintenanceTimeWindowsSatisfied);
-
-        Map<String, String> secretData = CertUtils.buildSecretData(EntityOperator.COMPONENT_TYPE, updatedCert);
-        return ModelUtils.createSecret(
-                KafkaResources.entityUserOperatorSecretName(cluster),
-                namespace,
-                labels,
-                ownerReference,
-                secretData,
-                Map.of(clusterCa.caCertGenerationAnnotation(), String.valueOf(updatedCert.caCertGeneration())),
-                Map.of()
-        );
+        return clusterCa.maybeCopyOrGenerateClientCert(reconciliation, componentName, existingCertAndKey, isMaintenanceTimeWindowsSatisfied)
+                .thenApply(updatedCert -> {
+                    Map<String, String> secretData = CertSecretUtils.buildSecretData(EntityOperator.COMPONENT_TYPE, updatedCert);
+                    return ModelUtils.createSecret(
+                            KafkaResources.entityUserOperatorSecretName(cluster),
+                            namespace,
+                            labels,
+                            ownerReference,
+                            secretData,
+                            Map.of(clusterCa.caCertGenerationAnnotation(), String.valueOf(updatedCert.caCertGeneration())),
+                            Map.of()
+                    );
+                });
     }
 
     /**

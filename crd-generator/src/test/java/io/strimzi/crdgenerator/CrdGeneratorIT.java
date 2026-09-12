@@ -9,8 +9,6 @@ import io.fabric8.kubernetes.client.ConfigBuilder;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import io.fabric8.kubernetes.client.KubernetesClientBuilder;
 import io.fabric8.kubernetes.client.KubernetesClientException;
-import io.strimzi.api.annotations.ApiVersion;
-import io.strimzi.api.annotations.KubeVersion;
 import io.strimzi.test.CrdUtils;
 import io.strimzi.test.TestUtils;
 import io.strimzi.test.interfaces.TestSeparator;
@@ -23,6 +21,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 
 import java.io.IOException;
 import java.io.StringWriter;
+import java.util.Map;
 import java.util.stream.Stream;
 
 import static java.util.Collections.emptyList;
@@ -223,7 +222,7 @@ public class CrdGeneratorIT implements TestSeparator {
 
             GenericKubernetesResource updated = client.genericKubernetesResources(API_VERSION, KIND).withName("scalable").get();
             @SuppressWarnings("unchecked")
-            Number replicas = (Number) ((java.util.Map<String, Object>) updated.get("spec")).get("replicas");
+            Number replicas = (Number) ((Map<String, Object>) updated.get("spec")).get("replicas");
             assertEquals(7, replicas.intValue());
         } finally {
             client.genericKubernetesResources(API_VERSION, KIND).withName("scalable").delete();

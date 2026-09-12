@@ -52,18 +52,18 @@ import io.strimzi.api.kafka.model.common.template.AdditionalVolume;
 import io.strimzi.api.kafka.model.common.template.AdditionalVolumeBuilder;
 import io.strimzi.api.kafka.model.common.template.ContainerEnvVar;
 import io.strimzi.api.kafka.model.common.template.ContainerTemplate;
-import io.strimzi.api.kafka.model.common.template.DeploymentStrategy;
 import io.strimzi.api.kafka.model.common.template.IpFamily;
 import io.strimzi.api.kafka.model.common.template.IpFamilyPolicy;
+import io.strimzi.api.kafka.model.common.template.StrimziDeploymentStrategy;
 import io.strimzi.api.kafka.model.common.tracing.OpenTelemetryTracing;
 import io.strimzi.operator.cluster.PlatformFeaturesAvailability;
+import io.strimzi.operator.cluster.TestUtils;
 import io.strimzi.operator.cluster.model.logging.LoggingModel;
 import io.strimzi.operator.cluster.model.metrics.JmxPrometheusExporterModel;
 import io.strimzi.operator.cluster.model.metrics.StrimziMetricsReporterModel;
 import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.platform.KubernetesVersion;
-import io.strimzi.test.TestUtils;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -91,7 +91,7 @@ import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasSize;
 
-@SuppressWarnings({"checkstyle:ClassDataAbstractionCoupling", "checkstyle:ClassFanOutComplexity"})
+@SuppressWarnings({"checkstyle:ClassDataAbstractionCoupling", "checkstyle:ClassFanOutComplexity", "checkstyle:NoFullyQualifiedClassNames"}) // False positive, fully qualified class name used in a string
 public class KafkaBridgeClusterTest {
     private static final SharedEnvironmentProvider SHARED_ENV_PROVIDER = new MockSharedEnvironmentProvider();
 
@@ -137,6 +137,7 @@ public class KafkaBridgeClusterTest {
     protected List<EnvVar> getExpectedEnvVars() {
         List<EnvVar> expected = new ArrayList<>();
         expected.add(new EnvVarBuilder().withName(KafkaBridgeCluster.ENV_VAR_STRIMZI_GC_LOG_ENABLED).withValue(String.valueOf(JvmOptions.DEFAULT_GC_LOGGING_ENABLED)).build());
+        expected.add(new EnvVarBuilder().withName(AbstractModel.ENV_VAR_KAFKA_HEAP_OPTS).withValue("-Xms" + JvmOptionUtils.DEFAULT_JVM_XMS).build());
         return expected;
     }
 
@@ -219,7 +220,7 @@ public class KafkaBridgeClusterTest {
 
         assertThat(svc.getMetadata().getAnnotations(), is(KBC.getDiscoveryAnnotation(KafkaBridgeCluster.DEFAULT_REST_API_PORT, false)));
 
-        io.strimzi.operator.cluster.TestUtils.checkOwnerReference(svc, RESOURCE);
+        TestUtils.checkOwnerReference(svc, RESOURCE);
     }
 
     @Test
@@ -258,7 +259,7 @@ public class KafkaBridgeClusterTest {
             .filter(volume -> volume.getName().equalsIgnoreCase("strimzi-tmp"))
             .findFirst().orElseThrow().getEmptyDir().getSizeLimit(), is(new Quantity(VolumeUtils.STRIMZI_TMP_DIRECTORY_DEFAULT_SIZE)));
 
-        io.strimzi.operator.cluster.TestUtils.checkOwnerReference(dep, RESOURCE);
+        TestUtils.checkOwnerReference(dep, RESOURCE);
     }
 
     @Test
@@ -441,11 +442,11 @@ public class KafkaBridgeClusterTest {
         KafkaBridgeCluster kbc = KafkaBridgeCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, resource, SHARED_ENV_PROVIDER);
         Deployment dep = kbc.generateDeployment(emptyMap(), true, null, null);
 
-        assertThat(dep.getSpec().getTemplate().getSpec().getVolumes().get(2).getName(), is("my-secret"));
+        assertThat(dep.getSpec().getTemplate().getSpec().getVolumes().get(3).getName(), is("my-secret"));
 
         List<Container> containers = dep.getSpec().getTemplate().getSpec().getContainers();
 
-        assertThat(containers.get(0).getVolumeMounts().get(2).getMountPath(), is(KafkaBridgeCluster.HTTP_SERVER_CERTS_BASE_VOLUME_MOUNT + "my-secret"));
+        assertThat(containers.get(0).getVolumeMounts().get(3).getMountPath(), is(KafkaBridgeCluster.HTTP_SERVER_CERTS_BASE_VOLUME_MOUNT + "my-secret"));
 
         ConfigMap configMap = kbc.generateBridgeConfigMap(METRICS_AND_LOGGING);
         String bridgeConfigurations = configMap.getData().get(BRIDGE_CONFIGURATION_FILENAME);
@@ -536,7 +537,7 @@ public class KafkaBridgeClusterTest {
                                 .withLabels(depLabels)
                                 .withAnnotations(depAnots)
                             .endMetadata()
-                            .withDeploymentStrategy(DeploymentStrategy.RECREATE)
+                            .withDeploymentStrategy(StrimziDeploymentStrategy.RECREATE)
                         .endDeployment()
                         .withNewPod()
                             .withNewMetadata()
@@ -941,7 +942,7 @@ public class KafkaBridgeClusterTest {
         assertThat(maybeContainer.isPresent(), is(true));
         final Container bridgeContainer = maybeContainer.get();
 
-        assertThat(bridgeContainer.getVolumeMounts(), hasSize(3));
+        assertThat(bridgeContainer.getVolumeMounts(), hasSize(4));
         final Optional<VolumeMount> volumeMountOptional = bridgeContainer.getVolumeMounts().stream().filter(volumeMount -> volumeMount.getName().equals("rack-volume")).findFirst();
         assertThat(volumeMountOptional.isPresent(), is(true));
         final VolumeMount bridgeVolumeMount = volumeMountOptional.get();
@@ -984,12 +985,14 @@ public class KafkaBridgeClusterTest {
         PodSpec podSpec = deployment.getSpec().getTemplate().getSpec();
         assertThat(podSpec.getContainers(), is(notNullValue()));
         assertThat(podSpec.getContainers(), hasSize(1));
-        assertThat(podSpec.getContainers().get(0).getVolumeMounts(), hasSize(2));
-        assertThat(podSpec.getContainers().get(0).getVolumeMounts().get(0).getName(), is("strimzi-tmp"));
-        assertThat(podSpec.getContainers().get(0).getVolumeMounts().get(1).getName(), is("kafka-bridge-configurations"));
-        assertThat(podSpec.getVolumes(), hasSize(2));
-        assertThat(podSpec.getVolumes().get(0).getName(), is("strimzi-tmp"));
-        assertThat(podSpec.getVolumes().get(1).getName(), is("kafka-bridge-configurations"));
+        assertThat(podSpec.getContainers().get(0).getVolumeMounts(), hasSize(3));
+        assertThat(podSpec.getContainers().get(0).getVolumeMounts().get(0).getName(), is(VolumeUtils.SERVICE_ACCOUNT_TOKEN_VOLUME_NAME));
+        assertThat(podSpec.getContainers().get(0).getVolumeMounts().get(1).getName(), is("strimzi-tmp"));
+        assertThat(podSpec.getContainers().get(0).getVolumeMounts().get(2).getName(), is("kafka-bridge-configurations"));
+        assertThat(podSpec.getVolumes(), hasSize(3));
+        assertThat(podSpec.getVolumes().get(0).getName(), is(VolumeUtils.SERVICE_ACCOUNT_TOKEN_VOLUME_NAME));
+        assertThat(podSpec.getVolumes().get(1).getName(), is("strimzi-tmp"));
+        assertThat(podSpec.getVolumes().get(2).getName(), is("kafka-bridge-configurations"));
         assertThat(podSpec.getInitContainers(), is(nullValue()));
 
         // Test ClusterRoleBinding
@@ -1119,7 +1122,7 @@ public class KafkaBridgeClusterTest {
         assertThat(svc.getMetadata().getAnnotations(), is(KBC.getDiscoveryAnnotation(1874, false)));
         assertThat(svc.getSpec().getPorts().get(1).getPort(), is(KafkaBridgeCluster.REST_API_MANAGEMENT_PORT));
         assertThat(svc.getSpec().getPorts().get(1).getName(), is(KafkaBridgeCluster.REST_API_MANAGEMENT_PORT_NAME));
-        io.strimzi.operator.cluster.TestUtils.checkOwnerReference(svc, resource);
+        TestUtils.checkOwnerReference(svc, resource);
     }
 
     @Test
@@ -1210,11 +1213,14 @@ public class KafkaBridgeClusterTest {
         assertThat(systemProps.getValue(), containsString("-DmyProperty1=myValue1"));
         assertThat(systemProps.getValue(), containsString("-DmyProperty2=myValue2"));
 
-        EnvVar javaOpts = kb.getEnvVars().stream().filter(envVar -> AbstractModel.ENV_VAR_STRIMZI_JAVA_OPTS.equals(envVar.getName())).findFirst().orElse(null);
-        assertThat(javaOpts, is(notNullValue()));
-        assertThat(javaOpts.getValue(), containsString("-Xms128m"));
-        assertThat(javaOpts.getValue(), containsString("-Xmx256m"));
-        assertThat(javaOpts.getValue(), containsString("-XX:InitiatingHeapOccupancyPercent=36"));
+        EnvVar heapOpts = kb.getEnvVars().stream().filter(envVar -> AbstractModel.ENV_VAR_KAFKA_HEAP_OPTS.equals(envVar.getName())).findFirst().orElse(null);
+        assertThat(heapOpts, is(notNullValue()));
+        assertThat(heapOpts.getValue(), containsString("-Xms128m"));
+        assertThat(heapOpts.getValue(), containsString("-Xmx256m"));
+
+        EnvVar perfOptions = kb.getEnvVars().stream().filter(envVar -> AbstractModel.ENV_VAR_KAFKA_JVM_PERFORMANCE_OPTS.equals(envVar.getName())).findFirst().orElse(null);
+        assertThat(perfOptions, is(notNullValue()));
+        assertThat(perfOptions.getValue(), containsString("-XX:InitiatingHeapOccupancyPercent=36"));
     }
 
     @Test

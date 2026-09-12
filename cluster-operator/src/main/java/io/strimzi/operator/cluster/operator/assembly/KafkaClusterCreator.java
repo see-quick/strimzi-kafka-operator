@@ -17,23 +17,24 @@ import io.strimzi.operator.cluster.model.KafkaPool;
 import io.strimzi.operator.cluster.model.KafkaVersion;
 import io.strimzi.operator.cluster.model.KafkaVersionChange;
 import io.strimzi.operator.cluster.model.SharedEnvironmentProvider;
+import io.strimzi.operator.cluster.model.clustersecurity.kafka.KafkaClusterSecurityContext;
 import io.strimzi.operator.cluster.model.nodepools.NodePoolUtils;
 import io.strimzi.operator.cluster.operator.resource.ResourceOperatorSupplier;
-import io.strimzi.operator.cluster.operator.resource.kubernetes.SecretOperator;
 import io.strimzi.operator.common.AdminClientProvider;
 import io.strimzi.operator.common.Annotations;
 import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.ReconciliationLogger;
 import io.strimzi.operator.common.model.InvalidResourceException;
 import io.strimzi.operator.common.model.StatusUtils;
-import io.vertx.core.Future;
-import io.vertx.core.Vertx;
+import io.strimzi.operator.common.operator.resource.kubernetes.SecretOperator;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.stream.Collectors;
 
 /**
@@ -47,7 +48,6 @@ public class KafkaClusterCreator {
     private final KafkaVersion.Lookup versions;
 
     // Operators and other tools
-    private final Vertx vertx;
     private final AdminClientProvider adminClientProvider;
     private final SecretOperator secretOperator;
     private final SharedEnvironmentProvider sharedEnvironmentProvider;
@@ -61,13 +61,11 @@ public class KafkaClusterCreator {
     /**
      * Constructor
      *
-     * @param vertx             Vert.x instance
      * @param reconciliation    Reconciliation marker
      * @param config            Cluster Operator configuration
      * @param supplier          Resource Operators supplier
      */
     public KafkaClusterCreator(
-            Vertx vertx,
             Reconciliation reconciliation,
             ClusterOperatorConfig config,
             ResourceOperatorSupplier supplier
@@ -75,7 +73,6 @@ public class KafkaClusterCreator {
         this.reconciliation = reconciliation;
         this.versions = config.versions();
 
-        this.vertx = vertx;
         this.adminClientProvider = supplier.adminClientProvider;
         this.secretOperator = supplier.secretOperations;
         this.sharedEnvironmentProvider = supplier.sharedEnvironmentProvider;
@@ -103,27 +100,29 @@ public class KafkaClusterCreator {
      * @param versionChange     Version Change object describing any possible upgrades / downgrades
      * @param kafkaStatus       The KafkaStatus where any possibly warnings will be added
      * @param tryToFixProblems  Flag indicating whether recoverable configuration issues should be fixed or not
+     * @param securityContext   Security context for the Kafka cluster
      *
      * @return  New Kafka Cluster instance
      */
-    public Future<KafkaCluster> prepareKafkaCluster(
+    public CompletionStage<KafkaCluster> prepareKafkaCluster(
             Kafka kafkaCr,
             List<KafkaNodePool> nodePools,
             Map<String, Storage> oldStorage,
             KafkaVersionChange versionChange,
             KafkaStatus kafkaStatus,
-            boolean tryToFixProblems)   {
-        return createKafkaCluster(kafkaCr, nodePools, oldStorage, versionChange)
-                .compose(kafka -> brokerRemovalCheck(kafkaCr, kafka))
-                .compose(kafka -> {
+            boolean tryToFixProblems,
+            KafkaClusterSecurityContext securityContext)   {
+        return createKafkaCluster(kafkaCr, nodePools, oldStorage, versionChange, securityContext)
+                .thenCompose(kafka -> brokerRemovalCheck(kafkaCr, kafka))
+                .thenCompose(kafka -> {
                     if (checkFailed() && tryToFixProblems)   {
                         // saving scaling down blocked nodes, before they are reverted back
                         this.scalingDownBlockedNodes.addAll(kafka.removedNodes());
                         // We have a failure, and should try to fix issues
                         // Once we fix it, we call this method again, but this time with tryToFixProblems set to false
                         return revertScaleDown(nodePools)
-                                .compose(revertedNodePools -> revertRoleChange(revertedNodePools))
-                                .compose(revertedNodePools -> prepareKafkaCluster(kafkaCr, revertedNodePools, oldStorage, versionChange, kafkaStatus, false));
+                                .thenCompose(revertedNodePools -> revertRoleChange(revertedNodePools))
+                                .thenCompose(revertedNodePools -> prepareKafkaCluster(kafkaCr, revertedNodePools, oldStorage, versionChange, kafkaStatus, false, securityContext));
                     } else if (checkFailed()) {
                         // We have a failure, but we should not try to fix it
                         List<String> errors = new ArrayList<>();
@@ -136,7 +135,7 @@ public class KafkaClusterCreator {
                             errors.add("Cannot remove the broker role from nodes " + kafka.usedToBeBrokerNodes() + " because they have assigned partition-replicas.");
                         }
 
-                        return Future.failedFuture(new InvalidResourceException("Following errors were found when processing the Kafka custom resource: " + errors));
+                        return CompletableFuture.failedFuture(new InvalidResourceException("Following errors were found when processing the Kafka custom resource: " + errors));
                     } else {
                         // If everything succeeded, we return the KafkaCluster object
                         // If any warning conditions exist from the reverted changes, we add them to the status
@@ -144,7 +143,7 @@ public class KafkaClusterCreator {
                             kafkaStatus.addConditions(warningConditions);
                         }
 
-                        return Future.succeededFuture(kafka);
+                        return CompletableFuture.completedFuture(kafka);
                     }
                 });
     }
@@ -156,16 +155,18 @@ public class KafkaClusterCreator {
      * @param nodePoolCrs       List with KafkaNodePool custom resources
      * @param oldStorage        Old storage configuration
      * @param versionChange     Version change descriptor containing any upgrade / downgrade changes
+     * @param securityContext   Security context for the Kafka cluster
      *
-     * @return  Future with the new KafkaCluster object
+     * @return  CompletionStage with the new KafkaCluster object
      */
-    private Future<KafkaCluster> createKafkaCluster(
+    private CompletionStage<KafkaCluster> createKafkaCluster(
             Kafka kafkaCr,
             List<KafkaNodePool> nodePoolCrs,
             Map<String, Storage> oldStorage,
-            KafkaVersionChange versionChange
+            KafkaVersionChange versionChange,
+            KafkaClusterSecurityContext securityContext
     )   {
-        return Future.succeededFuture(createKafkaCluster(reconciliation, kafkaCr, nodePoolCrs, oldStorage, versionChange, versions, sharedEnvironmentProvider));
+        return CompletableFuture.completedFuture(createKafkaCluster(reconciliation, kafkaCr, nodePoolCrs, oldStorage, versionChange, versions, sharedEnvironmentProvider, securityContext));
     }
 
     /**
@@ -175,18 +176,19 @@ public class KafkaClusterCreator {
      * @param kafkaCr   Kafka custom resource
      * @param kafka     Kafka cluster model
      *
-     * @return  Future with the Kafka cluster model
+     * @return  CompletionStage with the Kafka cluster model
      */
-    private Future<KafkaCluster> brokerRemovalCheck(Kafka kafkaCr, KafkaCluster kafka) {
+    private CompletionStage<KafkaCluster> brokerRemovalCheck(Kafka kafkaCr, KafkaCluster kafka) {
         if (skipBrokerScaleDownCheck(kafkaCr) // The check was disabled by the user
                 || (kafka.removedNodes().isEmpty() && kafka.usedToBeBrokerNodes().isEmpty())) { // There is no scale-down or role change, so there is nothing to check
             scaleDownCheckFailed = false;
             usedToBeBrokersCheckFailed = false;
-            return Future.succeededFuture(kafka);
+            return CompletableFuture.completedFuture(kafka);
         } else {
-            return ReconcilerUtils.coTlsPemIdentity(reconciliation, secretOperator)
-                    .compose(coTlsPemIdentity -> brokerScaleDownOperations.brokersInUse(reconciliation, vertx, coTlsPemIdentity, adminClientProvider))
-                    .compose(brokersInUse -> {
+            return ReconcilerUtils.coIdentity(reconciliation, secretOperator, kafka.securityContext())
+                    .toCompletionStage()
+                    .thenCompose(coTlsPemIdentity -> brokerScaleDownOperations.brokersInUse(reconciliation, coTlsPemIdentity, adminClientProvider))
+                    .thenApply(brokersInUse -> {
                         // Check nodes that are being scaled down
                         Set<Integer> scaledDownBrokersInUse = kafka.removedNodes().stream().filter(brokersInUse::contains).collect(Collectors.toSet());
                         if (!scaledDownBrokersInUse.isEmpty()) {
@@ -205,7 +207,7 @@ public class KafkaClusterCreator {
                             usedToBeBrokersCheckFailed = false;
                         }
 
-                        return Future.succeededFuture(kafka);
+                        return kafka;
                     });
         }
     }
@@ -215,9 +217,9 @@ public class KafkaClusterCreator {
      *
      * @param nodePoolCrs   List with KafkaNodePool custom resources
      *
-     * @return  Future with KafkaAndNodePools record containing the fixed Kafka and KafkaNodePool CRs
+     * @return  CompletionStage with KafkaAndNodePools record containing the fixed Kafka and KafkaNodePool CRs
      */
-    private Future<List<KafkaNodePool>> revertScaleDown(List<KafkaNodePool> nodePoolCrs)   {
+    private CompletionStage<List<KafkaNodePool>> revertScaleDown(List<KafkaNodePool> nodePoolCrs)   {
         if (scaleDownCheckFailed) {
             // Node pools are used -> we have to fix scale down in the KafkaNodePools
             List<KafkaNodePool> newNodePools = new ArrayList<>();
@@ -241,10 +243,10 @@ public class KafkaClusterCreator {
                 }
             }
 
-            return Future.succeededFuture(newNodePools);
+            return CompletableFuture.completedFuture(newNodePools);
         } else {
             // The scale-down check did not fail => return the original resources
-            return Future.succeededFuture(nodePoolCrs);
+            return CompletableFuture.completedFuture(nodePoolCrs);
         }
     }
 
@@ -253,9 +255,9 @@ public class KafkaClusterCreator {
      *
      * @param nodePoolCrs   List with KafkaNodePool custom resources
      *
-     * @return  Future with KafkaAndNodePools record containing the fixed Kafka and KafkaNodePool CRs
+     * @return  CompletionStage with KafkaAndNodePools record containing the fixed Kafka and KafkaNodePool CRs
      */
-    private Future<List<KafkaNodePool>> revertRoleChange(List<KafkaNodePool> nodePoolCrs)   {
+    private CompletionStage<List<KafkaNodePool>> revertRoleChange(List<KafkaNodePool> nodePoolCrs)   {
         if (usedToBeBrokersCheckFailed) {
             List<KafkaNodePool> newNodePools = new ArrayList<>();
 
@@ -276,10 +278,10 @@ public class KafkaClusterCreator {
                 }
             }
 
-            return Future.succeededFuture(newNodePools);
+            return CompletableFuture.completedFuture(newNodePools);
         } else {
             // The used-to-be-brokers check did not fail => return the original resources
-            return Future.succeededFuture(nodePoolCrs);
+            return CompletableFuture.completedFuture(nodePoolCrs);
         }
     }
 
@@ -314,6 +316,7 @@ public class KafkaClusterCreator {
      * @param versionChange                 Version change descriptor containing any upgrade / downgrade changes
      * @param versions                      List of supported Kafka versions
      * @param sharedEnvironmentProvider     Shared environment variables
+     * @param securityContext               Security context for the Kafka cluster
      *
      * @return  New KafkaCluster object
      */
@@ -324,10 +327,10 @@ public class KafkaClusterCreator {
             Map<String, Storage> oldStorage,
             KafkaVersionChange versionChange,
             KafkaVersion.Lookup versions,
-            SharedEnvironmentProvider sharedEnvironmentProvider
-    ) {
+            SharedEnvironmentProvider sharedEnvironmentProvider,
+            KafkaClusterSecurityContext securityContext) {
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(reconciliation, kafkaCr, nodePoolCrs, oldStorage, versionChange, sharedEnvironmentProvider);
         String clusterId = NodePoolUtils.getOrGenerateKRaftClusterId(kafkaCr, nodePoolCrs);
-        return KafkaCluster.fromCrd(reconciliation, kafkaCr, pools, versions, versionChange, clusterId, sharedEnvironmentProvider);
+        return KafkaCluster.fromCrd(reconciliation, kafkaCr, pools, versions, versionChange, clusterId, sharedEnvironmentProvider, securityContext);
     }
 }

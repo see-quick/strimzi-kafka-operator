@@ -23,6 +23,7 @@ import io.strimzi.operator.cluster.PlatformFeaturesAvailability;
 import io.strimzi.operator.cluster.ResourceUtils;
 import io.strimzi.operator.cluster.model.KafkaConnectorOffsetsAnnotation;
 import io.strimzi.operator.cluster.model.KafkaVersion;
+import io.strimzi.operator.cluster.operator.VertxUtil;
 import io.strimzi.operator.cluster.operator.resource.DefaultKafkaAgentClientProvider;
 import io.strimzi.operator.cluster.operator.resource.ResourceOperatorSupplier;
 import io.strimzi.operator.common.DefaultAdminClientProvider;
@@ -75,6 +76,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -153,9 +155,10 @@ public class KafkaMirrorMaker2AssemblyOperatorMockTest {
         namespace = testInfo.getTestMethod().orElseThrow().getName().toLowerCase(Locale.ROOT);
         mockKube.prepareNamespace(namespace);
 
-        supplier = new ResourceOperatorSupplier(vertx, client,
+        supplier = new ResourceOperatorSupplier(VertxUtil.asExecutor(vertx.createSharedWorkerExecutor("kubernetes-ops-pool")),
+                client,
                 new DefaultAdminClientProvider(),
-                new DefaultKafkaAgentClientProvider(),
+                new DefaultKafkaAgentClientProvider(null),
                 ResourceUtils.metricsProvider(),
                 PFA);
         podSetController = new StrimziPodSetController(namespace, Labels.EMPTY, supplier.kafkaOperator, supplier.connectOperator, supplier.mirrorMaker2Operator, supplier.strimziPodSetOperator, supplier.podOperations, supplier.metricsProvider, Integer.parseInt(ClusterOperatorConfig.POD_SET_CONTROLLER_WORK_QUEUE_SIZE.defaultValue()));
@@ -563,7 +566,7 @@ public class KafkaMirrorMaker2AssemblyOperatorMockTest {
         KafkaConnectApi connectApi = mock(KafkaConnectApi.class);
         when(connectApi.list(any(), anyString(), anyInt())).thenReturn(CompletableFuture.completedFuture(emptyList()));
         when(connectApi.getConnectorConfig(any(), any(), any(), anyInt(), eq(connectorName))).thenReturn(CompletableFuture.failedFuture(new ConnectRestException("maybeCreateOrUpdateConnector", "", 404, "error", "error")));
-        when(connectApi.createOrUpdatePutRequest(any(), any(), anyInt(), anyString(), any())).thenReturn(CompletableFuture.completedFuture(Map.of()));
+        when(connectApi.createConnector(any(), any(), anyInt(), anyString(), any(), any())).thenReturn(CompletableFuture.completedFuture(Map.of()));
         when(connectApi.status(any(), any(), anyInt(), eq(connectorName))).thenReturn(CompletableFuture.completedFuture(Map.of("connector", Map.of("state", "RUNNING"))));
         when(connectApi.statusWithBackOff(any(), any(), any(), anyInt(), eq(connectorName))).thenReturn(CompletableFuture.completedFuture(Map.of("connector", Map.of("state", "RUNNING"))));
         when(connectApi.getConnectorTopics(any(), any(), anyInt(), eq(connectorName))).thenReturn(CompletableFuture.completedFuture(List.of()));
@@ -573,7 +576,7 @@ public class KafkaMirrorMaker2AssemblyOperatorMockTest {
         createMirrorMaker2Cluster(context, connectApi, false)
                 .onComplete(context.succeeding(v -> context.verify(() -> {
                     ArgumentCaptor<JsonObject> configJsonCaptor = ArgumentCaptor.forClass(JsonObject.class);
-                    verify(connectApi).createOrUpdatePutRequest(any(), any(), anyInt(), eq(connectorName), configJsonCaptor.capture());
+                    verify(connectApi).createConnector(any(), any(), anyInt(), eq(connectorName), configJsonCaptor.capture(), any());
                     assertThat(configJsonCaptor.getValue().getString("connector.plugin.version"), is("[0.1.0,)"));
 
                     async.flag();
@@ -617,7 +620,7 @@ public class KafkaMirrorMaker2AssemblyOperatorMockTest {
         KafkaConnectApi connectApi = mock(KafkaConnectApi.class);
         when(connectApi.list(any(), anyString(), anyInt())).thenReturn(CompletableFuture.completedFuture(emptyList()));
         when(connectApi.getConnectorConfig(any(), any(), any(), anyInt(), eq(connectorName))).thenReturn(CompletableFuture.failedFuture(new ConnectRestException("maybeCreateOrUpdateConnector", "", 404, "error", "error")));
-        when(connectApi.createOrUpdatePutRequest(any(), any(), anyInt(), anyString(), any())).thenReturn(CompletableFuture.completedFuture(Map.of()));
+        when(connectApi.createConnector(any(), any(), anyInt(), anyString(), any(), any())).thenReturn(CompletableFuture.completedFuture(Map.of()));
         when(connectApi.status(any(), any(), anyInt(), eq(connectorName))).thenReturn(CompletableFuture.completedFuture(Map.of("connector", Map.of("state", "RUNNING"))));
         when(connectApi.statusWithBackOff(any(), any(), any(), anyInt(), eq(connectorName))).thenReturn(CompletableFuture.completedFuture(Map.of("connector", Map.of("state", "RUNNING"))));
         when(connectApi.getConnectorTopics(any(), any(), anyInt(), eq(connectorName))).thenReturn(CompletableFuture.completedFuture(List.of()));
@@ -627,9 +630,86 @@ public class KafkaMirrorMaker2AssemblyOperatorMockTest {
         createMirrorMaker2Cluster(context, connectApi, false)
                 .onComplete(context.succeeding(v -> context.verify(() -> {
                     ArgumentCaptor<JsonObject> configJsonCaptor = ArgumentCaptor.forClass(JsonObject.class);
-                    verify(connectApi).createOrUpdatePutRequest(any(), any(), anyInt(), eq(connectorName), configJsonCaptor.capture());
+                    verify(connectApi).createConnector(any(), any(), anyInt(), eq(connectorName), configJsonCaptor.capture(), any());
                     // `connector.plugin.version` is forbidden, so the config JSON will not contain this key
                     assertThat(configJsonCaptor.getValue().containsKey("connector.plugin.version"), is(false));
+                    async.flag();
+                })));
+    }
+
+    /** A brand-new MirrorMaker2 connector asking for the stopped state must never be started first */
+    @Test
+    public void testConnectorCreatedInStoppedState(VertxTestContext context) {
+        assertConnectorCreatedInInitialState(context, ConnectorState.STOPPED, "STOPPED");
+    }
+
+    /** A brand-new MirrorMaker2 connector asking for the paused state must never be started first */
+    @Test
+    public void testConnectorCreatedInPausedState(VertxTestContext context) {
+        assertConnectorCreatedInInitialState(context, ConnectorState.PAUSED, "PAUSED");
+    }
+
+    /**
+     * Shared check: a MirrorMaker2 source connector whose spec asks for a non-running state must be
+     * created directly in that state via POST, and never started first (no PUT-config create and no
+     * separate stop or pause call).
+     *
+     * @param context        The Vert.x test context
+     * @param state          The state requested via spec.state
+     * @param expectedState  The connector state string Kafka Connect reports back
+     */
+    private void assertConnectorCreatedInInitialState(VertxTestContext context, ConnectorState state, String expectedState) {
+        String connectorName = "source->target.MirrorSourceConnector";
+        Crds.kafkaMirrorMaker2Operation(client).resource(new KafkaMirrorMaker2Builder()
+                .withNewMetadata()
+                    .withName(CLUSTER_NAME)
+                    .withNamespace(namespace)
+                    .withLabels(Map.of("foo", "bar"))
+                .endMetadata()
+                .withNewSpec()
+                    .withReplicas(REPLICAS)
+                    .withNewTarget()
+                        .withAlias("target")
+                        .withGroupId("my-mm2-group")
+                        .withConfigStorageTopic("my-mm2-config")
+                        .withOffsetStorageTopic("my-mm2-offset")
+                        .withStatusStorageTopic("my-mm2-status")
+                        .withBootstrapServers("target:9092")
+                    .endTarget()
+                    .withMirrors(
+                            new KafkaMirrorMaker2MirrorSpecBuilder()
+                                    .withNewSource()
+                                        .withAlias("source")
+                                        .withBootstrapServers("source:9092")
+                                    .endSource()
+                                    .withNewSourceConnector()
+                                        .withTasksMax(1)
+                                        .withConfig(Map.of("replication.factor", -1))
+                                        .withState(state)
+                                    .endSourceConnector()
+                                    .build()
+                    )
+                .endSpec()
+                .build()).create();
+
+        KafkaConnectApi connectApi = mock(KafkaConnectApi.class);
+        when(connectApi.list(any(), anyString(), anyInt())).thenReturn(CompletableFuture.completedFuture(emptyList()));
+        when(connectApi.getConnectorConfig(any(), any(), any(), anyInt(), eq(connectorName))).thenReturn(CompletableFuture.failedFuture(new ConnectRestException("maybeCreateOrUpdateConnector", "", 404, "error", "error")));
+        when(connectApi.createConnector(any(), any(), anyInt(), anyString(), any(), any())).thenReturn(CompletableFuture.completedFuture(Map.of()));
+        when(connectApi.status(any(), any(), anyInt(), eq(connectorName))).thenReturn(CompletableFuture.completedFuture(Map.of("connector", Map.of("state", expectedState))));
+        when(connectApi.statusWithBackOff(any(), any(), any(), anyInt(), eq(connectorName))).thenReturn(CompletableFuture.completedFuture(Map.of("connector", Map.of("state", expectedState))));
+        when(connectApi.getConnectorTopics(any(), any(), anyInt(), eq(connectorName))).thenReturn(CompletableFuture.completedFuture(List.of()));
+
+        Checkpoint async = context.checkpoint();
+
+        createMirrorMaker2Cluster(context, connectApi, false)
+                .onComplete(context.succeeding(v -> context.verify(() -> {
+                    // The connector must be created via POST with the requested initial state
+                    verify(connectApi).createConnector(any(), any(), anyInt(), eq(connectorName), any(), eq(state));
+                    // ... and never started first: no PUT-config create and no separate stop or pause call
+                    verify(connectApi, never()).createOrUpdatePutRequest(any(), any(), anyInt(), eq(connectorName), any());
+                    verify(connectApi, never()).stop(any(), any(), anyInt(), eq(connectorName));
+                    verify(connectApi, never()).pause(any(), any(), anyInt(), eq(connectorName));
                     async.flag();
                 })));
     }

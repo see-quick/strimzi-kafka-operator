@@ -32,6 +32,7 @@ import io.strimzi.operator.common.model.InvalidResourceException;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.model.cruisecontrol.CruiseControlEndpoints;
 import io.strimzi.test.ReadWriteUtils;
+import io.strimzi.test.TestUtils;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.Timeout;
@@ -92,6 +93,38 @@ public class KafkaRebalanceAssemblyOperatorTest extends AbstractKafkaRebalanceAs
         this.krNewToProposalReady(context, CruiseControlEndpoints.REBALANCE, kr, "true");
     }
 
+    @Test
+    public void testCruiseControlClientWithoutTls(VertxTestContext context) {
+        int httpPort = TestUtils.getFreePort();
+        MockCruiseControl httpCruiseControlServer = new MockCruiseControl(httpPort);
+        httpCruiseControlServer.setupCCRebalanceResponse(0, CruiseControlEndpoints.REBALANCE, "true");
+
+        Kafka kafka = new KafkaBuilder(KAFKA)
+                .editMetadata()
+                    .addToAnnotations("strimzi.io/internal-cluster-security", "{\"encryption\":{\"type\":\"none\"},\"authentication\":{\"type\":\"none\"}}")
+                .endMetadata()
+                .build();
+        KafkaRebalance kr = createKafkaRebalance(namespace, CLUSTER_NAME, RESOURCE_NAME, EMPTY_KAFKA_REBALANCE_SPEC, false);
+
+        Crds.kafkaRebalanceOperation(client).inNamespace(namespace).resource(kr).create();
+        crdCreateKafka(kafka);
+        crdCreateCruiseControlSecrets();
+
+        KafkaRebalanceAssemblyOperator httpKrao = createKafkaRebalanceAssemblyOperator(ResourceUtils.dummyClusterOperatorConfig(), httpPort);
+        Checkpoint checkpoint = context.checkpoint();
+        httpKrao.reconcile(new Reconciliation("test-trigger", KafkaRebalance.RESOURCE_KIND, namespace, kr.getMetadata().getName()))
+                .onComplete(result -> {
+                    httpCruiseControlServer.stop();
+
+                    if (result.succeeded()) {
+                        assertState(context, client, namespace, kr.getMetadata().getName(), KafkaRebalanceState.ProposalReady);
+                        checkpoint.flag();
+                    } else {
+                        context.failNow(result.cause());
+                    }
+                });
+    }
+
     /**
      * See the {@link KafkaRebalanceAssemblyOperatorTest#testNewToProposalReadyRebalance} for description
      */
@@ -150,6 +183,7 @@ public class KafkaRebalanceAssemblyOperatorTest extends AbstractKafkaRebalanceAs
      * 8. The KafkaRebalance resource moves to the 'ProposalReady' state
      */
     @Test
+    @SuppressWarnings("checkstyle:NoFullyQualifiedClassNames") // False positive, fully qualified class name used in a string
     public void testKrNotReadyToProposalReadyOnSpecChange(VertxTestContext context) {
         // Set up the rebalance endpoint to get error about hard goals
         cruiseControlServer.setupCCRebalanceBadGoalsError(CruiseControlEndpoints.REBALANCE);
@@ -881,6 +915,7 @@ public class KafkaRebalanceAssemblyOperatorTest extends AbstractKafkaRebalanceAs
         this.krNewWithMissingHardGoals(context, CruiseControlEndpoints.REMOVE_BROKER, kr);
     }
 
+    @SuppressWarnings("checkstyle:NoFullyQualifiedClassNames") // False positive, fully qualified class name used in a string
     private void krNewWithMissingHardGoals(VertxTestContext context, CruiseControlEndpoints endpoint, KafkaRebalance kr) {
         // Set up the rebalance endpoint to get error about hard goals
         cruiseControlServer.setupCCRebalanceBadGoalsError(endpoint);
@@ -1026,6 +1061,7 @@ public class KafkaRebalanceAssemblyOperatorTest extends AbstractKafkaRebalanceAs
         this.krNewWithMissingHardGoalsAndRefresh(context, CruiseControlEndpoints.REMOVE_BROKER, kr);
     }
 
+    @SuppressWarnings("checkstyle:NoFullyQualifiedClassNames") // False positive, fully qualified class name used in a string
     private void krNewWithMissingHardGoalsAndRefresh(VertxTestContext context, CruiseControlEndpoints endpoint, KafkaRebalance kr) {
         // Set up the rebalance endpoint to get error about hard goals
         cruiseControlServer.setupCCRebalanceBadGoalsError(endpoint);
@@ -1815,17 +1851,6 @@ public class KafkaRebalanceAssemblyOperatorTest extends AbstractKafkaRebalanceAs
                     assertThat(kafkaRebalance, not(StateMatchers.hasState()));
                     checkpoint.flag();
                 }));
-    }
-
-    /**
-     * annotate the KafkaRebalance, patch the (mocked) server with the resource and then return the annotated resource
-     */
-    private void annotate(KubernetesClient kubernetesClient, String namespace, String resource, KafkaRebalanceAnnotation annotationValue) {
-        Crds.kafkaRebalanceOperation(kubernetesClient).inNamespace(namespace).withName(resource).edit(kr -> new KafkaRebalanceBuilder(kr)
-                .editMetadata()
-                    .addToAnnotations(Annotations.ANNO_STRIMZI_IO_REBALANCE, annotationValue.toString())
-                .endMetadata()
-                .build());
     }
 
     private void assertValidationCondition(VertxTestContext context, KubernetesClient kubernetesClient, String namespace, String resource, String validationError) {

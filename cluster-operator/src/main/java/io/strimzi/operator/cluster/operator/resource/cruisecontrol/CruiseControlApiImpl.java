@@ -14,7 +14,7 @@ import io.fabric8.kubernetes.api.model.Secret;
 import io.strimzi.operator.common.CruiseControlUtil;
 import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.ReconciliationLogger;
-import io.strimzi.operator.common.TimeoutException;
+import io.strimzi.operator.common.StrimziTimeoutException;
 import io.strimzi.operator.common.Util;
 import io.strimzi.operator.common.auth.PemTrustSet;
 import io.strimzi.operator.common.model.cruisecontrol.CruiseControlApiProperties;
@@ -36,6 +36,7 @@ import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 import static io.strimzi.operator.common.model.cruisecontrol.CruiseControlHeaders.USER_TASK_ID_HEADER;
 
@@ -59,22 +60,22 @@ public class CruiseControlApiImpl implements CruiseControlApi {
     /**
      * Constructor
      *
-     * @param idleTimeout       Idle timeout
-     * @param ccSecret          Cruise Control Secret
-     * @param ccApiSecret       Cruise Control API Secret
-     * @param apiAuthEnabled    Flag indicating if authentication is enabled
-     * @param apiSslEnabled     Flag indicating if TLS is enabled
+     * @param idleTimeout           Idle timeout
+     * @param clusterCaCertSecret   Cluster CA certificate Secret, used to trust the Cruise Control TLS server
+     * @param ccApiSecret           Cruise Control API Secret
+     * @param apiAuthEnabled        Flag indicating if authentication is enabled
+     * @param apiSslEnabled         Flag indicating if TLS is enabled
      */
-    public CruiseControlApiImpl(int idleTimeout, Secret ccSecret, Secret ccApiSecret, Boolean apiAuthEnabled, boolean apiSslEnabled) {
+    public CruiseControlApiImpl(int idleTimeout, Secret clusterCaCertSecret, Secret ccApiSecret, Boolean apiAuthEnabled, boolean apiSslEnabled) {
         this.idleTimeout = idleTimeout;
         this.apiSslEnabled = apiSslEnabled;
         this.authHttpHeader = getAuthHttpHeader(apiAuthEnabled, ccApiSecret);
-        this.pemTrustSet = new PemTrustSet(ccSecret);
+        this.pemTrustSet = new PemTrustSet(clusterCaCertSecret);
         this.httpClient = buildHttpClient();
     }
 
     @Override
-    public CompletableFuture<CruiseControlStateResponse> getCruiseControlState(Reconciliation reconciliation, String host, int port, boolean verbose) {
+    public CompletionStage<CruiseControlStateResponse> getCruiseControlState(Reconciliation reconciliation, String host, int port, boolean verbose) {
         String path = new PathBuilder(CruiseControlEndpoints.STATE)
                 .withParameter(CruiseControlParameters.VERBOSE, String.valueOf(verbose))
                 .withParameter(CruiseControlParameters.JSON, "true")
@@ -132,7 +133,7 @@ public class CruiseControlApiImpl implements CruiseControlApi {
 
     protected static HTTPHeader getAuthHttpHeader(boolean apiAuthEnabled, Secret apiSecret) {
         if (apiAuthEnabled) {
-            String password = Util.fromAsciiBytes(Util.decodeBase64FieldFromSecret(apiSecret, CruiseControlApiProperties.REBALANCE_OPERATOR_PASSWORD_KEY));
+            String password = Util.decodeStringFieldFromSecret(apiSecret, CruiseControlApiProperties.REBALANCE_OPERATOR_PASSWORD_KEY);
             return generateAuthHttpHeader(CruiseControlApiProperties.REBALANCE_OPERATOR_USERNAME, password);
         } else {
             return null;
@@ -147,7 +148,7 @@ public class CruiseControlApiImpl implements CruiseControlApi {
                 TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance(trustManagerFactoryAlgorithm);
                 trustManagerFactory.init(pemTrustSet.trustStore());
 
-                SSLContext sslContext = SSLContext.getInstance("TLS");
+                SSLContext sslContext = SSLContext.getInstance("TLSv1.3");
                 sslContext.init(null, trustManagerFactory.getTrustManagers(), null);
 
                 builder.sslContext(sslContext);
@@ -169,7 +170,7 @@ public class CruiseControlApiImpl implements CruiseControlApi {
         return json;
     }
 
-    private CompletableFuture<CruiseControlRebalanceResponse> internalRebalance(Reconciliation reconciliation, String host, int port, String path, String userTaskId) {
+    private CompletionStage<CruiseControlRebalanceResponse> internalRebalance(Reconciliation reconciliation, String host, int port, String path, String userTaskId) {
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(String.format("%s://%s:%d%s", apiSslEnabled ? "https" : "http", host, port, path)))
                 .POST(HttpRequest.BodyPublishers.noBody());
@@ -257,7 +258,7 @@ public class CruiseControlApiImpl implements CruiseControlApi {
     }
 
     @Override
-    public CompletableFuture<CruiseControlRebalanceResponse> rebalance(Reconciliation reconciliation, String host, int port, RebalanceOptions options, String userTaskId) {
+    public CompletionStage<CruiseControlRebalanceResponse> rebalance(Reconciliation reconciliation, String host, int port, RebalanceOptions options, String userTaskId) {
         if (options == null && userTaskId == null) {
             return CompletableFuture.failedFuture(
                     new IllegalArgumentException("Either rebalance options or user task ID should be supplied, both were null"));
@@ -272,7 +273,7 @@ public class CruiseControlApiImpl implements CruiseControlApi {
     }
 
     @Override
-    public CompletableFuture<CruiseControlRebalanceResponse> addBroker(Reconciliation reconciliation, String host, int port, AddBrokerOptions options, String userTaskId) {
+    public CompletionStage<CruiseControlRebalanceResponse> addBroker(Reconciliation reconciliation, String host, int port, AddBrokerOptions options, String userTaskId) {
         if (options == null && userTaskId == null) {
             return CompletableFuture.failedFuture(
                     new IllegalArgumentException("Either add broker options or user task ID should be supplied, both were null"));
@@ -287,7 +288,7 @@ public class CruiseControlApiImpl implements CruiseControlApi {
     }
 
     @Override
-    public CompletableFuture<CruiseControlRebalanceResponse> removeBroker(Reconciliation reconciliation, String host, int port, RemoveBrokerOptions options, String userTaskId) {
+    public CompletionStage<CruiseControlRebalanceResponse> removeBroker(Reconciliation reconciliation, String host, int port, RemoveBrokerOptions options, String userTaskId) {
         if (options == null && userTaskId == null) {
             return CompletableFuture.failedFuture(
                     new IllegalArgumentException("Either remove broker options or user task ID should be supplied, both were null"));
@@ -302,7 +303,7 @@ public class CruiseControlApiImpl implements CruiseControlApi {
     }
 
     @Override
-    public CompletableFuture<CruiseControlRebalanceResponse> removeDisks(Reconciliation reconciliation, String host, int port, RemoveDisksOptions options, String userTaskId) {
+    public CompletionStage<CruiseControlRebalanceResponse> removeDisks(Reconciliation reconciliation, String host, int port, RemoveDisksOptions options, String userTaskId) {
         if (options == null && userTaskId == null) {
             return CompletableFuture.failedFuture(
                     new IllegalArgumentException("Either remove disks options or user task ID should be supplied, both were null"));
@@ -317,7 +318,7 @@ public class CruiseControlApiImpl implements CruiseControlApi {
     }
 
     @Override
-    public CompletableFuture<CruiseControlUserTasksResponse> getUserTaskStatus(Reconciliation reconciliation, String host, int port, String userTaskId) {
+    public CompletionStage<CruiseControlUserTasksResponse> getUserTaskStatus(Reconciliation reconciliation, String host, int port, String userTaskId) {
         PathBuilder pathBuilder = new PathBuilder(CruiseControlEndpoints.USER_TASKS)
                         .withParameter(CruiseControlParameters.JSON, "true")
                         .withParameter(CruiseControlParameters.FETCH_COMPLETE, "true");
@@ -437,7 +438,7 @@ public class CruiseControlApiImpl implements CruiseControlApi {
     }
 
     @Override
-    public CompletableFuture<CruiseControlResponse> stopExecution(Reconciliation reconciliation, String host, int port) {
+    public CompletionStage<CruiseControlResponse> stopExecution(Reconciliation reconciliation, String host, int port) {
         String path = new PathBuilder(CruiseControlEndpoints.STOP)
                         .withParameter(CruiseControlParameters.JSON, "true").build();
 
@@ -487,7 +488,7 @@ public class CruiseControlApiImpl implements CruiseControlApi {
 
     private RuntimeException httpExceptionHandler(Throwable ex, String requestMethod, long timeout) {
         if (ex.getCause() instanceof HttpTimeoutException) {
-            return new TimeoutException("The timeout period of " + timeout * 1000 + "ms has been exceeded while executing " + requestMethod);
+            return new StrimziTimeoutException("The timeout period of " + timeout * 1000 + "ms has been exceeded while executing " + requestMethod);
         } else if (ex.getCause() instanceof NoRouteToHostException || ex.getCause() instanceof ConnectException) {
             return new CruiseControlRetriableConnectionException(ex.getCause());
         } else {

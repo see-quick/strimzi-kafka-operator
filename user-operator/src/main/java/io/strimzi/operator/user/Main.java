@@ -16,18 +16,23 @@ import io.micrometer.prometheusmetrics.PrometheusConfig;
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
 import io.strimzi.api.kafka.model.user.KafkaUser;
 import io.strimzi.api.kafka.model.user.KafkaUserList;
-import io.strimzi.certs.OpenSslCertManager;
+import io.strimzi.certs.OpenSslCertIssuer;
 import io.strimzi.operator.common.AdminClientProvider;
 import io.strimzi.operator.common.DefaultAdminClientProvider;
 import io.strimzi.operator.common.MetricsProvider;
 import io.strimzi.operator.common.MicrometerMetricsProvider;
 import io.strimzi.operator.common.OperatorKubernetesClientBuilder;
 import io.strimzi.operator.common.Util;
+import io.strimzi.operator.common.auth.AuthIdentity;
 import io.strimzi.operator.common.auth.PemAuthIdentity;
 import io.strimzi.operator.common.auth.PemTrustSet;
+import io.strimzi.operator.common.auth.ProjectedServiceAccountAuthIdentity;
+import io.strimzi.operator.common.auth.TrustSet;
+import io.strimzi.operator.common.gatekeeper.GatekeeperPluginFactory;
+import io.strimzi.operator.common.gatekeeper.impl.GatekeeperPluginConfigurationContextImpl;
 import io.strimzi.operator.common.http.HealthCheckAndMetricsServer;
-import io.strimzi.operator.common.operator.resource.concurrent.CrdOperator;
-import io.strimzi.operator.common.operator.resource.concurrent.SecretOperator;
+import io.strimzi.operator.common.operator.resource.kubernetes.CrdOperator;
+import io.strimzi.operator.common.operator.resource.kubernetes.SecretOperator;
 import io.strimzi.operator.user.operator.DisabledSimpleAclOperator;
 import io.strimzi.operator.user.operator.KafkaUserOperator;
 import io.strimzi.operator.user.operator.QuotasOperator;
@@ -80,13 +85,17 @@ public class Main {
         // Create KubernetesClient, AdminClient and KafkaUserOperator classes
         ExecutorService kafkaUserOperatorExecutor = Executors.newFixedThreadPool(config.getUserOperationsThreadPoolSize(), new OperatorWorkThreadFactory());
         KubernetesClient client = new OperatorKubernetesClientBuilder("strimzi-user-operator", Main.class.getPackage().getImplementationVersion()).build();
+
+        // Load and configure the Gatekeeper plugins
+        GatekeeperPluginFactory.initialize(config.getGatekeeperPlugins(), new GatekeeperPluginConfigurationContextImpl(client));
+
         SecretOperator secretOperator = new SecretOperator(kafkaUserOperatorExecutor, client);
         Admin adminClient = createAdminClient(config, secretOperator, new DefaultAdminClientProvider());
         var kafkaUserCrdOperator = new CrdOperator<>(kafkaUserOperatorExecutor, client, KafkaUser.class, KafkaUserList.class, "KafkaUser");
 
         KafkaUserOperator kafkaUserOperator = new KafkaUserOperator(
                 config,
-                new OpenSslCertManager(),
+                new OpenSslCertIssuer(),
                 secretOperator,
                 kafkaUserCrdOperator,
                 new ScramCredentialsOperator(adminClient, config, kafkaUserOperatorExecutor),
@@ -146,19 +155,29 @@ public class Main {
      * @return  An instance of the Admin API client
      */
     private static Admin createAdminClient(UserOperatorConfig config, SecretOperator secretOperator, AdminClientProvider adminClientProvider)    {
-        Secret clusterCaCert = getSecret(secretOperator, config.getCaNamespaceOrNamespace(), config.getClusterCaCertSecretName());
-        // When the cluster CA secret is not null (i.e. TLS is used), we create a PemTrustSet. Otherwise, we just pass null.
-        PemTrustSet pemTrustSet = clusterCaCert != null ? new PemTrustSet(clusterCaCert) : null;
-
-        Secret uoKeyAndCert = getSecret(secretOperator, config.getCaNamespaceOrNamespace(), config.getEuoKeySecretName());
-        // When the UO secret is not null (i.e. mTLS is used), we create a PemAuthIdentity. Otherwise, we just pass null.
-        PemAuthIdentity pemAuthIdentity = uoKeyAndCert != null ? PemAuthIdentity.entityOperator(uoKeyAndCert, config.getEuoKeyName(), config.getEuoCertName()) : null;
-
         return adminClientProvider.createAdminClient(
                 config.getKafkaBootstrapServers(),
-                pemTrustSet,
-                pemAuthIdentity,
+                createTrustSet(config, secretOperator),
+                createAuthIdentity(config, secretOperator),
                 config.getKafkaAdminClientConfiguration());
+    }
+
+    private static TrustSet createTrustSet(UserOperatorConfig config, SecretOperator secretOperator) {
+        if (config.getClusterCaCertSecretName() != null && !config.getClusterCaCertSecretName().isEmpty()) {
+            return new PemTrustSet(getSecret(secretOperator, config.getCaNamespaceOrNamespace(), config.getClusterCaCertSecretName()));
+        } else {
+            return null;
+        }
+    }
+
+    private static AuthIdentity createAuthIdentity(UserOperatorConfig config, SecretOperator secretOperator) {
+        if (config.getEuoKeySecretName() != null && !config.getEuoKeySecretName().isEmpty()) {
+            return PemAuthIdentity.entityOperator(getSecret(secretOperator, config.getCaNamespaceOrNamespace(), config.getEuoKeySecretName()), config.getEuoKeyName(), config.getEuoCertName());
+        } else if (config.getServiceAccountTokenPath() != null && !config.getServiceAccountTokenPath().isEmpty()) {
+            return new ProjectedServiceAccountAuthIdentity(config.getServiceAccountTokenPath());
+        } else {
+            return null;
+        }
     }
 
     /**

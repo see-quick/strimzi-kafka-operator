@@ -4,11 +4,13 @@
  */
 package io.strimzi.operator.cluster.model;
 
+import io.fabric8.kubernetes.api.model.Probe;
 import io.fabric8.kubernetes.api.model.ProbeBuilder;
 import io.strimzi.api.kafka.model.common.HasLivenessProbe;
 import io.strimzi.api.kafka.model.common.HasReadinessProbe;
 import io.strimzi.api.kafka.model.common.HasStartupProbe;
-import io.strimzi.api.kafka.model.common.Probe;
+import io.strimzi.api.kafka.model.common.StrimziProbe;
+import io.strimzi.api.kafka.model.common.StrimziProbeBuilder;
 
 import java.util.List;
 
@@ -20,7 +22,7 @@ public class ProbeUtils {
      * Default healthcheck options used by most of our operands with the exception of Mirror Maker (1 and 2), Connect,
      * and User / Topic operators.
      */
-    public static final Probe DEFAULT_HEALTHCHECK_OPTIONS = new io.strimzi.api.kafka.model.common.ProbeBuilder().withTimeoutSeconds(5).withInitialDelaySeconds(15).build();
+    public static final StrimziProbe DEFAULT_HEALTHCHECK_OPTIONS = new StrimziProbeBuilder().withTimeoutSeconds(5).withInitialDelaySeconds(15).build();
 
     private ProbeUtils() { }
 
@@ -30,7 +32,7 @@ public class ProbeUtils {
      * @param probeConfig the initial config for the ProbeBuilder
      * @return ProbeBuilder
      */
-    public static ProbeBuilder defaultBuilder(Probe probeConfig) {
+    public static ProbeBuilder defaultBuilder(StrimziProbe probeConfig) {
         if (probeConfig == null) {
             throw new IllegalArgumentException();
         }
@@ -57,7 +59,7 @@ public class ProbeUtils {
      *
      * @return  Kubernetes Probe
      */
-    public static io.fabric8.kubernetes.api.model.Probe httpProbe(Probe probeConfig, String path, String port) {
+    public static Probe httpProbe(StrimziProbe probeConfig, String path, String port) {
         if (path == null || path.isEmpty() || port == null || port.isEmpty()) {
             throw new IllegalArgumentException();
         }
@@ -78,7 +80,7 @@ public class ProbeUtils {
      *
      * @return  Kubernetes Probe
      */
-    public static io.fabric8.kubernetes.api.model.Probe execProbe(Probe probeConfig, List<String> command) {
+    public static Probe execProbe(StrimziProbe probeConfig, List<String> command) {
         if (command == null || command.isEmpty()) {
             throw new IllegalArgumentException();
         }
@@ -99,7 +101,7 @@ public class ProbeUtils {
      *
      * @return  Probe options configured by the user or the defaults
      */
-    public static Probe extractLivenessProbeOptionsOrDefault(HasLivenessProbe spec, Probe defaultOptions)    {
+    public static StrimziProbe extractLivenessProbeOptionsOrDefault(HasLivenessProbe spec, StrimziProbe defaultOptions)    {
         if (spec.getLivenessProbe() != null)    {
             return spec.getLivenessProbe();
         } else {
@@ -116,7 +118,7 @@ public class ProbeUtils {
      *
      * @return  Probe options configured by the user or the defaults
      */
-    public static Probe extractReadinessProbeOptionsOrDefault(HasReadinessProbe spec, Probe defaultOptions)    {
+    public static StrimziProbe extractReadinessProbeOptionsOrDefault(HasReadinessProbe spec, StrimziProbe defaultOptions)    {
         if (spec.getReadinessProbe() != null)    {
             return spec.getReadinessProbe();
         } else {
@@ -133,7 +135,7 @@ public class ProbeUtils {
      *
      * @return  Probe options configured by the user or the defaults
      */
-    public static Probe extractStartupProbeOptionsOrDefault(HasStartupProbe spec, Probe defaultOptions)    {
+    public static StrimziProbe extractStartupProbeOptionsOrDefault(HasStartupProbe spec, StrimziProbe defaultOptions)    {
         if (spec.getStartupProbe() != null)    {
             return spec.getStartupProbe();
         } else {

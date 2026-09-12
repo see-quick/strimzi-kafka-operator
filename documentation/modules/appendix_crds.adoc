@@ -91,10 +91,10 @@ include::../api/io.strimzi.api.kafka.model.kafka.KafkaClusterSpec.adoc[leveloffs
 |string
 |The image of the init container used for initializing the `broker.rack`.
 |livenessProbe
-|xref:type-Probe-{context}[`Probe`]
+|xref:type-StrimziProbe-{context}[`StrimziProbe`]
 |Pod liveness checking.
 |readinessProbe
-|xref:type-Probe-{context}[`Probe`]
+|xref:type-StrimziProbe-{context}[`StrimziProbe`]
 |Pod readiness checking.
 |jvmOptions
 |xref:type-JvmOptions-{context}[`JvmOptions`]
@@ -162,7 +162,7 @@ include::../api/io.strimzi.api.kafka.model.kafka.listener.GenericKafkaListener.a
 |xref:type-GenericKafkaListenerConfiguration-{context}[`GenericKafkaListenerConfiguration`]
 |Additional listener configuration.
 |networkPolicyPeers
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#networkpolicypeer-v1-networking-k8s-io[NetworkPolicyPeer] array
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#networkpolicypeer-v1-networking-k8s-io[NetworkPolicyPeer] array
 |List of peers which should be able to connect to this listener. Peers in this list are combined using a logical OR operation. If this field is empty or missing, all connections will be allowed for this listener. If this field is present and contains at least one item, the listener only allows the traffic which matches at least one item in this list.
 |====
 
@@ -558,8 +558,8 @@ It must have the value `environment-variable` for the type `EnvironmentVariableR
 |The name of the environment variable that defines the rack ID. Its value sets the `broker.rack` configuration for Kafka brokers and the `client.rack` configuration for Kafka Connect or MirrorMaker 2.
 |====
 
-[id='type-Probe-{context}']
-= `Probe` schema reference
+[id='type-StrimziProbe-{context}']
+= `StrimziProbe` schema reference
 
 Used in: xref:type-CruiseControlSpec-{context}[`CruiseControlSpec`], xref:type-EntityTopicOperatorSpec-{context}[`EntityTopicOperatorSpec`], xref:type-EntityUserOperatorSpec-{context}[`EntityUserOperatorSpec`], xref:type-KafkaBridgeSpec-{context}[`KafkaBridgeSpec`], xref:type-KafkaClusterSpec-{context}[`KafkaClusterSpec`], xref:type-KafkaConnectSpec-{context}[`KafkaConnectSpec`], xref:type-KafkaExporterSpec-{context}[`KafkaExporterSpec`], xref:type-KafkaMirrorMaker2Spec-{context}[`KafkaMirrorMaker2Spec`]
 
@@ -693,7 +693,7 @@ Used in: xref:type-ExternalLogging-{context}[`ExternalLogging`], xref:type-JmxPr
 |====
 |Property |Property type |Description
 |configMapKeyRef
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#configmapkeyselector-v1-core[ConfigMapKeySelector]
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#configmapkeyselector-v1-core[ConfigMapKeySelector]
 |Reference to the key in the ConfigMap containing the configuration.
 |====
 
@@ -778,7 +778,7 @@ Used in: xref:type-KafkaClusterSpec-{context}[`KafkaClusterSpec`]
 |====
 |Property |Property type |Description
 |pod
-|xref:type-PodTemplate-{context}[`PodTemplate`]
+|xref:type-StatefulPodTemplate-{context}[`StatefulPodTemplate`]
 |Template for Kafka `Pods`.
 |bootstrapService
 |xref:type-InternalServiceTemplate-{context}[`InternalServiceTemplate`]
@@ -833,17 +833,17 @@ Used in: xref:type-KafkaClusterSpec-{context}[`KafkaClusterSpec`]
 |Template for Kafka `StrimziPodSet` resource.
 |====
 
-[id='type-PodTemplate-{context}']
-= `PodTemplate` schema reference
+[id='type-StatefulPodTemplate-{context}']
+= `StatefulPodTemplate` schema reference
 
-Used in: xref:type-CruiseControlTemplate-{context}[`CruiseControlTemplate`], xref:type-EntityOperatorTemplate-{context}[`EntityOperatorTemplate`], xref:type-KafkaBridgeTemplate-{context}[`KafkaBridgeTemplate`], xref:type-KafkaClusterTemplate-{context}[`KafkaClusterTemplate`], xref:type-KafkaConnectTemplate-{context}[`KafkaConnectTemplate`], xref:type-KafkaExporterTemplate-{context}[`KafkaExporterTemplate`], xref:type-KafkaNodePoolTemplate-{context}[`KafkaNodePoolTemplate`]
+Used in: xref:type-KafkaClusterTemplate-{context}[`KafkaClusterTemplate`], xref:type-KafkaConnectTemplate-{context}[`KafkaConnectTemplate`], xref:type-KafkaNodePoolTemplate-{context}[`KafkaNodePoolTemplate`]
 
-xref:type-PodTemplate-schema-{context}[Full list of `PodTemplate` schema properties]
+xref:type-StatefulPodTemplate-schema-{context}[Full list of `StatefulPodTemplate` schema properties]
 
-include::../api/io.strimzi.api.kafka.model.common.template.PodTemplate.adoc[leveloffset=+1]
+include::../api/io.strimzi.api.kafka.model.common.template.StatefulPodTemplate.adoc[leveloffset=+1]
 
-[id='type-PodTemplate-schema-{context}']
-== `PodTemplate` schema properties
+[id='type-StatefulPodTemplate-schema-{context}']
+== `StatefulPodTemplate` schema properties
 
 
 [cols="2,2,3a",options="header"]
@@ -853,22 +853,22 @@ include::../api/io.strimzi.api.kafka.model.common.template.PodTemplate.adoc[leve
 |xref:type-MetadataTemplate-{context}[`MetadataTemplate`]
 |Metadata applied to the resource.
 |imagePullSecrets
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#localobjectreference-v1-core[LocalObjectReference] array
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#localobjectreference-v1-core[LocalObjectReference] array
 |List of references to secrets in the same namespace to use for pulling any of the images used by this Pod. When the `STRIMZI_IMAGE_PULL_SECRETS` environment variable in Cluster Operator and the `imagePullSecrets` option are specified, only the `imagePullSecrets` variable is used and the `STRIMZI_IMAGE_PULL_SECRETS` variable is ignored.
 |securityContext
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#podsecuritycontext-v1-core[PodSecurityContext]
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#podsecuritycontext-v1-core[PodSecurityContext]
 |Configures pod-level security attributes and common container settings.
 |terminationGracePeriodSeconds
 |integer
 |The grace period is the duration in seconds after the processes running in the pod are sent a termination signal, and the time when the processes are forcibly halted with a kill signal. Set this value to longer than the expected cleanup time for your process. Value must be a non-negative integer. A zero value indicates delete immediately. You might need to increase the grace period for very large Kafka clusters, so that the Kafka brokers have enough time to transfer their work to another broker before they are terminated. Defaults to 30 seconds.
 |affinity
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#affinity-v1-core[Affinity]
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#affinity-v1-core[Affinity]
 |The pod's affinity rules.
 |tolerations
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#toleration-v1-core[Toleration] array
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#toleration-v1-core[Toleration] array
 |The pod's tolerations.
 |topologySpreadConstraints
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#topologyspreadconstraint-v1-core[TopologySpreadConstraint] array
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#topologyspreadconstraint-v1-core[TopologySpreadConstraint] array
 |The pod's topology spread constraints.
 |priorityClassName
 |string
@@ -877,13 +877,13 @@ include::../api/io.strimzi.api.kafka.model.common.template.PodTemplate.adoc[leve
 |string
 |The name of the scheduler used to dispatch this `Pod`. If not specified, the default scheduler will be used.
 |hostAliases
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#hostalias-v1-core[HostAlias] array
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#hostalias-v1-core[HostAlias] array
 |The pod's HostAliases. HostAliases is an optional list of hosts and IPs that will be injected into the Pod's hosts file if specified.
 |dnsPolicy
 |string (one of [ClusterFirstWithHostNet, ClusterFirst, Default, None])
 |The pod's DNSPolicy. Defaults to `ClusterFirst`. Valid values are `ClusterFirstWithHostNet`, `ClusterFirst`, `Default` or `None`.
 |dnsConfig
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#poddnsconfig-v1-core[PodDNSConfig]
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#poddnsconfig-v1-core[PodDNSConfig]
 |The pod's DNSConfig. If specified, it will be merged to the generated DNS configuration based on the DNSPolicy.
 |enableServiceLinks
 |boolean
@@ -894,6 +894,9 @@ include::../api/io.strimzi.api.kafka.model.common.template.PodTemplate.adoc[leve
 |volumes
 |xref:type-AdditionalVolume-{context}[`AdditionalVolume`] array
 |Additional volumes that can be mounted to the pod.
+|templatedVolumes
+|xref:type-AdditionalTemplatedVolume-{context}[`AdditionalTemplatedVolume`] array
+|Additional volumes that can be mounted to the pod. These volumes can use templates to mount different volumes into individual Pods.
 |hostUsers
 |boolean
 |Use the host user namespace. Optional. Defaults to `true`. When `true` or not set, the pod runs in the host user namespace. This is required when the pod needs features available only in the host namespace, such as loading kernel modules with `CAP_SYS_MODULE`.When set to `false`, the pod runs in a new user namespace. Setting `false` helps mitigate container breakout vulnerabilities and allows containers to run as `root` without granting `root` privileges on the host. This property is alpha-level in Kubernetes and is supported only by Kubernetes clusters that enable the `UserNamespacesSupport` feature.
@@ -902,7 +905,7 @@ include::../api/io.strimzi.api.kafka.model.common.template.PodTemplate.adoc[leve
 [id='type-MetadataTemplate-{context}']
 = `MetadataTemplate` schema reference
 
-Used in: xref:type-BuildConfigTemplate-{context}[`BuildConfigTemplate`], xref:type-DeploymentTemplate-{context}[`DeploymentTemplate`], xref:type-InternalServiceTemplate-{context}[`InternalServiceTemplate`], xref:type-PodDisruptionBudgetTemplate-{context}[`PodDisruptionBudgetTemplate`], xref:type-PodTemplate-{context}[`PodTemplate`], xref:type-ResourceTemplate-{context}[`ResourceTemplate`]
+Used in: xref:type-BuildConfigTemplate-{context}[`BuildConfigTemplate`], xref:type-DeploymentTemplate-{context}[`DeploymentTemplate`], xref:type-InternalServiceTemplate-{context}[`InternalServiceTemplate`], xref:type-PodDisruptionBudgetTemplate-{context}[`PodDisruptionBudgetTemplate`], xref:type-PodTemplate-{context}[`PodTemplate`], xref:type-ResourceTemplate-{context}[`ResourceTemplate`], xref:type-StatefulPodTemplate-{context}[`StatefulPodTemplate`]
 
 xref:type-MetadataTemplate-schema-{context}[Full list of `MetadataTemplate` schema properties]
 
@@ -926,7 +929,7 @@ include::../api/io.strimzi.api.kafka.model.common.template.MetadataTemplate.adoc
 [id='type-AdditionalVolume-{context}']
 = `AdditionalVolume` schema reference
 
-Used in: xref:type-PodTemplate-{context}[`PodTemplate`]
+Used in: xref:type-PodTemplate-{context}[`PodTemplate`], xref:type-StatefulPodTemplate-{context}[`StatefulPodTemplate`]
 
 
 [cols="2,2,3a",options="header"]
@@ -936,23 +939,26 @@ Used in: xref:type-PodTemplate-{context}[`PodTemplate`]
 |string
 |Name to use for the volume. Required.
 |secret
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#secretvolumesource-v1-core[SecretVolumeSource]
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#secretvolumesource-v1-core[SecretVolumeSource]
 |`Secret` to use to populate the volume.
 |configMap
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#configmapvolumesource-v1-core[ConfigMapVolumeSource]
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#configmapvolumesource-v1-core[ConfigMapVolumeSource]
 |`ConfigMap` to use to populate the volume.
 |emptyDir
 |xref:type-EmptyDirVolume-{context}[`EmptyDirVolume`]
 |`EmptyDir` to use to populate the volume.
 |persistentVolumeClaim
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#persistentvolumeclaimvolumesource-v1-core[PersistentVolumeClaimVolumeSource]
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#persistentvolumeclaimvolumesource-v1-core[PersistentVolumeClaimVolumeSource]
 |`PersistentVolumeClaim` object to use to populate the volume.
 |csi
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#csivolumesource-v1-core[CSIVolumeSource]
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#csivolumesource-v1-core[CSIVolumeSource]
 |`CSIVolumeSource` object to use to populate the volume.
 |image
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#imagevolumesource-v1-core[ImageVolumeSource]
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#imagevolumesource-v1-core[ImageVolumeSource]
 |`ImageVolumeSource` object to use to populate the volume.
+|projected
+|xref:type-ProjectedVolume-{context}[`ProjectedVolume`]
+|`ProjectedVolume` object to use volume projection.
 |====
 
 [id='type-EmptyDirVolume-{context}']
@@ -970,6 +976,57 @@ Used in: xref:type-AdditionalVolume-{context}[`AdditionalVolume`]
 |sizeLimit
 |string
 |The total amount of local storage required for this EmptyDir volume (for example 1Gi).
+|====
+
+[id='type-ProjectedVolume-{context}']
+= `ProjectedVolume` schema reference
+
+Used in: xref:type-AdditionalVolume-{context}[`AdditionalVolume`]
+
+
+[cols="2,2,3a",options="header"]
+|====
+|Property |Property type |Description
+|sources
+|xref:type-ProjectedVolumeSource-{context}[`ProjectedVolumeSource`] array
+|List of projections that are part of this projected volumes. Currently, only Service Account projection is supported.
+|====
+
+[id='type-ProjectedVolumeSource-{context}']
+= `ProjectedVolumeSource` schema reference
+
+Used in: xref:type-ProjectedVolume-{context}[`ProjectedVolume`]
+
+
+[cols="2,2,3a",options="header"]
+|====
+|Property |Property type |Description
+|serviceAccountToken
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#serviceaccounttokenprojection-v1-core[ServiceAccountTokenProjection]
+|Information about the serviceAccountToken data to project.
+|====
+
+[id='type-AdditionalTemplatedVolume-{context}']
+= `AdditionalTemplatedVolume` schema reference
+
+Used in: xref:type-StatefulPodTemplate-{context}[`StatefulPodTemplate`]
+
+
+[cols="2,2,3a",options="header"]
+|====
+|Property |Property type |Description
+|name
+|string
+|Name to use for the volume. Required.
+|secret
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#secretvolumesource-v1-core[SecretVolumeSource]
+|`Secret` to use to populate the volume. The name of the Secret and the items key and path fields can use placeholders that would be replaced for every individual node. Valid placeholders that you can use in the template are `{nodeId}` and `{nodePodName}`.
+|configMap
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#configmapvolumesource-v1-core[ConfigMapVolumeSource]
+|`ConfigMap` to use to populate the volume. The name of the ConfigMap and the items key and path fields can use placeholders that would be replaced for every individual node. Valid placeholders that you can use in the template are `{nodeId}` and `{nodePodName}`.
+|persistentVolumeClaim
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#persistentvolumeclaimvolumesource-v1-core[PersistentVolumeClaimVolumeSource]
+|`PersistentVolumeClaim` object to use to populate the volume. The name of the Persistent Volume Claim can use placeholders that would be replaced for every individual node. Valid placeholders that you can use in the template are `{nodeId}` and `{nodePodName}`.
 |====
 
 [id='type-InternalServiceTemplate-{context}']
@@ -1050,10 +1107,10 @@ include::../api/io.strimzi.api.kafka.model.common.template.ContainerTemplate.ado
 |xref:type-ContainerEnvVar-{context}[`ContainerEnvVar`] array
 |Environment variables which should be applied to the container.
 |securityContext
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#securitycontext-v1-core[SecurityContext]
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#securitycontext-v1-core[SecurityContext]
 |Security context for the container.
 |volumeMounts
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#volumemount-v1-core[VolumeMount] array
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#volumemount-v1-core[VolumeMount] array
 |Additional volume mounts which should be applied to the container.
 |====
 
@@ -1087,10 +1144,10 @@ Used in: xref:type-ContainerEnvVar-{context}[`ContainerEnvVar`]
 |====
 |Property |Property type |Description
 |secretKeyRef
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#secretkeyselector-v1-core[SecretKeySelector]
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#secretkeyselector-v1-core[SecretKeySelector]
 |Reference to a key in a secret.
 |configMapKeyRef
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#configmapkeyselector-v1-core[ConfigMapKeySelector]
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#configmapkeyselector-v1-core[ConfigMapKeySelector]
 |Reference to a key in a config map.
 |====
 
@@ -1245,16 +1302,16 @@ include::../api/io.strimzi.api.kafka.model.kafka.entityoperator.EntityTopicOpera
 |integer
 |Interval between periodic reconciliations in milliseconds.
 |startupProbe
-|xref:type-Probe-{context}[`Probe`]
+|xref:type-StrimziProbe-{context}[`StrimziProbe`]
 |Pod startup checking.
 |livenessProbe
-|xref:type-Probe-{context}[`Probe`]
+|xref:type-StrimziProbe-{context}[`StrimziProbe`]
 |Pod liveness checking.
 |readinessProbe
-|xref:type-Probe-{context}[`Probe`]
+|xref:type-StrimziProbe-{context}[`StrimziProbe`]
 |Pod readiness checking.
 |resources
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#resourcerequirements-v1-core[ResourceRequirements]
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#resourcerequirements-v1-core[ResourceRequirements]
 |CPU and memory resources to reserve.
 |logging
 |xref:type-InlineLogging-{context}[`InlineLogging`], xref:type-ExternalLogging-{context}[`ExternalLogging`]
@@ -1293,13 +1350,13 @@ include::../api/io.strimzi.api.kafka.model.kafka.entityoperator.EntityUserOperat
 |string
 |The prefix that will be added to the KafkaUser name to be used as the Secret name.
 |livenessProbe
-|xref:type-Probe-{context}[`Probe`]
+|xref:type-StrimziProbe-{context}[`StrimziProbe`]
 |Pod liveness checking.
 |readinessProbe
-|xref:type-Probe-{context}[`Probe`]
+|xref:type-StrimziProbe-{context}[`StrimziProbe`]
 |Pod readiness checking.
 |resources
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#resourcerequirements-v1-core[ResourceRequirements]
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#resourcerequirements-v1-core[ResourceRequirements]
 |CPU and memory resources to reserve.
 |logging
 |xref:type-InlineLogging-{context}[`InlineLogging`], xref:type-ExternalLogging-{context}[`ExternalLogging`]
@@ -1371,6 +1428,72 @@ include::../api/io.strimzi.api.kafka.model.common.template.DeploymentTemplate.ad
 |Pod replacement strategy for deployment configuration changes. Valid values are `RollingUpdate` and `Recreate`. Defaults to `RollingUpdate`.
 |====
 
+[id='type-PodTemplate-{context}']
+= `PodTemplate` schema reference
+
+Used in: xref:type-CruiseControlTemplate-{context}[`CruiseControlTemplate`], xref:type-EntityOperatorTemplate-{context}[`EntityOperatorTemplate`], xref:type-KafkaBridgeTemplate-{context}[`KafkaBridgeTemplate`], xref:type-KafkaConnectTemplate-{context}[`KafkaConnectTemplate`], xref:type-KafkaExporterTemplate-{context}[`KafkaExporterTemplate`]
+
+xref:type-PodTemplate-schema-{context}[Full list of `PodTemplate` schema properties]
+
+include::../api/io.strimzi.api.kafka.model.common.template.PodTemplate.adoc[leveloffset=+1]
+
+[id='type-PodTemplate-schema-{context}']
+== `PodTemplate` schema properties
+
+
+[cols="2,2,3a",options="header"]
+|====
+|Property |Property type |Description
+|metadata
+|xref:type-MetadataTemplate-{context}[`MetadataTemplate`]
+|Metadata applied to the resource.
+|imagePullSecrets
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#localobjectreference-v1-core[LocalObjectReference] array
+|List of references to secrets in the same namespace to use for pulling any of the images used by this Pod. When the `STRIMZI_IMAGE_PULL_SECRETS` environment variable in Cluster Operator and the `imagePullSecrets` option are specified, only the `imagePullSecrets` variable is used and the `STRIMZI_IMAGE_PULL_SECRETS` variable is ignored.
+|securityContext
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#podsecuritycontext-v1-core[PodSecurityContext]
+|Configures pod-level security attributes and common container settings.
+|terminationGracePeriodSeconds
+|integer
+|The grace period is the duration in seconds after the processes running in the pod are sent a termination signal, and the time when the processes are forcibly halted with a kill signal. Set this value to longer than the expected cleanup time for your process. Value must be a non-negative integer. A zero value indicates delete immediately. You might need to increase the grace period for very large Kafka clusters, so that the Kafka brokers have enough time to transfer their work to another broker before they are terminated. Defaults to 30 seconds.
+|affinity
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#affinity-v1-core[Affinity]
+|The pod's affinity rules.
+|tolerations
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#toleration-v1-core[Toleration] array
+|The pod's tolerations.
+|topologySpreadConstraints
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#topologyspreadconstraint-v1-core[TopologySpreadConstraint] array
+|The pod's topology spread constraints.
+|priorityClassName
+|string
+|The name of the priority class used to assign priority to the pods. 
+|schedulerName
+|string
+|The name of the scheduler used to dispatch this `Pod`. If not specified, the default scheduler will be used.
+|hostAliases
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#hostalias-v1-core[HostAlias] array
+|The pod's HostAliases. HostAliases is an optional list of hosts and IPs that will be injected into the Pod's hosts file if specified.
+|dnsPolicy
+|string (one of [ClusterFirstWithHostNet, ClusterFirst, Default, None])
+|The pod's DNSPolicy. Defaults to `ClusterFirst`. Valid values are `ClusterFirstWithHostNet`, `ClusterFirst`, `Default` or `None`.
+|dnsConfig
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#poddnsconfig-v1-core[PodDNSConfig]
+|The pod's DNSConfig. If specified, it will be merged to the generated DNS configuration based on the DNSPolicy.
+|enableServiceLinks
+|boolean
+|Indicates whether information about services should be injected into Pod's environment variables.
+|tmpDirSizeLimit
+|string
+|Defines the total amount of pod memory allocated for the temporary `EmptyDir` volume `/tmp`. Specify the allocation in memory units, for example, `100Mi` for 100 mebibytes. Default value is `5Mi`. The `/tmp` volume is backed by pod memory, not disk storage, so avoid setting a high value as it consumes pod memory resources.
+|volumes
+|xref:type-AdditionalVolume-{context}[`AdditionalVolume`] array
+|Additional volumes that can be mounted to the pod.
+|hostUsers
+|boolean
+|Use the host user namespace. Optional. Defaults to `true`. When `true` or not set, the pod runs in the host user namespace. This is required when the pod needs features available only in the host namespace, such as loading kernel modules with `CAP_SYS_MODULE`.When set to `false`, the pod runs in a new user namespace. Setting `false` helps mitigate container breakout vulnerabilities and allows containers to run as `root` without granting `root` privileges on the host. This property is alpha-level in Kubernetes and is supported only by Kubernetes clusters that enable the `UserNamespacesSupport` feature.
+|====
+
 [id='type-CertificateAuthority-{context}']
 = `CertificateAuthority` schema reference
 
@@ -1418,13 +1541,13 @@ include::../api/io.strimzi.api.kafka.model.kafka.cruisecontrol.CruiseControlSpec
 |string
 |The container image used for Cruise Control pods. If no image name is explicitly specified, the image name corresponds to the name specified in the Cluster Operator configuration. If an image name is not defined in the Cluster Operator configuration, a default value is used.
 |resources
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#resourcerequirements-v1-core[ResourceRequirements]
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#resourcerequirements-v1-core[ResourceRequirements]
 |CPU and memory resources to reserve for the Cruise Control container.
 |livenessProbe
-|xref:type-Probe-{context}[`Probe`]
+|xref:type-StrimziProbe-{context}[`StrimziProbe`]
 |Pod liveness checking for the Cruise Control container.
 |readinessProbe
-|xref:type-Probe-{context}[`Probe`]
+|xref:type-StrimziProbe-{context}[`StrimziProbe`]
 |Pod readiness checking for the Cruise Control container.
 |jvmOptions
 |xref:type-JvmOptions-{context}[`JvmOptions`]
@@ -1440,7 +1563,7 @@ include::../api/io.strimzi.api.kafka.model.kafka.cruisecontrol.CruiseControlSpec
 |The Cruise Control `brokerCapacity` configuration.
 |config
 |map
-|The Cruise Control configuration. For a full list of configuration options refer to https://github.com/linkedin/cruise-control/wiki/Configurations. Note that properties with the following prefixes cannot be set: bootstrap.servers, client.id, zookeeper., network., security., failed.brokers.zk.path,webserver.http., webserver.api.urlprefix, webserver.session.path, webserver.accesslog., two.step., request.reason.required,metric.reporter.sampler.bootstrap.servers, capacity.config.file, self.healing., ssl., kafka.broker.failure.detection.enable, topic.config.provider.class (with the exception of: ssl.cipher.suites, ssl.protocol, ssl.enabled.protocols, webserver.http.cors.enabled, webserver.http.cors.origin, webserver.http.cors.exposeheaders, webserver.security.enable, webserver.ssl.enable).
+|The Cruise Control configuration. For a full list of configuration options refer to https://github.com/linkedin/cruise-control/wiki/Configurations. Note that properties with the following prefixes cannot be set: bootstrap.servers, client.id, zookeeper., network., security., failed.brokers.zk.path,webserver.http., webserver.ssl., webserver.api.urlprefix, webserver.session.path, webserver.accesslog., two.step., request.reason.required,metric.reporter.sampler.bootstrap.servers, capacity.config.file, self.healing., ssl., kafka.broker.failure.detection.enable, topic.config.provider.class (with the exception of: ssl.cipher.suites, ssl.protocol, ssl.enabled.protocols, webserver.http.cors.enabled, webserver.http.cors.origin, webserver.http.cors.exposeheaders, webserver.security.enable).
 |metricsConfig
 |xref:type-JmxPrometheusExporterMetrics-{context}[`JmxPrometheusExporterMetrics`], xref:type-StrimziMetricsReporter-{context}[`StrimziMetricsReporter`]
 |Metrics configuration. Only `jmxPrometheusExporter` can be configured, as this component does not support `strimziMetricsReporter`.
@@ -1556,7 +1679,7 @@ Used in: xref:type-HashLoginServiceApiUsers-{context}[`HashLoginServiceApiUsers`
 |====
 |Property |Property type |Description
 |secretKeyRef
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#secretkeyselector-v1-core[SecretKeySelector]
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#secretkeyselector-v1-core[SecretKeySelector]
 |Selects a key of a Secret in the resource's namespace.
 |====
 
@@ -1617,16 +1740,16 @@ Used in: xref:type-KafkaSpec-{context}[`KafkaSpec`]
 |string
 |Regular expression to specify which topics to exclude.
 |resources
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#resourcerequirements-v1-core[ResourceRequirements]
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#resourcerequirements-v1-core[ResourceRequirements]
 |CPU and memory resources to reserve.
 |logging
 |string
 |Only log messages with the given severity or above. Valid levels: [`info`, `debug`, `trace`]. Default log level is `info`.
 |livenessProbe
-|xref:type-Probe-{context}[`Probe`]
+|xref:type-StrimziProbe-{context}[`StrimziProbe`]
 |Pod liveness check.
 |readinessProbe
-|xref:type-Probe-{context}[`Probe`]
+|xref:type-StrimziProbe-{context}[`StrimziProbe`]
 |Pod readiness check.
 |enableSaramaLogging
 |boolean
@@ -1701,6 +1824,9 @@ Used in: xref:type-Kafka-{context}[`Kafka`]
 |autoRebalance
 |xref:type-KafkaAutoRebalanceStatus-{context}[`KafkaAutoRebalanceStatus`]
 |The status of an auto-rebalancing triggered by a cluster scaling request.
+|clusterSecurity
+|object
+|The current security configuration of the Kafka cluster.
 |====
 
 [id='type-Condition-{context}']
@@ -1896,15 +2022,15 @@ include::../api/io.strimzi.api.kafka.model.connect.KafkaConnectSpec.adoc[levelof
 |Authentication configuration for Kafka Connect.
 |config
 |map
-|The Kafka Connect configuration. Properties with the following prefixes cannot be set: group.id, config.storage.topic, offset.storage.topic, status.storage.topic, ssl., sasl., security., listeners, plugin.path, rest., bootstrap.servers, consumer.interceptor.classes, producer.interceptor.classes, prometheus.metrics.reporter. (with the exception of: ssl.endpoint.identification.algorithm, ssl.cipher.suites, ssl.protocol, ssl.enabled.protocols).
+|The Kafka Connect configuration. Properties with the following prefixes cannot be set: group.id, config.storage.topic, offset.storage.topic, status.storage.topic, ssl., sasl., security., listeners, plugin.path, rest., bootstrap.servers, consumer.interceptor.classes, producer.interceptor.classes, prometheus.metrics.reporter. (with the exception of: ssl.endpoint.identification.algorithm, ssl.cipher.suites, ssl.protocol, ssl.enabled.protocols, rest.extension.classes).
 |resources
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#resourcerequirements-v1-core[ResourceRequirements]
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#resourcerequirements-v1-core[ResourceRequirements]
 |The maximum limits for CPU and memory resources and the requested initial resources.
 |livenessProbe
-|xref:type-Probe-{context}[`Probe`]
+|xref:type-StrimziProbe-{context}[`StrimziProbe`]
 |Pod liveness checking.
 |readinessProbe
-|xref:type-Probe-{context}[`Probe`]
+|xref:type-StrimziProbe-{context}[`StrimziProbe`]
 |Pod readiness checking.
 |jvmOptions
 |xref:type-JvmOptions-{context}[`JvmOptions`]
@@ -2163,7 +2289,7 @@ Used in: xref:type-KafkaConnectSpec-{context}[`KafkaConnectSpec`], xref:type-Kaf
 |xref:type-ResourceTemplate-{context}[`ResourceTemplate`]
 |Template for Kafka Connect `StrimziPodSet` resource.
 |pod
-|xref:type-PodTemplate-{context}[`PodTemplate`]
+|xref:type-StatefulPodTemplate-{context}[`StatefulPodTemplate`]
 |Template for Kafka Connect `Pods`.
 |apiService
 |xref:type-InternalServiceTemplate-{context}[`InternalServiceTemplate`]
@@ -2243,7 +2369,7 @@ include::../api/io.strimzi.api.kafka.model.connect.build.Build.adoc[leveloffset=
 |xref:type-Plugin-{context}[`Plugin`] array
 |List of connector plugins which should be added to the Kafka Connect. Required.
 |resources
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#resourcerequirements-v1-core[ResourceRequirements]
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#resourcerequirements-v1-core[ResourceRequirements]
 |CPU and memory resources to reserve for the build.
 |====
 
@@ -2397,6 +2523,9 @@ It must have the value `maven` for the type `MavenArtifact`.
 |repository
 |string
 |Maven repository to download the artifact from. Applicable to the `maven` artifact type only.
+|mirrors
+|xref:type-MavenMirror-{context}[`MavenMirror`] array
+|List of Maven mirrors used to download the artifact and its dependencies. All repository requests during the build, including plugin repositories and Maven Central, are redirected to the configured mirror(s). Applicable to the `maven` artifact type only.
 |group
 |string
 |Maven group id. Applicable to the `maven` artifact type only.
@@ -2412,6 +2541,20 @@ It must have the value `maven` for the type `MavenArtifact`.
 |includeScope
 |string (one of [system, compile, test, provided, runtime])
 |Maven scope for including dependencies for the artifact. Valid values are `compile`, `provided`, `runtime`, `test`, and `system`. When not configured, no scope is set, and all dependencies are included. Applicable to the `maven` artifact type only.
+|====
+
+[id='type-MavenMirror-{context}']
+= `MavenMirror` schema reference
+
+Used in: xref:type-MavenArtifact-{context}[`MavenArtifact`]
+
+
+[cols="2,2,3a",options="header"]
+|====
+|Property |Property type |Description
+|url
+|string
+|The URL of the Maven mirror. All repository requests during the build, including plugin repositories and Maven Central, are redirected to this mirror. Applicable to the `maven` artifact type only.
 |====
 
 [id='type-OtherArtifact-{context}']
@@ -3010,7 +3153,7 @@ include::../api/io.strimzi.api.kafka.model.bridge.KafkaBridgeSpec.adoc[leveloffs
 |xref:type-KafkaBridgeProducerSpec-{context}[`KafkaBridgeProducerSpec`]
 |Kafka producer related configuration.
 |resources
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#resourcerequirements-v1-core[ResourceRequirements]
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#resourcerequirements-v1-core[ResourceRequirements]
 |CPU and memory resources to reserve.
 |jvmOptions
 |xref:type-JvmOptions-{context}[`JvmOptions`]
@@ -3028,10 +3171,10 @@ include::../api/io.strimzi.api.kafka.model.bridge.KafkaBridgeSpec.adoc[leveloffs
 |xref:type-JmxPrometheusExporterMetrics-{context}[`JmxPrometheusExporterMetrics`], xref:type-StrimziMetricsReporter-{context}[`StrimziMetricsReporter`]
 |Metrics configuration.
 |livenessProbe
-|xref:type-Probe-{context}[`Probe`]
+|xref:type-StrimziProbe-{context}[`StrimziProbe`]
 |Pod liveness checking.
 |readinessProbe
-|xref:type-Probe-{context}[`Probe`]
+|xref:type-StrimziProbe-{context}[`StrimziProbe`]
 |Pod readiness checking.
 |template
 |xref:type-KafkaBridgeTemplate-{context}[`KafkaBridgeTemplate`]
@@ -3422,13 +3565,13 @@ Used in: xref:type-KafkaMirrorMaker2-{context}[`KafkaMirrorMaker2`]
 |xref:type-KafkaMirrorMaker2MirrorSpec-{context}[`KafkaMirrorMaker2MirrorSpec`] array
 |Configuration of the MirrorMaker 2 connectors.
 |resources
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#resourcerequirements-v1-core[ResourceRequirements]
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#resourcerequirements-v1-core[ResourceRequirements]
 |The maximum limits for CPU and memory resources and the requested initial resources.
 |livenessProbe
-|xref:type-Probe-{context}[`Probe`]
+|xref:type-StrimziProbe-{context}[`StrimziProbe`]
 |Pod liveness checking.
 |readinessProbe
-|xref:type-Probe-{context}[`Probe`]
+|xref:type-StrimziProbe-{context}[`StrimziProbe`]
 |Pod readiness checking.
 |jvmOptions
 |xref:type-JvmOptions-{context}[`JvmOptions`]
@@ -3498,7 +3641,7 @@ include::../api/io.strimzi.api.kafka.model.mirrormaker2.KafkaMirrorMaker2TargetC
 |Authentication configuration for connecting to the cluster.
 |config
 |map
-|The MirrorMaker 2 cluster config. Properties with the following prefixes cannot be set: group.id, config.storage.topic, offset.storage.topic, status.storage.topic, ssl., sasl., security., listeners, plugin.path, rest., bootstrap.servers, consumer.interceptor.classes, producer.interceptor.classes (with the exception of: ssl.endpoint.identification.algorithm, ssl.cipher.suites, ssl.protocol, ssl.enabled.protocols).
+|The MirrorMaker 2 cluster config. Properties with the following prefixes cannot be set: group.id, config.storage.topic, offset.storage.topic, status.storage.topic, ssl., sasl., security., listeners, plugin.path, rest., bootstrap.servers, consumer.interceptor.classes, producer.interceptor.classes (with the exception of: ssl.endpoint.identification.algorithm, ssl.cipher.suites, ssl.protocol, ssl.enabled.protocols, rest.extension.classes).
 |====
 
 [id='type-KafkaMirrorMaker2MirrorSpec-{context}']
@@ -3563,7 +3706,7 @@ include::../api/io.strimzi.api.kafka.model.mirrormaker2.KafkaMirrorMaker2Cluster
 |Authentication configuration for connecting to the cluster.
 |config
 |map
-|The MirrorMaker 2 cluster config. Properties with the following prefixes cannot be set: group.id, config.storage.topic, offset.storage.topic, status.storage.topic, ssl., sasl., security., listeners, plugin.path, rest., bootstrap.servers, consumer.interceptor.classes, producer.interceptor.classes (with the exception of: ssl.endpoint.identification.algorithm, ssl.cipher.suites, ssl.protocol, ssl.enabled.protocols).
+|The MirrorMaker 2 cluster config. Properties with the following prefixes cannot be set: group.id, config.storage.topic, offset.storage.topic, status.storage.topic, ssl., sasl., security., listeners, plugin.path, rest., bootstrap.servers, consumer.interceptor.classes, producer.interceptor.classes (with the exception of: ssl.endpoint.identification.algorithm, ssl.cipher.suites, ssl.protocol, ssl.enabled.protocols, rest.extension.classes).
 |====
 
 [id='type-KafkaMirrorMaker2ConnectorSpec-{context}']
@@ -3793,7 +3936,7 @@ Used in: xref:type-KafkaNodePool-{context}[`KafkaNodePool`]
 |string (one or more of [controller, broker]) array
 |The roles assigned to the node pool. Supported values are `broker` and `controller`. This property is required.
 |resources
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#resourcerequirements-v1-core[ResourceRequirements]
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#resourcerequirements-v1-core[ResourceRequirements]
 |CPU and memory resources to reserve.
 |jvmOptions
 |xref:type-JvmOptions-{context}[`JvmOptions`]
@@ -3897,7 +4040,7 @@ Used in: xref:type-KafkaNodePoolSpec-{context}[`KafkaNodePoolSpec`]
 |xref:type-ResourceTemplate-{context}[`ResourceTemplate`]
 |Template for Kafka `StrimziPodSet` resource.
 |pod
-|xref:type-PodTemplate-{context}[`PodTemplate`]
+|xref:type-StatefulPodTemplate-{context}[`StatefulPodTemplate`]
 |Template for Kafka `Pods`.
 |perPodService
 |xref:type-ResourceTemplate-{context}[`ResourceTemplate`]
@@ -3983,10 +4126,10 @@ Used in: xref:type-StrimziPodSet-{context}[`StrimziPodSet`]
 |====
 |Property |Property type |Description
 |selector
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#labelselector-v1-meta[LabelSelector]
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#labelselector-v1-meta[LabelSelector]
 |Selector is a label query which matches all the pods managed by this `StrimziPodSet`. Only `matchLabels` is supported. If `matchExpressions` is set, it will be ignored.
 |pods
-|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#pods-v1-core[Map] array
+|https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#pods-v1-core[Map] array
 |The Pods managed by this StrimziPodSet.
 |====
 

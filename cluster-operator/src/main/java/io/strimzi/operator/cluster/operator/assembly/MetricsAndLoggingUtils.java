@@ -14,7 +14,9 @@ import io.strimzi.operator.cluster.operator.resource.kubernetes.ConfigMapOperato
 import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.ReconciliationLogger;
 import io.strimzi.operator.common.model.InvalidResourceException;
-import io.vertx.core.Future;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 /**
  * Shared methods for working with Metrics and Logging configurations. These methods are bundled because we store both
@@ -33,27 +35,28 @@ public class MetricsAndLoggingUtils {
      * @param logging               Logging configuration
      * @param metrics               Metrics configuration
      *
-     * @return Future with the metrics and logging configuration holder
+     * @return CompletionStage with the metrics and logging configuration holder
      */
-    public static Future<MetricsAndLogging> metricsAndLogging(Reconciliation reconciliation,
-                                                              ConfigMapOperator configMapOperations,
-                                                              LoggingModel logging,
-                                                              MetricsModel metrics) {
-        return Future
-                .join(metricsConfigMap(reconciliation, configMapOperations, metrics), loggingConfigMap(reconciliation, configMapOperations, logging))
-                .map(result -> new MetricsAndLogging(result.resultAt(0), result.resultAt(1)));
+    public static CompletionStage<MetricsAndLogging> metricsAndLogging(Reconciliation reconciliation,
+                                                                       ConfigMapOperator configMapOperations,
+                                                                       LoggingModel logging,
+                                                                       MetricsModel metrics) {
+        CompletableFuture<ConfigMap> metricsFuture = metricsConfigMap(reconciliation, configMapOperations, metrics).toCompletableFuture();
+        CompletableFuture<ConfigMap> loggingFuture = loggingConfigMap(reconciliation, configMapOperations, logging).toCompletableFuture();
+        return CompletableFuture.allOf(metricsFuture, loggingFuture)
+                .thenApply(v -> new MetricsAndLogging(metricsFuture.join(), loggingFuture.join()));
     }
 
-    private static Future<ConfigMap> metricsConfigMap(Reconciliation reconciliation, ConfigMapOperator configMapOperations, MetricsModel metrics) {
+    private static CompletionStage<ConfigMap> metricsConfigMap(Reconciliation reconciliation, ConfigMapOperator configMapOperations, MetricsModel metrics) {
         // this is only for JMX Prometheus Exporter, because the Strimzi Metrics Reporter configuration is in the Kafka configuration file
         if (metrics instanceof JmxPrometheusExporterModel model && model.getConfigMapName() != null) {
             return configMapOperations.getAsync(reconciliation.namespace(), model.getConfigMapName());
         } else {
-            return Future.succeededFuture(null);
+            return CompletableFuture.completedFuture(null);
         }
     }
 
-    private static Future<ConfigMap> loggingConfigMap(Reconciliation reconciliation, ConfigMapOperator configMapOperations, LoggingModel logging) {
+    private static CompletionStage<ConfigMap> loggingConfigMap(Reconciliation reconciliation, ConfigMapOperator configMapOperations, LoggingModel logging) {
         if (logging != null && logging.getLogging() instanceof ExternalLogging externalLogging) {
             if (externalLogging.getValueFrom() != null
                     && externalLogging.getValueFrom().getConfigMapKeyRef() != null
@@ -64,7 +67,7 @@ public class MetricsAndLoggingUtils {
                 throw new InvalidResourceException("External logging configuration does not specify logging ConfigMap");
             }
         } else {
-            return Future.succeededFuture(null);
+            return CompletableFuture.completedFuture(null);
         }
     }
 

@@ -30,10 +30,12 @@ import io.fabric8.kubernetes.api.model.policy.v1.PodDisruptionBudget;
 import io.strimzi.api.kafka.model.common.template.AdditionalVolume;
 import io.strimzi.api.kafka.model.common.template.AdditionalVolumeBuilder;
 import io.strimzi.api.kafka.model.common.template.ContainerEnvVar;
-import io.strimzi.api.kafka.model.common.template.DeploymentStrategy;
+import io.strimzi.api.kafka.model.common.template.StrimziDeploymentStrategy;
 import io.strimzi.api.kafka.model.kafka.Kafka;
 import io.strimzi.api.kafka.model.kafka.KafkaBuilder;
 import io.strimzi.api.kafka.model.kafka.KafkaResources;
+import io.strimzi.api.kafka.model.kafka.clustersecurity.ClusterSecurityAuthenticationBuilder;
+import io.strimzi.api.kafka.model.kafka.clustersecurity.ClusterSecurityAuthenticationType;
 import io.strimzi.api.kafka.model.kafka.exporter.KafkaExporterResources;
 import io.strimzi.api.kafka.model.kafka.listener.GenericKafkaListenerBuilder;
 import io.strimzi.api.kafka.model.kafka.listener.KafkaListenerType;
@@ -41,6 +43,11 @@ import io.strimzi.operator.cluster.KafkaVersionTestUtils;
 import io.strimzi.operator.cluster.PlatformFeaturesAvailability;
 import io.strimzi.operator.cluster.ResourceUtils;
 import io.strimzi.operator.cluster.TestUtils;
+import io.strimzi.operator.cluster.model.clustersecurity.kafka.AuthenticationConfiguration;
+import io.strimzi.operator.cluster.model.clustersecurity.kafka.KafkaClusterSecurityContext;
+import io.strimzi.operator.cluster.model.clustersecurity.kafka.NoneAuthenticationConfiguration;
+import io.strimzi.operator.cluster.model.clustersecurity.kafka.NoneEncryptionConfiguration;
+import io.strimzi.operator.cluster.model.clustersecurity.kafka.TlsEncryptionConfiguration;
 import io.strimzi.operator.cluster.model.metrics.MetricsModel;
 import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.model.Labels;
@@ -63,6 +70,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
+@SuppressWarnings({"checkstyle:ClassDataAbstractionCoupling"})
 public class KafkaExporterTest {
     private static final KafkaVersion.Lookup VERSIONS = KafkaVersionTestUtils.getKafkaVersionLookup();
     private static final SharedEnvironmentProvider SHARED_ENV_PROVIDER = new MockSharedEnvironmentProvider();
@@ -101,7 +109,7 @@ public class KafkaExporterTest {
                 .endKafkaExporter()
             .endSpec()
             .build();
-    private static final KafkaExporter KE = KafkaExporter.fromCrd(new Reconciliation("test", KAFKA.getKind(), KAFKA.getMetadata().getNamespace(), KAFKA.getMetadata().getName()), KAFKA, VERSIONS, SHARED_ENV_PROVIDER);
+    private static final KafkaExporter KE = KafkaExporter.fromCrd(new Reconciliation("test", KAFKA.getKind(), KAFKA.getMetadata().getNamespace(), KAFKA.getMetadata().getName()), KAFKA, VERSIONS, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
     @AfterAll
     public static void cleanUp() {
@@ -116,7 +124,7 @@ public class KafkaExporterTest {
                     .endKafkaExporter()
                 .endSpec()
                 .build();
-        KafkaExporter ke = KafkaExporter.fromCrd(new Reconciliation("test", resource.getKind(), resource.getMetadata().getNamespace(), resource.getMetadata().getName()), resource, VERSIONS, SHARED_ENV_PROVIDER);
+        KafkaExporter ke = KafkaExporter.fromCrd(new Reconciliation("test", resource.getKind(), resource.getMetadata().getNamespace(), resource.getMetadata().getName()), resource, VERSIONS, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         assertThat(ke.getImage(), is(KafkaVersionTestUtils.DEFAULT_KAFKA_IMAGE));
         assertThat(ke.exporterLogging, is("info"));
@@ -209,6 +217,68 @@ public class KafkaExporterTest {
     }
 
     @Test
+    public void testGenerateDeploymentWithTlsWithoutMtls() {
+        KafkaClusterSecurityContext securityContext = new KafkaClusterSecurityContext(new TlsEncryptionConfiguration(), new NoneAuthenticationConfiguration());
+        KafkaExporter ke = KafkaExporter.fromCrd(new Reconciliation("test", KAFKA.getKind(), NAMESPACE, CLUSTER_NAME), KAFKA, VERSIONS, SHARED_ENV_PROVIDER, securityContext);
+        Deployment dep = ke.generateDeployment(Map.of(), true, null, null);
+
+        assertThat(dep.getSpec().getTemplate().getSpec().getVolumes().stream().map(Volume::getName).toList(), containsInAnyOrder(
+                VolumeUtils.STRIMZI_TMP_DIRECTORY_DEFAULT_VOLUME_NAME,
+                KafkaExporter.CLUSTER_CA_CERTS_VOLUME_NAME));
+        assertThat(dep.getSpec().getTemplate().getSpec().getContainers().get(0).getVolumeMounts().stream().map(VolumeMount::getName).toList(), containsInAnyOrder(
+                VolumeUtils.STRIMZI_TMP_DIRECTORY_DEFAULT_VOLUME_NAME,
+                KafkaExporter.CLUSTER_CA_CERTS_VOLUME_NAME));
+    }
+
+    @Test
+    public void testGenerateDeploymentWithoutTlsOrMtls() {
+        KafkaClusterSecurityContext securityContext = new KafkaClusterSecurityContext(new NoneEncryptionConfiguration(), new NoneAuthenticationConfiguration());
+        KafkaExporter ke = KafkaExporter.fromCrd(new Reconciliation("test", KAFKA.getKind(), NAMESPACE, CLUSTER_NAME), KAFKA, VERSIONS, SHARED_ENV_PROVIDER, securityContext);
+        Deployment dep = ke.generateDeployment(Map.of(), true, null, null);
+
+        assertThat(dep.getSpec().getTemplate().getSpec().getVolumes().stream().map(Volume::getName).toList(), is(List.of(
+                VolumeUtils.STRIMZI_TMP_DIRECTORY_DEFAULT_VOLUME_NAME)));
+        assertThat(dep.getSpec().getTemplate().getSpec().getContainers().get(0).getVolumeMounts().stream().map(VolumeMount::getName).toList(), is(List.of(
+                VolumeUtils.STRIMZI_TMP_DIRECTORY_DEFAULT_VOLUME_NAME)));
+    }
+
+    @Test
+    public void testGenerateDeploymentWithTlsAndServiceAccountAuthentication() {
+        KafkaClusterSecurityContext securityContext = new KafkaClusterSecurityContext(new TlsEncryptionConfiguration(), serviceAccountAuthentication());
+        KafkaExporter ke = KafkaExporter.fromCrd(new Reconciliation("test", KAFKA.getKind(), NAMESPACE, CLUSTER_NAME), KAFKA, VERSIONS, SHARED_ENV_PROVIDER, securityContext);
+        Deployment dep = ke.generateDeployment(Map.of(), true, null, null);
+
+        // The Kafka Exporter certificates are not used with Service Account authentication
+        assertThat(dep.getSpec().getTemplate().getSpec().getVolumes().stream().map(Volume::getName).toList(), containsInAnyOrder(
+                VolumeUtils.STRIMZI_TMP_DIRECTORY_DEFAULT_VOLUME_NAME,
+                KafkaExporter.CLUSTER_CA_CERTS_VOLUME_NAME,
+                VolumeUtils.STRIMZI_AUTHENTICATION_TOKEN_VOLUME_NAME));
+        assertThat(dep.getSpec().getTemplate().getSpec().getContainers().get(0).getVolumeMounts().stream().map(VolumeMount::getName).toList(), containsInAnyOrder(
+                VolumeUtils.STRIMZI_TMP_DIRECTORY_DEFAULT_VOLUME_NAME,
+                KafkaExporter.CLUSTER_CA_CERTS_VOLUME_NAME,
+                VolumeUtils.STRIMZI_AUTHENTICATION_TOKEN_VOLUME_NAME));
+
+        Volume tokenVolume = dep.getSpec().getTemplate().getSpec().getVolumes().stream().filter(v -> VolumeUtils.STRIMZI_AUTHENTICATION_TOKEN_VOLUME_NAME.equals(v.getName())).findFirst().orElseThrow();
+        assertThat(tokenVolume.getProjected().getSources().get(0).getServiceAccountToken().getAudience(), is("strimzi.io/kafka/" + NAMESPACE + "/" + CLUSTER_NAME));
+        assertThat(tokenVolume.getProjected().getSources().get(0).getServiceAccountToken().getExpirationSeconds(), is(3600L));
+        assertThat(tokenVolume.getProjected().getSources().get(0).getServiceAccountToken().getPath(), is("token"));
+    }
+
+    @Test
+    public void testGenerateDeploymentWithServiceAccountAuthenticationWithoutTls() {
+        KafkaClusterSecurityContext securityContext = new KafkaClusterSecurityContext(new NoneEncryptionConfiguration(), serviceAccountAuthentication());
+        KafkaExporter ke = KafkaExporter.fromCrd(new Reconciliation("test", KAFKA.getKind(), NAMESPACE, CLUSTER_NAME), KAFKA, VERSIONS, SHARED_ENV_PROVIDER, securityContext);
+        Deployment dep = ke.generateDeployment(Map.of(), true, null, null);
+
+        assertThat(dep.getSpec().getTemplate().getSpec().getVolumes().stream().map(Volume::getName).toList(), containsInAnyOrder(
+                VolumeUtils.STRIMZI_TMP_DIRECTORY_DEFAULT_VOLUME_NAME,
+                VolumeUtils.STRIMZI_AUTHENTICATION_TOKEN_VOLUME_NAME));
+        assertThat(dep.getSpec().getTemplate().getSpec().getContainers().get(0).getVolumeMounts().stream().map(VolumeMount::getName).toList(), containsInAnyOrder(
+                VolumeUtils.STRIMZI_TMP_DIRECTORY_DEFAULT_VOLUME_NAME,
+                VolumeUtils.STRIMZI_AUTHENTICATION_TOKEN_VOLUME_NAME));
+    }
+
+    @Test
     public void testEnvVars()   {
         assertThat(KE.getEnvVars(), is(getExpectedEnvVars()));
     }
@@ -247,7 +317,7 @@ public class KafkaExporterTest {
                     .endKafkaExporter()
                 .endSpec()
                 .build();
-        KafkaExporter ke = KafkaExporter.fromCrd(new Reconciliation("test", resource.getKind(), resource.getMetadata().getNamespace(), resource.getMetadata().getName()), resource, VERSIONS, SHARED_ENV_PROVIDER);
+        KafkaExporter ke = KafkaExporter.fromCrd(new Reconciliation("test", resource.getKind(), resource.getMetadata().getNamespace(), resource.getMetadata().getName()), resource, VERSIONS, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         List<EnvVar> kafkaEnvVars = ke.getEnvVars();
         assertThat(kafkaEnvVars.stream().filter(var -> testEnvOneKey.equals(var.getName())).map(EnvVar::getValue).findFirst().orElseThrow(), is(testEnvOneValue));
@@ -279,7 +349,7 @@ public class KafkaExporterTest {
                     .endKafkaExporter()
                 .endSpec()
                 .build();
-        KafkaExporter ke = KafkaExporter.fromCrd(new Reconciliation("test", resource.getKind(), resource.getMetadata().getNamespace(), resource.getMetadata().getName()), resource, VERSIONS, SHARED_ENV_PROVIDER);
+        KafkaExporter ke = KafkaExporter.fromCrd(new Reconciliation("test", resource.getKind(), resource.getMetadata().getNamespace(), resource.getMetadata().getName()), resource, VERSIONS, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         List<EnvVar> kafkaEnvVars = ke.getEnvVars();
         assertThat(kafkaEnvVars.stream().filter(var -> testEnvOneKey.equals(var.getName())).map(EnvVar::getValue).findFirst().orElseThrow(), is(testEnvOneValue));
@@ -293,7 +363,7 @@ public class KafkaExporterTest {
                     .withKafkaExporter(null)
                 .endSpec()
                 .build();
-        KafkaExporter ke = KafkaExporter.fromCrd(new Reconciliation("test", resource.getKind(), resource.getMetadata().getNamespace(), resource.getMetadata().getName()), resource, VERSIONS, SHARED_ENV_PROVIDER);
+        KafkaExporter ke = KafkaExporter.fromCrd(new Reconciliation("test", resource.getKind(), resource.getMetadata().getNamespace(), resource.getMetadata().getName()), resource, VERSIONS, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         assertThat(ke, is(nullValue()));
     }
@@ -409,7 +479,7 @@ public class KafkaExporterTest {
                     .endKafkaExporter()
                 .endSpec()
                 .build();
-        KafkaExporter ke = KafkaExporter.fromCrd(new Reconciliation("test", resource.getKind(), resource.getMetadata().getNamespace(), resource.getMetadata().getName()), resource, VERSIONS, SHARED_ENV_PROVIDER);
+        KafkaExporter ke = KafkaExporter.fromCrd(new Reconciliation("test", resource.getKind(), resource.getMetadata().getNamespace(), resource.getMetadata().getName()), resource, VERSIONS, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         // Check Deployment
         Deployment dep = ke.generateDeployment(Map.of(), true, null, null);
@@ -438,7 +508,7 @@ public class KafkaExporterTest {
         PodDisruptionBudget pdb = ke.generatePodDisruptionBudget();
         assertThat(pdb.getMetadata().getLabels().entrySet().containsAll(pdbLabels.entrySet()), is(true));
         assertThat(pdb.getMetadata().getAnnotations().entrySet().containsAll(pdbAnots.entrySet()), is(true));
-        assertThat(pdb.getSpec().getMinAvailable(), is(new IntOrString(0)));
+        assertThat(pdb.getSpec().getMaxUnavailable(), is(new IntOrString(1)));
     }
 
     @Test
@@ -448,13 +518,13 @@ public class KafkaExporterTest {
                     .withNewKafkaExporter()
                         .withNewTemplate()
                             .withNewDeployment()
-                                .withDeploymentStrategy(DeploymentStrategy.RECREATE)
+                                .withDeploymentStrategy(StrimziDeploymentStrategy.RECREATE)
                             .endDeployment()
                         .endTemplate()
                     .endKafkaExporter()
                 .endSpec()
                 .build();
-        KafkaExporter ke = KafkaExporter.fromCrd(new Reconciliation("test", resource.getKind(), resource.getMetadata().getNamespace(), resource.getMetadata().getName()), resource, VERSIONS, SHARED_ENV_PROVIDER);
+        KafkaExporter ke = KafkaExporter.fromCrd(new Reconciliation("test", resource.getKind(), resource.getMetadata().getNamespace(), resource.getMetadata().getName()), resource, VERSIONS, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         Deployment dep = ke.generateDeployment(Map.of(), true, null, null);
         assertThat(dep.getSpec().getStrategy().getType(), is("Recreate"));
@@ -468,7 +538,7 @@ public class KafkaExporterTest {
 
     @Test
     public void testSecurityProvider() {
-        KafkaExporter ke = KafkaExporter.fromCrd(new Reconciliation("test", KAFKA.getKind(), KAFKA.getMetadata().getNamespace(), KAFKA.getMetadata().getName()), KAFKA, VERSIONS, SHARED_ENV_PROVIDER);
+        KafkaExporter ke = KafkaExporter.fromCrd(new Reconciliation("test", KAFKA.getKind(), KAFKA.getMetadata().getNamespace(), KAFKA.getMetadata().getName()), KAFKA, VERSIONS, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
         ke.securityProvider = new TestPodSecurityProvider();
         ke.securityProvider.configure(new PlatformFeaturesAvailability(false, KubernetesVersion.MINIMAL_SUPPORTED_VERSION));
 
@@ -485,11 +555,15 @@ public class KafkaExporterTest {
     // Utility methods
     ////////////////////
 
+    private static AuthenticationConfiguration serviceAccountAuthentication() {
+        return AuthenticationConfiguration.fromCrd(NAMESPACE, CLUSTER_NAME, new ClusterSecurityAuthenticationBuilder().withType(ClusterSecurityAuthenticationType.SERVICE_ACCOUNT).build());
+    }
+
     private static List<EnvVar> getExpectedEnvVars() {
         List<EnvVar> expected = new ArrayList<>();
 
         expected.add(new EnvVarBuilder().withName(KafkaExporter.ENV_VAR_KAFKA_EXPORTER_LOGGING).withValue("1").build());
-        expected.add(new EnvVarBuilder().withName(KafkaExporter.ENV_VAR_KAFKA_EXPORTER_KAFKA_VERSION).withValue(KafkaVersionTestUtils.DEFAULT_KAFKA_VERSION).build());
+        expected.add(new EnvVarBuilder().withName(KafkaExporter.ENV_VAR_KAFKA_EXPORTER_KAFKA_VERSION).withValue(KafkaVersionTestUtils.DEFAULT_CANONICAL_KAFKA_VERSION).build());
         expected.add(new EnvVarBuilder().withName(KafkaExporter.ENV_VAR_KAFKA_EXPORTER_GROUP_REGEX).withValue("my-group-.*").build());
         expected.add(new EnvVarBuilder().withName(KafkaExporter.ENV_VAR_KAFKA_EXPORTER_TOPIC_REGEX).withValue("my-topic-.*").build());
         expected.add(new EnvVarBuilder().withName(KafkaExporter.ENV_VAR_KAFKA_EXPORTER_GROUP_EXCLUDE_REGEX).withValue("my-group-exclude-.*").build());

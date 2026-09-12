@@ -23,13 +23,15 @@ import io.strimzi.operator.common.AdminClientProvider;
 import io.strimzi.operator.common.BackOff;
 import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.ReconciliationLogger;
-import io.strimzi.operator.common.auth.TlsPemIdentity;
+import io.strimzi.operator.common.StrimziTimeoutException;
+import io.strimzi.operator.common.auth.Identity;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.model.OrderedProperties;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AlterConfigOp;
 import org.apache.kafka.clients.admin.AlterConfigsResult;
 import org.apache.kafka.clients.admin.Config;
+import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.errors.SslAuthenticationException;
@@ -44,6 +46,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -107,7 +110,7 @@ public class KafkaRoller {
     private final long pollingIntervalMs;
     protected final long operationTimeoutMs;
     private final String cluster;
-    private final TlsPemIdentity coTlsPemIdentity;
+    private final Identity coIdentity;
     private final Set<NodeRef> nodes;
     private final KubernetesRestartEventPublisher eventsPublisher;
     private final Supplier<BackOff> backoffSupplier;
@@ -138,7 +141,7 @@ public class KafkaRoller {
      * @param operationTimeoutMs        Operation timeout in milliseconds
      * @param backOffSupplier           Backoff supplier
      * @param nodes                     List of Kafka node references to consider rolling
-     * @param coTlsPemIdentity          Trust set and identity for TLS client authentication for connecting to the Kafka cluster
+     * @param coIdentity                Trust set and identity for authentication for connecting to the Kafka cluster
      * @param adminClientProvider       Kafka Admin client provider
      * @param kafkaAgentClientProvider  Kafka Agent client provider
      * @param kafkaConfigProvider       Kafka configuration provider
@@ -148,7 +151,7 @@ public class KafkaRoller {
      */
     public KafkaRoller(Reconciliation reconciliation, PodOperator podOperations,
                        long pollingIntervalMs, long operationTimeoutMs, Supplier<BackOff> backOffSupplier, Set<NodeRef> nodes,
-                       TlsPemIdentity coTlsPemIdentity, AdminClientProvider adminClientProvider, KafkaAgentClientProvider kafkaAgentClientProvider,
+                       Identity coIdentity, AdminClientProvider adminClientProvider, KafkaAgentClientProvider kafkaAgentClientProvider,
                        Function<Integer, String> kafkaConfigProvider, KafkaVersion kafkaVersion, boolean allowReconfiguration, KubernetesRestartEventPublisher eventsPublisher) {
         this.namespace = reconciliation.namespace();
         this.cluster = reconciliation.name();
@@ -158,7 +161,7 @@ public class KafkaRoller {
             throw new IllegalArgumentException();
         }
         this.backoffSupplier = backOffSupplier;
-        this.coTlsPemIdentity = coTlsPemIdentity;
+        this.coIdentity = coIdentity;
         this.operationTimeoutMs = operationTimeoutMs;
         this.podOperations = podOperations;
         this.pollingIntervalMs = pollingIntervalMs;
@@ -216,9 +219,9 @@ public class KafkaRoller {
      * Which pods get rolled is determined by {@code podNeedsRestart}.
      * The pods may not be rolled in id order, due to the {@linkplain KafkaRoller rolling algorithm}.
      * @param podNeedsRestart Predicate for determining whether a pod should be rolled.
-     * @return A CompletableFuture completed when rolling is complete.
+     * @return A CompletionStage completed when rolling is complete.
      */
-    public CompletableFuture<Void> rollingRestart(Function<Pod, RestartReasons> podNeedsRestart) {
+    public CompletionStage<Void> rollingRestart(Function<Pod, RestartReasons> podNeedsRestart) {
         this.podNeedsRestart = podNeedsRestart;
         CompletableFuture<Void> result = new CompletableFuture<>();
         singleExecutor.submit(() -> {
@@ -242,18 +245,18 @@ public class KafkaRoller {
 
                 LOGGER.debugCr(reconciliation, "Initial order for updating pods (rolling restart or dynamic update) is controller pods={}, broker pods={}", controllerPods, brokerPods);
 
-                List<CompletableFuture<Void>> controllerFutures = new ArrayList<>(controllerPods.size());
+                List<CompletionStage<Void>> controllerFutures = new ArrayList<>(controllerPods.size());
                 for (NodeRef node : controllerPods) {
                     controllerFutures.add(schedule(node, 0));
                 }
 
-                CompletableFuture.allOf(controllerFutures.toArray(new CompletableFuture[0]))
+                CompletableFuture.allOf(controllerFutures.stream().map(CompletionStage::toCompletableFuture).toArray(CompletableFuture[]::new))
                         .thenCompose(i -> {
-                            List<CompletableFuture<Void>> brokerFutures = new ArrayList<>(nodes.size());
+                            List<CompletionStage<Void>> brokerFutures = new ArrayList<>(nodes.size());
                             for (NodeRef node : brokerPods) {
                                 brokerFutures.add(schedule(node, 0));
                             }
-                            return CompletableFuture.allOf(brokerFutures.toArray(new CompletableFuture[0]));
+                            return CompletableFuture.allOf(brokerFutures.stream().map(CompletionStage::toCompletableFuture).toArray(CompletableFuture[]::new));
                         }).whenComplete((i, error) -> {
                             singleExecutor.shutdown();
                             publishEventExecutor.shutdown();
@@ -330,7 +333,7 @@ public class KafkaRoller {
      *
      * @return A future which completes when the pod has been rolled.
      */
-    private CompletableFuture<Void> schedule(NodeRef nodeRef, long delayMs) {
+    private CompletionStage<Void> schedule(NodeRef nodeRef, long delayMs) {
         RestartContext ctx = podToContext.computeIfAbsent(nodeRef.podName(),
             k -> new RestartContext(backoffSupplier));
         singleExecutor.schedule(() -> {
@@ -352,7 +355,7 @@ public class KafkaRoller {
                     LOGGER.infoCr(reconciliation, "Could not verify pod {} is up-to-date, giving up after {} attempts. Total delay between attempts {}ms",
                             nodeRef, ctx.backOff.maxAttempts(), ctx.backOff.totalDelayMs(), e);
                     ctx.completableFuture.completeExceptionally(e instanceof TimeoutException ?
-                            new io.strimzi.operator.common.TimeoutException() :
+                            new StrimziTimeoutException() :
                             e);
                 } else {
                     long delay1Ms = ctx.backOff.delayMs();
@@ -481,7 +484,7 @@ public class KafkaRoller {
 
     KafkaAgentClient initKafkaAgentClient() throws FatalProblem {
         try {
-            return kafkaAgentClientProvider.createKafkaAgentClient(reconciliation, coTlsPemIdentity);
+            return kafkaAgentClientProvider.createKafkaAgentClient(reconciliation, coIdentity);
         } catch (Exception e) {
             throw new FatalProblem("Failed to initialise KafkaAgentClient", e);
         }
@@ -528,9 +531,9 @@ public class KafkaRoller {
         if (restartContext.needsReconfig) {
             try {
                 if (isControllerOnly) {
-                    dynamicUpdateKafkaConfig(nodeRef, controllerAdminClient, restartContext.configDiff);
+                    dynamicUpdateKafkaConfig(reconciliation, nodeRef, controllerAdminClient, restartContext.configDiff);
                 } else {
-                    dynamicUpdateKafkaConfig(nodeRef, brokerAdminClient, restartContext.configDiff);
+                    dynamicUpdateKafkaConfig(reconciliation, nodeRef, brokerAdminClient, restartContext.configDiff);
                 }
                 updatedDynamically = true;
             } catch (ForceableProblem e) {
@@ -649,7 +652,7 @@ public class KafkaRoller {
         if (isPureController) {
             KafkaFuture<Config> configFuture = controllerAdminClient.describeConfigs(singletonList(resource)).values().get(resource);
             if (configFuture != null) {
-                return await(configFuture.toCompletionStage().toCompletableFuture(),
+                return await(configFuture.toCompletionStage(),
                         30_000,
                         error -> new ForceableProblem("Error getting controller config: " + error, error)
                 );
@@ -658,7 +661,7 @@ public class KafkaRoller {
         } else {
             KafkaFuture<Config> configFuture = brokerAdminClient.describeConfigs(singletonList(resource)).values().get(resource);
             if (configFuture != null) {
-                return await(configFuture.toCompletionStage().toCompletableFuture(),
+                return await(configFuture.toCompletionStage(),
                         30_000,
                         error -> new ForceableProblem("Error getting broker config: " + error, error)
                 );
@@ -669,14 +672,28 @@ public class KafkaRoller {
         return null;
     }
 
-    /* test */ void dynamicUpdateKafkaConfig(NodeRef nodeRef, Admin ac, KafkaConfigurationDiff configurationDiff)
+    /* test */ static void dynamicUpdateKafkaConfig(Reconciliation reconciliation, NodeRef nodeRef, Admin ac, KafkaConfigurationDiff configurationDiff)
             throws ForceableProblem, InterruptedException {
-        Collection<AlterConfigOp> perBrokerDiff = configurationDiff.getConfigDiff(Scope.PER_BROKER);
-        Collection<AlterConfigOp> clusterWideDiff = configurationDiff.getConfigDiff(Scope.CLUSTER_WIDE);
+        Collection<AlterConfigOp> perBrokerOps = new ArrayList<>(configurationDiff.getConfigDiff(Scope.PER_BROKER));
+        Collection<AlterConfigOp> clusterWideOps = new ArrayList<>();
 
-        if (!perBrokerDiff.isEmpty()) {
+        // When a CLUSTER_WIDE-scoped config has been manually set per-broker (DYNAMIC_BROKER_CONFIG),
+        // the per-broker override must be reverted so the Kafka CR is the source of truth.
+        for (AlterConfigOp op : configurationDiff.getConfigDiff(Scope.CLUSTER_WIDE)) {
+            boolean hasPerBrokerOverride = op.configEntry().source() == ConfigEntry.ConfigSource.DYNAMIC_BROKER_CONFIG;
+
+            if (hasPerBrokerOverride) {
+                perBrokerOps.add(new AlterConfigOp(new ConfigEntry(op.configEntry().name(), null), AlterConfigOp.OpType.DELETE));
+            }
+
+            if (!hasPerBrokerOverride || op.opType() == AlterConfigOp.OpType.SET) {
+                clusterWideOps.add(op);
+            }
+        }
+
+        if (!perBrokerOps.isEmpty()) {
             Map<ConfigResource, Collection<AlterConfigOp>> updatedPerBrokerConfig = new HashMap<>(2);
-            updatedPerBrokerConfig.put(getBrokersConfig(nodeRef.nodeId()), perBrokerDiff);
+            updatedPerBrokerConfig.put(getBrokersConfig(nodeRef.nodeId()), perBrokerOps);
             LOGGER.debugCr(reconciliation, "Updating broker configuration {}", nodeRef);
             LOGGER.traceCr(reconciliation, "Updating broker configuration {} with {}", nodeRef, updatedPerBrokerConfig);
 
@@ -684,7 +701,7 @@ public class KafkaRoller {
             KafkaFuture<Void> brokerConfigFuture = alterBrokerConfigResult.values().get(getBrokersConfig(nodeRef.nodeId()));
 
             if (brokerConfigFuture != null) {
-                await(brokerConfigFuture.toCompletionStage().toCompletableFuture(), 30_000, error -> {
+                await(brokerConfigFuture.toCompletionStage(), 30_000, error -> {
                     LOGGER.errorCr(reconciliation, "Error updating Kafka configuration for pod {}", nodeRef, error);
                     return new ForceableProblem("Error updating Kafka configuration for pod " + nodeRef, error);
                 });
@@ -695,9 +712,9 @@ public class KafkaRoller {
             LOGGER.infoCr(reconciliation, "Dynamic update of pod {} was successful.", nodeRef);
         }
 
-        if (!clusterWideDiff.isEmpty()) {
+        if (!clusterWideOps.isEmpty()) {
             Map<ConfigResource, Collection<AlterConfigOp>> updatedClusterWideConfig = new HashMap<>(1);
-            updatedClusterWideConfig.put(getClusterWideConfig(), clusterWideDiff);
+            updatedClusterWideConfig.put(getClusterWideConfig(), clusterWideOps);
 
             LOGGER.debugCr(reconciliation, "Updating cluster-wide configuration");
             LOGGER.traceCr(reconciliation, "Updating cluster-wide configuration with {}", updatedClusterWideConfig);
@@ -706,7 +723,7 @@ public class KafkaRoller {
             KafkaFuture<Void> clusterConfigFuture = alterClusterConfigResult.values().get(getClusterWideConfig());
 
             if (clusterConfigFuture != null) {
-                await(clusterConfigFuture.toCompletionStage().toCompletableFuture(), 30_000, error -> {
+                await(clusterConfigFuture.toCompletionStage(), 30_000, error -> {
                     LOGGER.errorCr(reconciliation, "Error updating cluster-wide configuration", error);
                     return new ForceableProblem("Error updating cluster-wide configuration", error);
                 });
@@ -824,7 +841,7 @@ public class KafkaRoller {
      * @throws E The exception type returned from {@code exceptionMapper}.
      * @throws InterruptedException If the waiting was interrupted.
      */
-    private static <T, E extends Exception> T await(CompletableFuture<T> future, long timeoutMs,
+    private static <T, E extends Exception> T await(CompletionStage<T> future, long timeoutMs,
                                                     Function<Throwable, E> exceptionMapper)
             throws E, InterruptedException {
         CompletableFuture<T> cf = new CompletableFuture<>();
@@ -853,18 +870,12 @@ public class KafkaRoller {
      *
      * @return a Future which completes when the Pod has been recreated
      */
-    protected CompletableFuture<Void> restart(Pod pod, RestartContext restartContext) {
-        CompletableFuture<Void> future = new CompletableFuture<>();
-        podOperations.restart(reconciliation, pod, operationTimeoutMs)
-                .onComplete(ar -> {
-                    if (ar.succeeded()) {
-                        publishEventExecutor.execute(() -> eventsPublisher.publishRestartEvents(reconciliation, pod, restartContext.restartReasons));
-                        future.complete(null);
-                    } else {
-                        future.completeExceptionally(ar.cause());
-                    }
+    protected CompletionStage<Void> restart(Pod pod, RestartContext restartContext) {
+        return podOperations.restart(reconciliation, pod, operationTimeoutMs)
+                .thenCompose(i -> {
+                    publishEventExecutor.execute(() -> eventsPublisher.publishRestartEvents(reconciliation, pod, restartContext.restartReasons));
+                    return CompletableFuture.completedFuture(null);
                 });
-        return future;
     }
 
     /**
@@ -877,11 +888,11 @@ public class KafkaRoller {
             if (isController) {
                 bootstrapHostnames = nodes.stream().filter(NodeRef::controller).map(node -> DnsNameGenerator.podDnsNameWithoutClusterDomain(namespace, KafkaResources.brokersServiceName(cluster), node.podName()) + ":" + KafkaCluster.CONTROLPLANE_PORT).collect(Collectors.joining(","));
                 LOGGER.debugCr(reconciliation, "Creating AdminClient for {}", bootstrapHostnames);
-                return adminClientProvider.createControllerAdminClient(bootstrapHostnames, coTlsPemIdentity.pemTrustSet(), coTlsPemIdentity.pemAuthIdentity());
+                return adminClientProvider.createControllerAdminClient(bootstrapHostnames, coIdentity.trustSet(), coIdentity.authIdentity());
             } else {
                 bootstrapHostnames = nodes.stream().filter(NodeRef::broker).map(node -> DnsNameGenerator.podDnsNameWithoutClusterDomain(namespace, KafkaResources.brokersServiceName(cluster), node.podName()) + ":" + KafkaCluster.REPLICATION_PORT).collect(Collectors.joining(","));
                 LOGGER.debugCr(reconciliation, "Creating AdminClient for {}", bootstrapHostnames);
-                return adminClientProvider.createAdminClient(bootstrapHostnames, coTlsPemIdentity.pemTrustSet(), coTlsPemIdentity.pemAuthIdentity());
+                return adminClientProvider.createAdminClient(bootstrapHostnames, coIdentity.trustSet(), coIdentity.authIdentity());
             }
         } catch (RuntimeException e) {
             throw new ForceableProblem("An error while try to create an admin client with bootstrap " + bootstrapHostnames, e);
@@ -930,22 +941,17 @@ public class KafkaRoller {
         return podToContext.toString();
     }
 
-    protected CompletableFuture<Void> isReady(Pod pod) {
+    protected CompletionStage<Void> isReady(Pod pod) {
         return isReady(pod.getMetadata().getNamespace(), pod.getMetadata().getName());
     }
 
-    protected CompletableFuture<Void> isReady(String namespace, String podName) {
-        CompletableFuture<Void> cf = new CompletableFuture<>();
-        podOperations.readiness(reconciliation, namespace, podName, pollingIntervalMs, operationTimeoutMs)
-                .onComplete(ar -> {
-                    if (ar.succeeded()) {
-                        cf.complete(null);
-                    } else {
-                        LOGGER.warnCr(reconciliation, "Error waiting for pod {}/{} to become ready: {}", namespace, podName, ar.cause());
-                        cf.completeExceptionally(ar.cause());
+    protected CompletionStage<Void> isReady(String namespace, String podName) {
+        return podOperations.readiness(reconciliation, namespace, podName, pollingIntervalMs, operationTimeoutMs)
+                .whenComplete((i, t) -> {
+                    if (t != null) {
+                        LOGGER.warnCr(reconciliation, "Error waiting for pod {}/{} to become ready: {}", namespace, podName, t);
                     }
                 });
-        return cf;
     }
 
     /**

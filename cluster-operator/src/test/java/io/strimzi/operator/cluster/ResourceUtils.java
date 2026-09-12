@@ -26,7 +26,6 @@ import io.strimzi.operator.cluster.operator.resource.kubernetes.BuildConfigOpera
 import io.strimzi.operator.cluster.operator.resource.kubernetes.BuildOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.ClusterRoleBindingOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.ConfigMapOperator;
-import io.strimzi.operator.cluster.operator.resource.kubernetes.CrdOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.DeploymentOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.ImageStreamOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.IngressOperator;
@@ -38,7 +37,6 @@ import io.strimzi.operator.cluster.operator.resource.kubernetes.PvcOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.RoleBindingOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.RoleOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.RouteOperator;
-import io.strimzi.operator.cluster.operator.resource.kubernetes.SecretOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.ServiceAccountOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.ServiceOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.StorageClassOperator;
@@ -47,11 +45,12 @@ import io.strimzi.operator.cluster.operator.resource.kubernetes.TLSRouteOperator
 import io.strimzi.operator.common.AdminClientProvider;
 import io.strimzi.operator.common.MetricsProvider;
 import io.strimzi.operator.common.MicrometerMetricsProvider;
-import io.strimzi.operator.common.auth.PemAuthIdentity;
-import io.strimzi.operator.common.auth.PemTrustSet;
-import io.strimzi.operator.common.model.Ca;
+import io.strimzi.operator.common.auth.AuthIdentity;
+import io.strimzi.operator.common.auth.TrustSet;
+import io.strimzi.operator.common.ca.Ca;
 import io.strimzi.operator.common.model.Labels;
-import io.vertx.core.Future;
+import io.strimzi.operator.common.operator.resource.kubernetes.CrdOperator;
+import io.strimzi.operator.common.operator.resource.kubernetes.SecretOperator;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.DescribeClientQuotasResult;
 import org.apache.kafka.clients.admin.DescribeClusterOptions;
@@ -86,6 +85,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Properties;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
 import static java.util.Collections.emptyMap;
@@ -112,6 +112,55 @@ public class ResourceUtils {
             .withBlockOwnerDeletion(true)
             .withController(false)
             .build();
+
+    // These certificates are used for testing purposes only and are not real certificates. They are valid until 2118,
+    // so it should not cause any issues with the tests.
+    public final static String DUMMY_CERT = """
+            -----BEGIN CERTIFICATE-----
+            MIIDhjCCAm6gAwIBAgIJANzx2pPcYgmlMA0GCSqGSIb3DQEBCwUAMFcxCzAJBgNV
+            BAYTAlhYMRUwEwYDVQQHDAxEZWZhdWx0IENpdHkxHDAaBgNVBAoME0RlZmF1bHQg
+            Q29tcGFueSBMdGQxEzARBgNVBAMMCmNsdXN0ZXItY2EwIBcNMTgwODIzMTYxOTU0
+            WhgPMjExODA3MzAxNjE5NTRaMFcxCzAJBgNVBAYTAlhYMRUwEwYDVQQHDAxEZWZh
+            dWx0IENpdHkxHDAaBgNVBAoME0RlZmF1bHQgQ29tcGFueSBMdGQxEzARBgNVBAMM
+            CmNsdXN0ZXItY2EwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDbFnJj
+            90sKoM35VszJsfwNvO5dshoeFIb2idf7h+l0h3GMv29j+1XtmLJGzxiYy320KFZr
+            3IKWbq+DabqdlqEqZm9NZ1Kq9d7mB10zulQce5JwVZ3FqpCmLku2jHCaDXzTKC3T
+            /Xp0O9Oe8+42ysSMCTd8p8aZ4vAyJMCKcoyVCGHrUWVba40D7cQNOlhJplSzHZdL
+            FYZ13kwzpT5GpDEPhGVmtF8qV918lSxvdpuepyeFdOSYY88FEMMLLrlZG4QCPyES
+            4FpcUXMzzvZeLIlZnKNIYbao3Kx+yZv//wjC80/pqdyoZ5+K5hDxjby2+f+2dh0T
+            adKRZC2pp+j3/z63AgMBAAGjUzBRMB0GA1UdDgQWBBThuvddCb/5TPSKYNOHkCTL
+            VghhRzAfBgNVHSMEGDAWgBThuvddCb/5TPSKYNOHkCTLVghhRzAPBgNVHRMBAf8E
+            BTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQBA6oTI27dJgbVtyWxQWznKrkznZ9+t
+            mQQGbpfl9zEg7/0X7fFb+m84QHro+aNnQ4kTgZ6QBvusIpwfx1F6lQrraVrPr142
+            4DqGmY9xReNu/fj+C+8lTI5PA+mE7tMrLpQvKxI+AMttvlz8eo1SITUA+kJEiWZX
+            mjvyHXmhic4K8SnnB0gnFzHN4y09wLqRMNCRH+aI+sa9Wu8cqvpTqlelVcYV83zu
+            ydx4VZkC+zTzjI418znN/NU2CMpxLZNl0/zCrspID7v34NRmJ1AHFcrn7/XhsSvz
+            D0z+vgrfionoRhyWUDh7POlWwdUOWiBDBOFrkgeKNphSC0glYFN+2IW7
+            -----END CERTIFICATE-----""";
+    public final static String DUMMY_CERT_2 = """
+            -----BEGIN CERTIFICATE-----
+            MIIDkTCCAnmgAwIBAgIUELT9ep8WsemraBXhUfKONFYR8MMwDQYJKoZIhvcNAQEL
+            BQAwVzELMAkGA1UEBhMCWFgxFTATBgNVBAcMDERlZmF1bHQgQ2l0eTEcMBoGA1UE
+            CgwTRGVmYXVsdCBDb21wYW55IEx0ZDETMBEGA1UEAwwKY2x1c3Rlci1jYTAgFw0y
+            NjA2MjAxNjM3NTRaGA8yMTI2MDUyNzE2Mzc1NFowVzELMAkGA1UEBhMCWFgxFTAT
+            BgNVBAcMDERlZmF1bHQgQ2l0eTEcMBoGA1UECgwTRGVmYXVsdCBDb21wYW55IEx0
+            ZTETMBEGA1UEAwwKY2x1c3Rlci1jYTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCC
+            AQoCggEBAJe/4b0FUQC3cOZ74VEPs7d29Ox2b7NZR5t4TCYYqzhAn7D3eUz410h3
+            PY4+TGe3k/IFow+yLo7xnqs2x4sVOlU9S6BkBjJXeadWC/QBsr0ur9jCnmlxxV/O
+            18wFnXaTi+vaCgp37AZf1h4e+2wfZFsbOhvCr4W52pri7ccmKFquGWBriZiZuBI0
+            rPNyz5bkapZUjlN1bmFbHdbgft9Ali7rAA3WTc9Mau7UABlZHZywypEICw9UL5xR
+            xx1erOGVqY1ts4OtLnnlFc8gX//1Mjz9p25ptSNlCbmLEC+TBmMbQNmxZqdkN8UJ
+            pnt0f+Cs8v9xlMtVpcH8CN0fdCC3Yv8CAwEAAaNTMFEwHQYDVR0OBBYEFNDKxipH
+            px6y1xrHWNQ9WYOYol9KMB8GA1UdIwQYMBaAFNDKxipHpx6y1xrHWNQ9WYOYol9K
+            MA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAEaeGdwY+1JNJHlI
+            gzSD2Fty2D+oe55BjcY5JpWFYqyrSqx37gogMDtXBLwXCQIbYcUIhqD2cZCYIPxL
+            9FGUOBMPXZxMnFxTznRWBRxhGZRBguz59P87HNks5f3xu89n+n7UOi4saPb8cTx9
+            jXQIieXR5odTBsyIHX0xpzkTKnUGAmU7NbRNKkYUlmxp+g7WFIS/jZKD5XdNhrbg
+            t9BNAxdop5RUg8PuevffCRkIuSMkl7XmoNG/L2aptGAhpQpd8igOLles7fQG29si
+            185WdOfJrwHFdIlisvFQEbvUTQX03fsjNwA7YfSFYNgOXKRqwzJ2BA54MFvQZ9BH
+            0ry2YpU=
+            -----END CERTIFICATE-----""";
+
 
     private ResourceUtils() { }
 
@@ -278,22 +327,22 @@ public class ResourceUtils {
     public static AdminClientProvider adminClientProvider(Admin mockAdminClient) {
         return new AdminClientProvider() {
             @Override
-            public Admin createAdminClient(String bootstrapHostnames, PemTrustSet kafkaCaTrustSet, PemAuthIdentity authIdentity) {
-                return createAdminClient(bootstrapHostnames, kafkaCaTrustSet, authIdentity, new Properties());
+            public Admin createAdminClient(String bootstrapHostnames, TrustSet kafkaTrustSet, AuthIdentity authIdentity) {
+                return createAdminClient(bootstrapHostnames, kafkaTrustSet, authIdentity, new Properties());
             }
 
             @Override
-            public Admin createControllerAdminClient(String controllerBootstrapHostnames, PemTrustSet kafkaCaTrustSet, PemAuthIdentity authIdentity) {
-                return createControllerAdminClient(controllerBootstrapHostnames, kafkaCaTrustSet, authIdentity, new Properties());
+            public Admin createControllerAdminClient(String controllerBootstrapHostnames, TrustSet kafkaTrustSet, AuthIdentity authIdentity) {
+                return createControllerAdminClient(controllerBootstrapHostnames, kafkaTrustSet, authIdentity, new Properties());
             }
 
             @Override
-            public Admin createAdminClient(String bootstrapHostnames, PemTrustSet kafkaCaTrustSet, PemAuthIdentity authIdentity, Properties config) {
+            public Admin createAdminClient(String bootstrapHostnames, TrustSet kafkaTrustSet, AuthIdentity authIdentity, Properties config) {
                 return mockAdminClient;
             }
 
             @Override
-            public Admin createControllerAdminClient(String controllerBootstrapHostnames, PemTrustSet kafkaCaTrustSet, PemAuthIdentity authIdentity, Properties config) {
+            public Admin createControllerAdminClient(String controllerBootstrapHostnames, TrustSet kafkaTrustSet, AuthIdentity authIdentity, Properties config) {
                 return mockAdminClient;
             }
         };
@@ -356,8 +405,8 @@ public class ResourceUtils {
                 new MockSharedEnvironmentProvider(),
                 mock(BrokersInUseCheck.class));
 
-        when(supplier.secretOperations.getAsync(any(), any())).thenReturn(Future.succeededFuture());
-        when(supplier.secretOperations.getAsync(any(), or(endsWith("ca-cert"), endsWith("certs")))).thenReturn(Future.succeededFuture(
+        when(supplier.secretOperations.getAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(supplier.secretOperations.getAsync(any(), or(endsWith("ca-cert"), endsWith("certs")))).thenReturn(CompletableFuture.completedFuture(
                 new SecretBuilder()
                         .withNewMetadata()
                             .withName("cert-secret")
@@ -366,14 +415,14 @@ public class ResourceUtils {
                         .addToData("cluster-operator.key", "key")
                         .addToData("cluster-operator.crt", "cert")
                         .build()));
-        when(supplier.serviceAccountOperations.reconcile(any(), anyString(), anyString(), any())).thenReturn(Future.succeededFuture());
-        when(supplier.roleBindingOperations.reconcile(any(), anyString(), anyString(), any())).thenReturn(Future.succeededFuture());
-        when(supplier.roleOperations.reconcile(any(), anyString(), anyString(), any())).thenReturn(Future.succeededFuture());
-        when(supplier.clusterRoleBindingOperator.reconcile(any(), anyString(), any())).thenReturn(Future.succeededFuture());
+        when(supplier.serviceAccountOperations.reconcile(any(), anyString(), anyString(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(supplier.roleBindingOperations.reconcile(any(), anyString(), anyString(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(supplier.roleOperations.reconcile(any(), anyString(), anyString(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(supplier.clusterRoleBindingOperator.reconcile(any(), anyString(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         if (openShift) {
-            when(supplier.routeOperations.reconcile(any(), anyString(), anyString(), any())).thenReturn(Future.succeededFuture());
-            when(supplier.routeOperations.hasAddress(any(), anyString(), anyString(), anyLong(), anyLong())).thenReturn(Future.succeededFuture());
+            when(supplier.routeOperations.reconcile(any(), anyString(), anyString(), any())).thenReturn(CompletableFuture.completedFuture(null));
+            when(supplier.routeOperations.hasAddress(any(), anyString(), anyString(), anyLong(), anyLong())).thenReturn(CompletableFuture.completedFuture(null));
             when(supplier.routeOperations.get(anyString(), anyString())).thenAnswer(i -> new RouteBuilder()
                     .withNewStatus()
                     .addNewIngress()
@@ -383,8 +432,8 @@ public class ResourceUtils {
                     .build());
         }
 
-        when(supplier.serviceOperations.hasIngressAddress(any(), anyString(), anyString(), anyLong(), anyLong())).thenReturn(Future.succeededFuture());
-        when(supplier.serviceOperations.hasNodePort(any(), anyString(), anyString(), anyLong(), anyLong())).thenReturn(Future.succeededFuture());
+        when(supplier.serviceOperations.hasIngressAddress(any(), anyString(), anyString(), anyLong(), anyLong())).thenReturn(CompletableFuture.completedFuture(null));
+        when(supplier.serviceOperations.hasNodePort(any(), anyString(), anyString(), anyLong(), anyLong())).thenReturn(CompletableFuture.completedFuture(null));
         when(supplier.serviceOperations.get(anyString(), anyString())).thenAnswer(i ->
              new ServiceBuilder()
                     .withNewStatus()

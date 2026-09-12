@@ -31,7 +31,6 @@ import io.strimzi.operator.cluster.model.InPlacePodResizingUtils;
 import io.strimzi.operator.cluster.model.ModelUtils;
 import io.strimzi.operator.cluster.model.PodRevision;
 import io.strimzi.operator.cluster.model.PodSetUtils;
-import io.strimzi.operator.cluster.operator.resource.kubernetes.CrdOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.PodOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.StrimziPodSetOperator;
 import io.strimzi.operator.common.Annotations;
@@ -43,7 +42,8 @@ import io.strimzi.operator.common.metrics.ControllerMetricsHolder;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.model.StatusDiff;
 import io.strimzi.operator.common.model.StatusUtils;
-import io.strimzi.operator.common.operator.resource.concurrent.Informer;
+import io.strimzi.operator.common.operator.resource.kubernetes.CrdOperator;
+import io.strimzi.operator.common.operator.resource.kubernetes.Informer;
 
 import java.util.Collection;
 import java.util.HashSet;
@@ -402,7 +402,7 @@ public class StrimziPodSetController implements Runnable {
      * @param desiredStatus     The desired status which should be set if it differs
      */
     private void maybeUpdateStatus(Reconciliation reconciliation, StrimziPodSet podSet, StrimziPodSetStatus desiredStatus) {
-        if (!new StatusDiff(podSet.getStatus(), desiredStatus).isEmpty())  {
+        if (!new StatusDiff(reconciliation, podSet.getStatus(), desiredStatus).isEmpty())  {
             try {
                 LOGGER.debugCr(reconciliation, "Updating status of StrimziPodSet {} in namespace {}", reconciliation.name(), reconciliation.namespace());
                 StrimziPodSet latestPodSet = strimziPodSetInformer.get(reconciliation.namespace(), reconciliation.name());

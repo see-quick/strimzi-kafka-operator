@@ -32,7 +32,6 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class ClusterOperatorConfigTest {
-
     private static final Map<String, String> ENV_VARS = new HashMap<>(8);
     static {
         ENV_VARS.put(ClusterOperatorConfig.NAMESPACE.key(), "namespace");
@@ -43,12 +42,18 @@ public class ClusterOperatorConfigTest {
         ENV_VARS.put(ClusterOperatorConfig.STRIMZI_KAFKA_CONNECT_IMAGES, KafkaVersionTestUtils.getKafkaConnectImagesEnvVarString());
         ENV_VARS.put(ClusterOperatorConfig.STRIMZI_KAFKA_MIRROR_MAKER_2_IMAGES, KafkaVersionTestUtils.getKafkaMirrorMaker2ImagesEnvVarString());
         ENV_VARS.put(ClusterOperatorConfig.OPERATOR_NAMESPACE.key(), "operator-namespace");
-        ENV_VARS.put(ClusterOperatorConfig.FEATURE_GATES.key(), "-ServerSideApplyPhase1,-UseConnectBuildWithBuildah");
+        ENV_VARS.put(ClusterOperatorConfig.FEATURE_GATES.key(), "-UseConnectBuildWithBuildah");
         ENV_VARS.put(ClusterOperatorConfig.DNS_CACHE_TTL.key(), "10");
         ENV_VARS.put(ClusterOperatorConfig.POD_SECURITY_PROVIDER_CLASS.key(), "my.package.CustomPodSecurityProvider");
         ENV_VARS.put(ClusterOperatorConfig.POD_DISRUPTION_BUDGET_GENERATION.key(), "false");
         ENV_VARS.put(ClusterOperatorConfig.PKCS12_KEYSTORE_GENERATION.key(), "false");
+        ENV_VARS.put(ClusterOperatorConfig.ENTITY_OPERATOR_WATCHED_NAMESPACE_ENABLED.key(), "true");
     }
+
+    private static final String CUSTOM_PLUGIN_1 = "io.strimzi.Custom1";
+    private static final String CUSTOM_PLUGIN_2 = "io.strimzi.Custom2";
+    private static final String DEFAULT_PLUGIN_1 = "io.strimzi.Default1";
+    private static final String DEFAULT_PLUGIN_2 = "io.strimzi.Default2";
 
     @Test
     public void testDefaultConfig() {
@@ -60,6 +65,7 @@ public class ClusterOperatorConfigTest {
         envVars.remove(ClusterOperatorConfig.POD_SECURITY_PROVIDER_CLASS.key());
         envVars.remove(ClusterOperatorConfig.POD_DISRUPTION_BUDGET_GENERATION.key());
         envVars.remove(ClusterOperatorConfig.PKCS12_KEYSTORE_GENERATION.key());
+        envVars.remove(ClusterOperatorConfig.ENTITY_OPERATOR_WATCHED_NAMESPACE_ENABLED.key());
 
         ClusterOperatorConfig config = ClusterOperatorConfig.buildFromMap(envVars, KafkaVersionTestUtils.getKafkaVersionLookup());
 
@@ -76,6 +82,7 @@ public class ClusterOperatorConfigTest {
         assertThat(config.getLeaderElectionConfig(), is(nullValue()));
         assertThat(config.isPodDisruptionBudgetGeneration(), is(true));
         assertThat(config.isPkcs12KeystoreGeneration(), is(true));
+        assertThat(config.isEntityOperatorWatchedNamespaceEnabled(), is(false));
     }
 
     @Test
@@ -103,12 +110,12 @@ public class ClusterOperatorConfigTest {
         assertThat(config.getOperationTimeoutMs(), is(30_000L));
         assertThat(config.getConnectBuildTimeoutMs(), is(40_000L));
         assertThat(config.getOperatorNamespace(), is("operator-namespace"));
-        assertThat(config.featureGates().serverSideApplyPhase1Enabled(), is(false));
         assertThat(config.featureGates().useConnectBuildWithBuildahEnabled(), is(false));
         assertThat(config.getDnsCacheTtlSec(), is(10));
         assertThat(config.getPodSecurityProviderClass(), is("my.package.CustomPodSecurityProvider"));
         assertThat(config.isPodDisruptionBudgetGeneration(), is(false));
         assertThat(config.isPkcs12KeystoreGeneration(), is(false));
+        assertThat(config.isEntityOperatorWatchedNamespaceEnabled(), is(true));
     }
 
     @Test
@@ -123,7 +130,6 @@ public class ClusterOperatorConfigTest {
         assertThat(config.getOperationTimeoutMs(), is(Long.parseLong(ClusterOperatorConfig.OPERATION_TIMEOUT_MS.defaultValue())));
         assertThat(config.getOperatorNamespace(), is(nullValue()));
         assertThat(config.getOperatorNamespaceLabels(), is(nullValue()));
-        assertThat(config.featureGates().serverSideApplyPhase1Enabled(), is(true));
         assertThat(config.featureGates().useConnectBuildWithBuildahEnabled(), is(true));
         assertThat(config.getDnsCacheTtlSec(), is(Integer.parseInt(ClusterOperatorConfig.DNS_CACHE_TTL.defaultValue())));
         assertThat(config.getPodSecurityProviderClass(), is(ClusterOperatorConfig.POD_SECURITY_PROVIDER_CLASS.defaultValue()));
@@ -385,5 +391,32 @@ public class ClusterOperatorConfigTest {
 
         config.getLeaderElectionConfig();
         assertThat(ClusterOperatorConfig.buildFromMap(envVars, KafkaVersionTestUtils.getKafkaVersionLookup()).getLeaderElectionConfig(), is(notNullValue()));
+    }
+
+    // TODO: Once we have some mandatory and default default plugins (i.e. default plugins configured by default),
+    //       we should add dedicated tests for their handling as well. But as they are currently empty, it cannot be
+    //       checked right now
+
+    @Test
+    public void testGatekeeperPluginsDefaultToEmpty() {
+        ClusterOperatorConfig config = ClusterOperatorConfig.buildFromMap(ENV_VARS);
+
+        assertThat(config.getGatekeeperCustomPlugins(), is(nullValue()));
+        assertThat(config.getGatekeeperDefaultPlugins(), is(nullValue()));
+        assertThat(config.getGatekeeperPlugins(), is(List.of()));
+    }
+
+    @Test
+    public void testGatekeeperPluginsOrdering() {
+        // The custom plugins are invoked first, then the default plugins. The User Operator has no mandatory plugins.
+        Map<String, String> envVars = new HashMap<>(ENV_VARS);
+        envVars.put(ClusterOperatorConfig.GATEKEEPER_DEFAULT_PLUGINS.key(), DEFAULT_PLUGIN_2 + ", " + DEFAULT_PLUGIN_1);
+        envVars.put(ClusterOperatorConfig.GATEKEEPER_CUSTOM_PLUGINS.key(), CUSTOM_PLUGIN_1 + "," + CUSTOM_PLUGIN_2);
+
+        ClusterOperatorConfig config = ClusterOperatorConfig.buildFromMap(envVars);
+
+        assertThat(config.getGatekeeperCustomPlugins(), is(List.of(CUSTOM_PLUGIN_1, CUSTOM_PLUGIN_2)));
+        assertThat(config.getGatekeeperDefaultPlugins(), is(List.of(DEFAULT_PLUGIN_2, DEFAULT_PLUGIN_1)));
+        assertThat(config.getGatekeeperPlugins(), is(List.of(CUSTOM_PLUGIN_1, CUSTOM_PLUGIN_2, DEFAULT_PLUGIN_2, DEFAULT_PLUGIN_1)));
     }
 }

@@ -17,8 +17,8 @@ import io.fabric8.kubernetes.api.model.rbac.RoleRefBuilder;
 import io.fabric8.kubernetes.api.model.rbac.Subject;
 import io.fabric8.kubernetes.api.model.rbac.SubjectBuilder;
 import io.strimzi.api.kafka.model.common.JvmOptions;
-import io.strimzi.api.kafka.model.common.Probe;
-import io.strimzi.api.kafka.model.common.ProbeBuilder;
+import io.strimzi.api.kafka.model.common.StrimziProbe;
+import io.strimzi.api.kafka.model.common.StrimziProbeBuilder;
 import io.strimzi.api.kafka.model.common.template.PodTemplate;
 import io.strimzi.api.kafka.model.common.template.ResourceTemplate;
 import io.strimzi.api.kafka.model.kafka.Kafka;
@@ -26,16 +26,21 @@ import io.strimzi.api.kafka.model.kafka.KafkaResources;
 import io.strimzi.api.kafka.model.kafka.entityoperator.EntityTopicOperatorSpec;
 import io.strimzi.certs.CertAndKey;
 import io.strimzi.operator.cluster.ClusterOperatorConfig;
+import io.strimzi.operator.cluster.model.clustersecurity.kafka.KafkaClusterSecurityContext;
+import io.strimzi.operator.cluster.model.clustersecurity.kafka.MtlsAuthenticationConfiguration;
+import io.strimzi.operator.cluster.model.clustersecurity.kafka.ServiceAccountAuthenticationConfiguration;
+import io.strimzi.operator.cluster.model.clustersecurity.kafka.TlsEncryptionConfiguration;
 import io.strimzi.operator.cluster.model.logging.LoggingModel;
 import io.strimzi.operator.cluster.model.logging.SupportsLogging;
 import io.strimzi.operator.cluster.model.securityprofiles.ContainerSecurityProviderContextImpl;
 import io.strimzi.operator.common.Reconciliation;
-import io.strimzi.operator.common.model.Ca;
+import io.strimzi.operator.common.ca.Ca;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletionStage;
 
 /**
  * Represents the Topic Operator deployment
@@ -68,12 +73,12 @@ public class EntityTopicOperator extends AbstractModel implements SupportsLoggin
     /* test */ static final String ENV_VAR_WATCHED_NAMESPACE = "STRIMZI_NAMESPACE";
     /* test */ static final String ENV_VAR_CLUSTER_NAMESPACE = "STRIMZI_CLUSTER_NAMESPACE";
     /* test */ static final String ENV_VAR_FULL_RECONCILIATION_INTERVAL_MS = "STRIMZI_FULL_RECONCILIATION_INTERVAL_MS";
-    /* test */ static final String ENV_VAR_SECURITY_PROTOCOL = "STRIMZI_SECURITY_PROTOCOL";
 
     /* test */ static final String ENV_VAR_TLS_TRUSTED_CERTS_SECRET_NAME = "STRIMZI_TLS_TRUSTED_CERTS_SECRET_NAME";
     /* test */ static final String ENV_VAR_TLS_SECRET_NAME = "STRIMZI_TLS_SECRET_NAME";
     /* test */ static final String ENV_VAR_TLS_KEY_NAME = "STRIMZI_TLS_KEY_NAME";
     /* test */ static final String ENV_VAR_TLS_CERT_NAME = "STRIMZI_TLS_CERT_NAME";
+    /* test */ static final String ENV_VAR_SERVICE_ACCOUNT_TOKEN_PATH = "STRIMZI_SERVICE_ACCOUNT_TOKEN_PATH";
 
     // Volume name of the temporary volume used by the TO container
     // Because the container shares the pod with other containers, it needs to have a unique name
@@ -91,6 +96,7 @@ public class EntityTopicOperator extends AbstractModel implements SupportsLoggin
     private boolean cruiseControlEnabled;
     private boolean rackAwarenessEnabled;
     private String featureGatesEnvVarValue;
+    private KafkaClusterSecurityContext securityContext;
 
     private String watchedNamespace;
     /* test */ Long reconciliationIntervalMs;
@@ -99,7 +105,7 @@ public class EntityTopicOperator extends AbstractModel implements SupportsLoggin
 
     private LoggingModel logging;
 
-    private Probe startupProbeOptions;
+    private StrimziProbe startupProbeOptions;
 
     /**
      * Constructs a new EntityTopicOperator.
@@ -124,13 +130,15 @@ public class EntityTopicOperator extends AbstractModel implements SupportsLoggin
      * @param kafkaAssembly                 Desired resource with cluster configuration containing the Entity Topic Operator one
      * @param sharedEnvironmentProvider     Shared environment provider
      * @param config                        Cluster Operator configuration
+     * @param securityContext               Kafka Cluster Security Context
      *
-     * @return Entity Topic Operator instance, null if not configured
+     * @return  Entity Topic Operator instance, null if not configured
      */
     public static EntityTopicOperator fromCrd(Reconciliation reconciliation,
                                               Kafka kafkaAssembly,
                                               SharedEnvironmentProvider sharedEnvironmentProvider,
-                                              ClusterOperatorConfig config) {
+                                              ClusterOperatorConfig config,
+                                              KafkaClusterSecurityContext securityContext) {
         if (kafkaAssembly.getSpec().getEntityOperator() != null
                 && kafkaAssembly.getSpec().getEntityOperator().getTopicOperator() != null) {
             EntityTopicOperatorSpec topicOperatorSpec = kafkaAssembly.getSpec().getEntityOperator().getTopicOperator();
@@ -150,7 +158,7 @@ public class EntityTopicOperator extends AbstractModel implements SupportsLoggin
             result.resources = topicOperatorSpec.getResources();
             result.readinessProbeOptions = ProbeUtils.extractReadinessProbeOptionsOrDefault(topicOperatorSpec, EntityOperator.DEFAULT_HEALTHCHECK_OPTIONS);
             result.livenessProbeOptions = ProbeUtils.extractLivenessProbeOptionsOrDefault(topicOperatorSpec, EntityOperator.DEFAULT_HEALTHCHECK_OPTIONS);
-            result.startupProbeOptions = ProbeUtils.extractStartupProbeOptionsOrDefault(topicOperatorSpec, new ProbeBuilder().withPeriodSeconds(10).withFailureThreshold(12).build());
+            result.startupProbeOptions = ProbeUtils.extractStartupProbeOptionsOrDefault(topicOperatorSpec, new StrimziProbeBuilder().withPeriodSeconds(10).withFailureThreshold(12).build());
 
             if (kafkaAssembly.getSpec().getEntityOperator().getTemplate() != null)  {
                 result.templateRoleBinding = kafkaAssembly.getSpec().getEntityOperator().getTemplate().getTopicOperatorRoleBinding();
@@ -159,6 +167,7 @@ public class EntityTopicOperator extends AbstractModel implements SupportsLoggin
             result.cruiseControlEnabled = kafkaAssembly.getSpec().getCruiseControl() != null;
             result.rackAwarenessEnabled = result.cruiseControlEnabled && kafkaAssembly.getSpec().getKafka().getRack() != null;
             result.featureGatesEnvVarValue = config.featureGates().toEnvironmentVariable();
+            result.securityContext = securityContext;
 
             return result;
         } else {
@@ -194,11 +203,17 @@ public class EntityTopicOperator extends AbstractModel implements SupportsLoggin
             varList.add(ContainerUtils.createEnvVar(ENV_VAR_FULL_RECONCILIATION_INTERVAL_MS, Long.toString(reconciliationIntervalMs)));
         }
 
-        varList.add(ContainerUtils.createEnvVar(ENV_VAR_SECURITY_PROTOCOL, EntityTopicOperatorSpec.DEFAULT_SECURITY_PROTOCOL));
-        varList.add(ContainerUtils.createEnvVar(ENV_VAR_TLS_TRUSTED_CERTS_SECRET_NAME, AbstractModel.clusterCaCertSecretName(cluster)));
-        varList.add(ContainerUtils.createEnvVar(ENV_VAR_TLS_SECRET_NAME, KafkaResources.entityTopicOperatorSecretName(cluster)));
-        varList.add(ContainerUtils.createEnvVar(ENV_VAR_TLS_KEY_NAME, Ca.SecretEntry.KEY.asKey(EntityOperator.COMPONENT_TYPE)));
-        varList.add(ContainerUtils.createEnvVar(ENV_VAR_TLS_CERT_NAME, Ca.SecretEntry.CRT.asKey(EntityOperator.COMPONENT_TYPE)));
+        if (securityContext.encryption() instanceof TlsEncryptionConfiguration) {
+            varList.add(ContainerUtils.createEnvVar(ENV_VAR_TLS_TRUSTED_CERTS_SECRET_NAME, AbstractModel.clusterCaCertSecretName(cluster)));
+        }
+
+        if (securityContext.authentication() instanceof MtlsAuthenticationConfiguration) {
+            varList.add(ContainerUtils.createEnvVar(ENV_VAR_TLS_SECRET_NAME, KafkaResources.entityTopicOperatorSecretName(cluster)));
+            varList.add(ContainerUtils.createEnvVar(ENV_VAR_TLS_KEY_NAME, Ca.SecretEntry.KEY.asKey(EntityOperator.COMPONENT_TYPE)));
+            varList.add(ContainerUtils.createEnvVar(ENV_VAR_TLS_CERT_NAME, Ca.SecretEntry.CRT.asKey(EntityOperator.COMPONENT_TYPE)));
+        } else if (securityContext.authentication() instanceof ServiceAccountAuthenticationConfiguration) {
+            varList.add(ContainerUtils.createEnvVar(ENV_VAR_SERVICE_ACCOUNT_TOKEN_PATH, "/var/run/secrets/strimzi.io/token"));
+        }
 
         varList.add(ContainerUtils.createEnvVar(ENV_VAR_STRIMZI_GC_LOG_ENABLED, Boolean.toString(gcLoggingEnabled)));
 
@@ -213,7 +228,7 @@ public class EntityTopicOperator extends AbstractModel implements SupportsLoggin
             varList.add(ContainerUtils.createEnvVar(ENV_VAR_CRUISE_CONTROL_RACK_ENABLED, Boolean.toString(rackAwarenessEnabled)));
             varList.add(ContainerUtils.createEnvVar(ENV_VAR_CRUISE_CONTROL_HOSTNAME, String.format("%s-cruise-control.%s.svc", cluster, namespace)));
             varList.add(ContainerUtils.createEnvVar(ENV_VAR_CRUISE_CONTROL_PORT, String.valueOf(CRUISE_CONTROL_API_PORT)));
-            varList.add(ContainerUtils.createEnvVar(ENV_VAR_CRUISE_CONTROL_SSL_ENABLED, "true"));
+            varList.add(ContainerUtils.createEnvVar(ENV_VAR_CRUISE_CONTROL_SSL_ENABLED, String.valueOf(securityContext.encryption() instanceof TlsEncryptionConfiguration)));
             varList.add(ContainerUtils.createEnvVar(ENV_VAR_CRUISE_CONTROL_AUTH_ENABLED, "true"));
             // Truststore and API credentials are mounted in the container
         }
@@ -244,8 +259,13 @@ public class EntityTopicOperator extends AbstractModel implements SupportsLoggin
 
     private List<VolumeMount> getVolumeMounts() {
         List<VolumeMount> result = new ArrayList<>();
+        result.add(VolumeUtils.createServiceAccountVolumeMount());
         result.add(VolumeUtils.createTempDirVolumeMount(TOPIC_OPERATOR_TMP_DIRECTORY_DEFAULT_VOLUME_NAME));
         result.add(VolumeUtils.createVolumeMount(LOG_AND_METRICS_CONFIG_VOLUME_NAME, LOG_AND_METRICS_CONFIG_VOLUME_MOUNT));
+
+        if (securityContext.authentication() instanceof ServiceAccountAuthenticationConfiguration)   {
+            result.add(VolumeUtils.createStrimziAuthenticationTokenVolumeMount());
+        }
 
         if (this.cruiseControlEnabled) {
             result.add(VolumeUtils.createVolumeMount(ETO_CA_CERTS_VOLUME_NAME, ETO_CA_CERTS_VOLUME_MOUNT));
@@ -300,21 +320,22 @@ public class EntityTopicOperator extends AbstractModel implements SupportsLoggin
      *
      * @return The generated Secret.
      */
-    public Secret generateCertificatesSecret(ClusterCa clusterCa, Secret existingSecret, boolean isMaintenanceTimeWindowsSatisfied) {
-        CertAndKey existingCertAndKey = CertUtils.keyStoreCertAndKey(existingSecret, EntityOperator.COMPONENT_TYPE, clusterCa.caCertGenerationAnnotation());
+    public CompletionStage<Secret> generateCertificatesSecret(Ca clusterCa, Secret existingSecret, boolean isMaintenanceTimeWindowsSatisfied) {
+        CertAndKey existingCertAndKey = CertSecretUtils.keyStoreCertAndKey(existingSecret, EntityOperator.COMPONENT_TYPE, clusterCa.caCertGenerationAnnotation());
 
-        CertAndKey updatedCert = clusterCa.maybeCopyOrGenerateClientCert(reconciliation, componentName, existingCertAndKey, isMaintenanceTimeWindowsSatisfied);
-
-        Map<String, String> secretData = CertUtils.buildSecretData(EntityOperator.COMPONENT_TYPE, updatedCert);
-        return ModelUtils.createSecret(
-                KafkaResources.entityTopicOperatorSecretName(cluster),
-                namespace,
-                labels,
-                ownerReference,
-                secretData,
-                Map.of(clusterCa.caCertGenerationAnnotation(), String.valueOf(updatedCert.caCertGeneration())),
-                Map.of()
-        );
+        return clusterCa.maybeCopyOrGenerateClientCert(reconciliation, componentName, existingCertAndKey, isMaintenanceTimeWindowsSatisfied)
+                .thenApply(updatedCert -> {
+                    Map<String, String> secretData = CertSecretUtils.buildSecretData(EntityOperator.COMPONENT_TYPE, updatedCert);
+                    return ModelUtils.createSecret(
+                            KafkaResources.entityTopicOperatorSecretName(cluster),
+                            namespace,
+                            labels,
+                            ownerReference,
+                            secretData,
+                            Map.of(clusterCa.caCertGenerationAnnotation(), String.valueOf(updatedCert.caCertGeneration())),
+                            Map.of()
+                    );
+                });
     }
 
     /**

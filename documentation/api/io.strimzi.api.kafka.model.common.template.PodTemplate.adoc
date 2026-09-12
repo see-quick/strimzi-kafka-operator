@@ -1,6 +1,6 @@
 :_mod-docs-content-type: CONCEPT
 
-Configures the template for Kafka pods.
+Configures the template for non-stateful pods.
 
 .Example `PodTemplate` configuration
 [source,yaml,subs=attributes+]

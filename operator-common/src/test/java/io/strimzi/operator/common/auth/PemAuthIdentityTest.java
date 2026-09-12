@@ -7,7 +7,8 @@ package io.strimzi.operator.common.auth;
 import io.fabric8.kubernetes.api.model.Secret;
 import io.fabric8.kubernetes.api.model.SecretBuilder;
 import io.strimzi.api.kafka.model.kafka.KafkaResources;
-import io.strimzi.operator.common.operator.MockCertManager;
+import io.strimzi.operator.common.Util;
+import io.strimzi.operator.common.operator.MockCertIssuer;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
@@ -20,6 +21,26 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 public class PemAuthIdentityTest {
     public static final String NAMESPACE = "testns";
     public static final String CLUSTER = "testcluster";
+
+    @Test
+    public void testClientConfiguration() {
+        Secret secretWithCertificate = new SecretBuilder()
+                .withNewMetadata()
+                    .withName(KafkaResources.clusterOperatorCertsSecretName(CLUSTER))
+                    .withNamespace(NAMESPACE)
+                .endMetadata()
+                .withData(Map.of("cluster-operator.key", Util.encodeToBase64(MockCertIssuer.userKey()),
+                        "cluster-operator.crt", Util.encodeToBase64(MockCertIssuer.userCert())))
+                .build();
+        Map<String, String> expectedClientProperties = Map.of("ssl.keystore.type", "PEM",
+                "ssl.keystore.key", MockCertIssuer.userKey(),
+                "ssl.keystore.certificate.chain", MockCertIssuer.userCert());
+
+
+        PemAuthIdentity pemAuthIdentity = PemAuthIdentity.clusterOperator(secretWithCertificate);
+        assertThat(pemAuthIdentity.isSasl(), is(false));
+        assertThat(pemAuthIdentity.kafkaClientProperties(), is(expectedClientProperties));
+    }
 
     @Test
     public void testSecretWithMissingKeyThrowsException() {
@@ -54,13 +75,13 @@ public class PemAuthIdentityTest {
                     .withName(KafkaResources.clusterOperatorCertsSecretName(CLUSTER))
                     .withNamespace(NAMESPACE)
                 .endMetadata()
-                .withData(Map.of("cluster-operator.key", MockCertManager.clusterCaKey(),
+                .withData(Map.of("cluster-operator.key", MockCertIssuer.clusterCaKey(),
                         "cluster-operator.crt", "bm90YWNlcnQ=", //notacert
                         "cluster-operator.p12", "bm90YXRydXN0c3RvcmU=", //notatruststore
                         "cluster-operator.password", "bm90YXBhc3N3b3Jk")) //notapassword
                 .build();
         PemAuthIdentity pemAuthIdentity = PemAuthIdentity.clusterOperator(secretWithBadCertificate);
-        Exception e = assertThrows(RuntimeException.class, () -> pemAuthIdentity.keyStore(new char[]{}));
+        Exception e = assertThrows(RuntimeException.class, pemAuthIdentity::keyStore);
         assertThat(e.getMessage(), is("Bad/corrupt certificate found in data.cluster-operator.crt of Secret testcluster-cluster-operator-certs in namespace testns"));
     }
 

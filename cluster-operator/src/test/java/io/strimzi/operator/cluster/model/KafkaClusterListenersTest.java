@@ -35,6 +35,7 @@ import io.strimzi.api.kafka.model.nodepool.ProcessRoles;
 import io.strimzi.api.kafka.model.podset.StrimziPodSet;
 import io.strimzi.operator.cluster.KafkaVersionTestUtils;
 import io.strimzi.operator.cluster.TestUtils;
+import io.strimzi.operator.cluster.model.clustersecurity.kafka.KafkaClusterSecurityContext;
 import io.strimzi.operator.cluster.model.nodepools.NodePoolUtils;
 import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.model.InvalidResourceException;
@@ -288,7 +289,7 @@ public class KafkaClusterListenersTest {
                 .endSpec()
                 .build();
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         // Check Service
         Service svc = kc.generateService();
@@ -520,7 +521,7 @@ public class KafkaClusterListenersTest {
                 .build();
 
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, brokers), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         // Check Service
         Service svc = kc.generateService();
@@ -700,7 +701,7 @@ public class KafkaClusterListenersTest {
                 .build();
 
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, brokers), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         // Check per pod service
         List<Service> services = kc.generatePerPodServices();
@@ -745,7 +746,7 @@ public class KafkaClusterListenersTest {
     @Test
     public void testListenerResourcesWithInternalListenerOnly()  {
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, KAFKA, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, KAFKA, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, KAFKA, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         assertThat(kc.generatePerPodServices().size(), is(0));
         assertThat(kc.generateExternalIngresses().size(), is(0));
@@ -770,7 +771,7 @@ public class KafkaClusterListenersTest {
                 .build();
 
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
         List<StrimziPodSet> podSets = kc.generatePodSets(null, null, node -> Map.of());
 
         podSets.stream().forEach(podSet -> PodSetUtils.podSetToPods(podSet).stream().forEach(pod -> {
@@ -794,7 +795,7 @@ public class KafkaClusterListenersTest {
         assertThat(bootstrapServices.get(0).getSpec().getPorts().get(0).getTargetPort().getStrVal(), is("tcp-external"));
         assertThat(bootstrapServices.get(0).getSpec().getPorts().get(0).getNodePort(), is(nullValue()));
         assertThat(bootstrapServices.get(0).getSpec().getPorts().get(0).getProtocol(), is("TCP"));
-        io.strimzi.operator.cluster.TestUtils.checkOwnerReference(bootstrapServices.get(0), KAFKA);
+        TestUtils.checkOwnerReference(bootstrapServices.get(0), KAFKA);
 
         // Check per pod services
         List<Service> services = kc.generatePerPodServices();
@@ -804,11 +805,11 @@ public class KafkaClusterListenersTest {
             if (service.getMetadata().getName().contains("foo-brokers-")) {
                 assertThat(service.getMetadata().getName(), startsWith("foo-brokers-"));
                 assertThat(service.getSpec().getSelector().get(Labels.STRIMZI_POD_NAME_LABEL), oneOf("foo-brokers-5", "foo-brokers-6", "foo-brokers-7"));
-                io.strimzi.operator.cluster.TestUtils.checkOwnerReference(service, POOL_BROKERS);
+                TestUtils.checkOwnerReference(service, POOL_BROKERS);
             } else {
                 assertThat(service.getMetadata().getName(), startsWith("foo-mixed-"));
                 assertThat(service.getSpec().getSelector().get(Labels.STRIMZI_POD_NAME_LABEL), oneOf("foo-mixed-3", "foo-mixed-4"));
-                io.strimzi.operator.cluster.TestUtils.checkOwnerReference(service, POOL_MIXED);
+                TestUtils.checkOwnerReference(service, POOL_MIXED);
             }
 
             assertThat(service.getSpec().getType(), is("ClusterIP"));
@@ -829,7 +830,7 @@ public class KafkaClusterListenersTest {
         assertThat(bootstrapRoutes.get(0).getSpec().getTo().getKind(), is("Service"));
         assertThat(bootstrapRoutes.get(0).getSpec().getTo().getName(), is(CLUSTER + "-kafka-external-bootstrap"));
         assertThat(bootstrapRoutes.get(0).getSpec().getPort().getTargetPort(), is(new IntOrString(9094)));
-        io.strimzi.operator.cluster.TestUtils.checkOwnerReference(bootstrapRoutes.get(0), KAFKA);
+        TestUtils.checkOwnerReference(bootstrapRoutes.get(0), KAFKA);
 
         // Check per pod router
         List<Route> routes = kc.generateExternalRoutes();
@@ -839,11 +840,11 @@ public class KafkaClusterListenersTest {
             if (route.getMetadata().getName().contains("foo-brokers-")) {
                 assertThat(route.getMetadata().getName(), startsWith("foo-brokers-"));
                 assertThat(route.getSpec().getTo().getName(), oneOf("foo-brokers-5", "foo-brokers-6", "foo-brokers-7"));
-                io.strimzi.operator.cluster.TestUtils.checkOwnerReference(route, POOL_BROKERS);
+                TestUtils.checkOwnerReference(route, POOL_BROKERS);
             } else {
                 assertThat(route.getMetadata().getName(), startsWith("foo-mixed-"));
                 assertThat(route.getSpec().getTo().getName(), oneOf("foo-mixed-3", "foo-mixed-4"));
-                io.strimzi.operator.cluster.TestUtils.checkOwnerReference(route, POOL_MIXED);
+                TestUtils.checkOwnerReference(route, POOL_MIXED);
             }
 
             assertThat(route.getSpec().getTls().getTermination(), is("passthrough"));
@@ -888,7 +889,7 @@ public class KafkaClusterListenersTest {
                 .build();
 
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         // Check bootstrap route
         Route brt = kc.generateExternalBootstrapRoutes().get(0);
@@ -952,7 +953,7 @@ public class KafkaClusterListenersTest {
                 .build();
 
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         // Check bootstrap route
         Route brt = kc.generateExternalBootstrapRoutes().get(0);
@@ -1005,7 +1006,7 @@ public class KafkaClusterListenersTest {
                 .build();
 
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafka, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafka, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafka, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         Map<String, Service> services = kc.generatePerPodServices().stream().collect(Collectors.toMap(s -> s.getMetadata().getName(), s -> s));
 
@@ -1032,7 +1033,7 @@ public class KafkaClusterListenersTest {
                 .endSpec()
                 .build();
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
         List<StrimziPodSet> podSets = kc.generatePodSets(null, null, node -> Map.of());
 
         podSets.stream().forEach(podSet -> PodSetUtils.podSetToPods(podSet).stream().forEach(pod -> {
@@ -1063,7 +1064,7 @@ public class KafkaClusterListenersTest {
         assertThat(bootstrapServices.get(0).getSpec().getExternalTrafficPolicy(), is("Cluster"));
         assertThat(bootstrapServices.get(0).getSpec().getLoadBalancerSourceRanges(), is(List.of()));
         assertThat(bootstrapServices.get(0).getSpec().getAllocateLoadBalancerNodePorts(), is(nullValue()));
-        io.strimzi.operator.cluster.TestUtils.checkOwnerReference(bootstrapServices.get(0), KAFKA);
+        TestUtils.checkOwnerReference(bootstrapServices.get(0), KAFKA);
 
         // Check per pod services
         List<Service> services = kc.generatePerPodServices();
@@ -1073,11 +1074,11 @@ public class KafkaClusterListenersTest {
             if (service.getMetadata().getName().contains("foo-brokers-")) {
                 assertThat(service.getMetadata().getName(), startsWith("foo-brokers-"));
                 assertThat(service.getSpec().getSelector().get(Labels.STRIMZI_POD_NAME_LABEL), oneOf("foo-brokers-5", "foo-brokers-6", "foo-brokers-7"));
-                io.strimzi.operator.cluster.TestUtils.checkOwnerReference(service, POOL_BROKERS);
+                TestUtils.checkOwnerReference(service, POOL_BROKERS);
             } else {
                 assertThat(service.getMetadata().getName(), startsWith("foo-mixed-"));
                 assertThat(service.getSpec().getSelector().get(Labels.STRIMZI_POD_NAME_LABEL), oneOf("foo-mixed-3", "foo-mixed-4"));
-                io.strimzi.operator.cluster.TestUtils.checkOwnerReference(service, POOL_MIXED);
+                TestUtils.checkOwnerReference(service, POOL_MIXED);
             }
 
             assertThat(service.getMetadata().getFinalizers(), is(List.of()));
@@ -1115,7 +1116,7 @@ public class KafkaClusterListenersTest {
                 .endSpec()
                 .build();
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         // Check external bootstrap service
         assertThat(kc.generateExternalBootstrapServices().isEmpty(), is(true));
@@ -1139,7 +1140,7 @@ public class KafkaClusterListenersTest {
                 .endSpec()
                 .build();
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         // Check external bootstrap service
         Service ext = kc.generateExternalBootstrapServices().get(0);
@@ -1174,7 +1175,7 @@ public class KafkaClusterListenersTest {
                 .endSpec()
                 .build();
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         // Check external bootstrap service
         Service ext = kc.generateExternalBootstrapServices().get(0);
@@ -1206,7 +1207,7 @@ public class KafkaClusterListenersTest {
                 .endSpec()
                 .build();
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_BROKERS, POOL_MIXED), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         List<Service> externalServices = kc.generateExternalBootstrapServices();
         assertThat(externalServices, hasSize(1));
@@ -1243,7 +1244,7 @@ public class KafkaClusterListenersTest {
                 .endSpec()
                 .build();
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         // Check external bootstrap service
         Service ext = kc.generateExternalBootstrapServices().get(0);
@@ -1278,7 +1279,7 @@ public class KafkaClusterListenersTest {
                 .endSpec()
                 .build();
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         // Check external bootstrap service
         Service ext = kc.generateExternalBootstrapServices().get(0);
@@ -1329,7 +1330,7 @@ public class KafkaClusterListenersTest {
                 .endSpec()
                 .build();
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         // Check annotations
         assertThat(kc.generateExternalBootstrapServices().get(0).getMetadata().getAnnotations(), is(Map.of("external-dns.alpha.kubernetes.io/hostname", "bootstrap.my-ingress.com.")));
@@ -1385,7 +1386,7 @@ public class KafkaClusterListenersTest {
                 .endSpec()
                 .build();
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         // Check annotations
         assertThat(kc.generateExternalBootstrapServices().get(0).getSpec().getLoadBalancerIP(), is("10.0.0.1"));
@@ -1422,7 +1423,7 @@ public class KafkaClusterListenersTest {
                 .endSpec()
                 .build();
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         // Check Service Class
         Service ext = kc.generateExternalBootstrapServices().get(0);
@@ -1453,7 +1454,7 @@ public class KafkaClusterListenersTest {
                 .endSpec()
                 .build();
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
         List<StrimziPodSet> podSets = kc.generatePodSets(null, null, node -> Map.of());
 
         podSets.stream().forEach(podSet -> PodSetUtils.podSetToPods(podSet).stream().forEach(pod -> {
@@ -1479,7 +1480,7 @@ public class KafkaClusterListenersTest {
         assertThat(bootstrapServices.get(0).getSpec().getPorts().get(0).getTargetPort().getStrVal(), is("tcp-external"));
         assertThat(bootstrapServices.get(0).getSpec().getPorts().get(0).getNodePort(), is(nullValue()));
         assertThat(bootstrapServices.get(0).getSpec().getPorts().get(0).getProtocol(), is("TCP"));
-        io.strimzi.operator.cluster.TestUtils.checkOwnerReference(bootstrapServices.get(0), KAFKA);
+        TestUtils.checkOwnerReference(bootstrapServices.get(0), KAFKA);
 
         // Check per pod services
         List<Service> services = kc.generatePerPodServices();
@@ -1489,11 +1490,11 @@ public class KafkaClusterListenersTest {
             if (service.getMetadata().getName().contains("foo-brokers-")) {
                 assertThat(service.getMetadata().getName(), startsWith("foo-brokers-"));
                 assertThat(service.getSpec().getSelector().get(Labels.STRIMZI_POD_NAME_LABEL), oneOf("foo-brokers-5", "foo-brokers-6", "foo-brokers-7"));
-                io.strimzi.operator.cluster.TestUtils.checkOwnerReference(service, POOL_BROKERS);
+                TestUtils.checkOwnerReference(service, POOL_BROKERS);
             } else {
                 assertThat(service.getMetadata().getName(), startsWith("foo-mixed-"));
                 assertThat(service.getSpec().getSelector().get(Labels.STRIMZI_POD_NAME_LABEL), oneOf("foo-mixed-3", "foo-mixed-4"));
-                io.strimzi.operator.cluster.TestUtils.checkOwnerReference(service, POOL_MIXED);
+                TestUtils.checkOwnerReference(service, POOL_MIXED);
             }
 
             assertThat(service.getSpec().getType(), is("NodePort"));
@@ -1542,7 +1543,7 @@ public class KafkaClusterListenersTest {
                 .endSpec()
                 .build();
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         // Check annotations
         assertThat(kc.generateExternalBootstrapServices().get(0).getMetadata().getAnnotations(), is(Map.of("external-dns.alpha.kubernetes.io/hostname", "bootstrap.my-ingress.com.")));
@@ -1583,7 +1584,7 @@ public class KafkaClusterListenersTest {
                 .endSpec()
                 .build();
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
         List<StrimziPodSet> podSets = kc.generatePodSets(null, null, node -> Map.of());
 
         podSets.forEach(podSet -> PodSetUtils.podSetToPods(podSet).stream().forEach(pod -> {
@@ -1641,7 +1642,7 @@ public class KafkaClusterListenersTest {
             .build();
 
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
         List<StrimziPodSet> podSets = kc.generatePodSets(null, null, node -> Map.of());
 
         podSets.stream().forEach(podSet -> PodSetUtils.podSetToPods(podSet).stream().forEach(pod -> {
@@ -1666,7 +1667,7 @@ public class KafkaClusterListenersTest {
         assertThat(ext.getSpec().getPorts().get(0).getNodePort(), is(32001));
         assertThat(ext.getSpec().getPorts().get(0).getProtocol(), is("TCP"));
 
-        io.strimzi.operator.cluster.TestUtils.checkOwnerReference(ext, KAFKA);
+        TestUtils.checkOwnerReference(ext, KAFKA);
 
         // Check per pod services
         List<Service> services = kc.generatePerPodServices();
@@ -1733,7 +1734,7 @@ public class KafkaClusterListenersTest {
                 .endSpec()
                 .build();
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         List<Service> bootstrapServices = kc.generateExternalBootstrapServices();
         assertThat(bootstrapServices.get(0).getSpec().getExternalIPs(), is(List.of("10.0.0.1")));
@@ -1789,7 +1790,7 @@ public class KafkaClusterListenersTest {
                 .endSpec()
                 .build();
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         assertThat(kc.generateExternalBootstrapServices().get(0).getSpec().getPorts().size(), is(1));
         assertThat(kc.generateExternalBootstrapServices().get(0).getSpec().getPorts().get(0).getName(), is(ListenersUtils.BACKWARDS_COMPATIBLE_EXTERNAL_PORT_NAME));
@@ -1845,7 +1846,7 @@ public class KafkaClusterListenersTest {
                 .endSpec()
                 .build();
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         // Check external bootstrap service
         Service ext = kc.generateExternalBootstrapServices().get(0);
@@ -1920,7 +1921,7 @@ public class KafkaClusterListenersTest {
                 .build();
 
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         assertThat(kc.getListeners().stream().findFirst().orElseThrow().getType(), is(KafkaListenerType.INGRESS));
 
@@ -1948,7 +1949,7 @@ public class KafkaClusterListenersTest {
         assertThat(bootstrapServices.get(0).getSpec().getPorts().get(0).getTargetPort().getStrVal(), is("tcp-external"));
         assertThat(bootstrapServices.get(0).getSpec().getPorts().get(0).getNodePort(), is(nullValue()));
         assertThat(bootstrapServices.get(0).getSpec().getPorts().get(0).getProtocol(), is("TCP"));
-        io.strimzi.operator.cluster.TestUtils.checkOwnerReference(bootstrapServices.get(0), KAFKA);
+        TestUtils.checkOwnerReference(bootstrapServices.get(0), KAFKA);
 
         // Check per pod services
         List<Service> services = kc.generatePerPodServices();
@@ -1958,11 +1959,11 @@ public class KafkaClusterListenersTest {
             if (service.getMetadata().getName().contains("foo-brokers-")) {
                 assertThat(service.getMetadata().getName(), startsWith("foo-brokers-"));
                 assertThat(service.getSpec().getSelector().get(Labels.STRIMZI_POD_NAME_LABEL), oneOf("foo-brokers-5", "foo-brokers-6", "foo-brokers-7"));
-                io.strimzi.operator.cluster.TestUtils.checkOwnerReference(service, POOL_BROKERS);
+                TestUtils.checkOwnerReference(service, POOL_BROKERS);
             } else {
                 assertThat(service.getMetadata().getName(), startsWith("foo-mixed-"));
                 assertThat(service.getSpec().getSelector().get(Labels.STRIMZI_POD_NAME_LABEL), oneOf("foo-mixed-3", "foo-mixed-4"));
-                io.strimzi.operator.cluster.TestUtils.checkOwnerReference(service, POOL_MIXED);
+                TestUtils.checkOwnerReference(service, POOL_MIXED);
             }
 
             assertThat(service.getSpec().getType(), is("ClusterIP"));
@@ -1991,7 +1992,7 @@ public class KafkaClusterListenersTest {
         assertThat(bootstrapIngresses.get(0).getSpec().getRules().get(0).getHttp().getPaths().get(0).getPath(), is("/"));
         assertThat(bootstrapIngresses.get(0).getSpec().getRules().get(0).getHttp().getPaths().get(0).getBackend().getService().getName(), is(CLUSTER + "-kafka-external-bootstrap"));
         assertThat(bootstrapIngresses.get(0).getSpec().getRules().get(0).getHttp().getPaths().get(0).getBackend().getService().getPort().getNumber(), is(9094));
-        io.strimzi.operator.cluster.TestUtils.checkOwnerReference(bootstrapIngresses.get(0), KAFKA);
+        TestUtils.checkOwnerReference(bootstrapIngresses.get(0), KAFKA);
 
         // Check per pod ingress
         List<Ingress> ingresses = kc.generateExternalIngresses();
@@ -2000,10 +2001,10 @@ public class KafkaClusterListenersTest {
         for (Ingress ingress : ingresses)    {
             if (ingress.getMetadata().getName().contains("foo-brokers-")) {
                 assertThat(ingress.getMetadata().getName(), oneOf("foo-brokers-5", "foo-brokers-6", "foo-brokers-7"));
-                io.strimzi.operator.cluster.TestUtils.checkOwnerReference(ingress, POOL_BROKERS);
+                TestUtils.checkOwnerReference(ingress, POOL_BROKERS);
             } else {
                 assertThat(ingress.getMetadata().getName(), oneOf("foo-mixed-3", "foo-mixed-4"));
-                io.strimzi.operator.cluster.TestUtils.checkOwnerReference(ingress, POOL_MIXED);
+                TestUtils.checkOwnerReference(ingress, POOL_MIXED);
             }
 
             assertThat(ingress.getSpec().getIngressClassName(), is(nullValue()));
@@ -2071,7 +2072,7 @@ public class KafkaClusterListenersTest {
                 .build();
 
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
          // Check bootstrap ingress
         Ingress bing = kc.generateExternalBootstrapIngresses().get(0);
@@ -2115,7 +2116,7 @@ public class KafkaClusterListenersTest {
 
         assertThrows(InvalidResourceException.class, () -> {
             List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-            KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+            KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
         });
     }
 
@@ -2154,7 +2155,7 @@ public class KafkaClusterListenersTest {
                 .build();
 
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         assertThat(kc.getListeners().stream().findFirst().orElseThrow().getType(), is(KafkaListenerType.CLUSTER_IP));
 
@@ -2183,7 +2184,7 @@ public class KafkaClusterListenersTest {
         assertThat(bootstrapServices.get(0).getSpec().getPorts().get(0).getTargetPort().getStrVal(), is("tcp-clusterip"));
         assertThat(bootstrapServices.get(0).getSpec().getPorts().get(0).getNodePort(), is(nullValue()));
         assertThat(bootstrapServices.get(0).getSpec().getPorts().get(0).getProtocol(), is("TCP"));
-        io.strimzi.operator.cluster.TestUtils.checkOwnerReference(bootstrapServices.get(0), KAFKA);
+        TestUtils.checkOwnerReference(bootstrapServices.get(0), KAFKA);
 
         // Check per pod services
         List<Service> services = kc.generatePerPodServices();
@@ -2193,19 +2194,19 @@ public class KafkaClusterListenersTest {
             if (service.getMetadata().getName().startsWith("foo-brokers-clusterip-6")) {
                 assertThat(service.getMetadata().getAnnotations().get("anno"), is("anno-value-6"));
                 assertThat(service.getMetadata().getLabels().get("label"), is("label-value-6"));
-                io.strimzi.operator.cluster.TestUtils.checkOwnerReference(service, POOL_BROKERS);
+                TestUtils.checkOwnerReference(service, POOL_BROKERS);
             } else if (service.getMetadata().getName().startsWith("foo-mixed-clusterip-3")) {
                 assertThat(service.getMetadata().getAnnotations().get("anno"), is("anno-value-3"));
                 assertThat(service.getMetadata().getLabels().get("label"), is("label-value-3"));
-                io.strimzi.operator.cluster.TestUtils.checkOwnerReference(service, POOL_MIXED);
+                TestUtils.checkOwnerReference(service, POOL_MIXED);
             } else {
                 assertThat(service.getMetadata().getAnnotations().get("anno"), is(nullValue()));
                 assertThat(service.getMetadata().getLabels().get("label"), is(nullValue()));
 
                 if (service.getMetadata().getName().startsWith("foo-controllers-")) {
-                    io.strimzi.operator.cluster.TestUtils.checkOwnerReference(service, POOL_CONTROLLERS);
+                    TestUtils.checkOwnerReference(service, POOL_CONTROLLERS);
                 } else if (service.getMetadata().getName().startsWith("foo-mixed-")) {
-                    io.strimzi.operator.cluster.TestUtils.checkOwnerReference(service, POOL_MIXED);
+                    TestUtils.checkOwnerReference(service, POOL_MIXED);
                 } else {
                     TestUtils.checkOwnerReference(service, POOL_BROKERS);
                 }
@@ -2239,7 +2240,7 @@ public class KafkaClusterListenersTest {
 
         assertThrows(InvalidResourceException.class, () -> {
             List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-            KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+            KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
         });
     }
 
@@ -2273,7 +2274,7 @@ public class KafkaClusterListenersTest {
                 .build();
 
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         List<Service> services = new ArrayList<>();
         services.addAll(kc.generateExternalBootstrapServices());
@@ -2311,14 +2312,14 @@ public class KafkaClusterListenersTest {
                 .endSpec()
                 .build();
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
-        String brokerConfig = kc.generatePerBrokerConfiguration(5, ADVERTISED_HOSTNAMES, ADVERTISED_PORTS);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
+        String brokerConfig = kc.generatePerBrokerConfiguration(5, ADVERTISED_HOSTNAMES, ADVERTISED_PORTS, false);
 
         assertThat(brokerConfig, is(containsString("listener.name.external-9094.ssl.keystore.certificate.chain=${strimzisecrets:namespace/foo-brokers-5:external-9094.crt}")));
         assertThat(brokerConfig, is(containsString("listener.name.external-9094.ssl.keystore.key=${strimzisecrets:namespace/foo-brokers-5:external-9094.key}")));
         assertThat(brokerConfig, is(containsString("listener.name.external-9094.ssl.keystore.type=PEM")));
 
-        String controllerConfig = kc.generatePerBrokerConfiguration(0, Map.of(0, Map.of("CONTROLPLANE_9090", "controller-0")), Map.of(0, Map.of("CONTROLPLANE_9090", "9090")));
+        String controllerConfig = kc.generatePerBrokerConfiguration(0, Map.of(0, Map.of("CONTROLPLANE_9090", "controller-0")), Map.of(0, Map.of("CONTROLPLANE_9090", "9090")), false);
         assertThat(controllerConfig, not(containsString("listener.name.external-9094")));
     }
 
@@ -2348,14 +2349,14 @@ public class KafkaClusterListenersTest {
                 .endSpec()
                 .build();
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
-        String mixedConfig = kc.generatePerBrokerConfiguration(4, ADVERTISED_HOSTNAMES, ADVERTISED_PORTS);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
+        String mixedConfig = kc.generatePerBrokerConfiguration(4, ADVERTISED_HOSTNAMES, ADVERTISED_PORTS, false);
 
         assertThat(mixedConfig, is(containsString("listener.name.tls-9093.ssl.keystore.certificate.chain=${strimzisecrets:namespace/foo-mixed-4:tls-9093.crt}")));
         assertThat(mixedConfig, is(containsString("listener.name.tls-9093.ssl.keystore.key=${strimzisecrets:namespace/foo-mixed-4:tls-9093.key}")));
         assertThat(mixedConfig, is(containsString("listener.name.tls-9093.ssl.keystore.type=PEM")));
 
-        String controllerConfig = kc.generatePerBrokerConfiguration(0, Map.of(0, Map.of("CONTROLPLANE_9090", "controller-0")), Map.of(0, Map.of("CONTROLPLANE_9090", "9090")));
+        String controllerConfig = kc.generatePerBrokerConfiguration(0, Map.of(0, Map.of("CONTROLPLANE_9090", "controller-0")), Map.of(0, Map.of("CONTROLPLANE_9090", "9090")), false);
         assertThat(controllerConfig, not(containsString("listener.name.tls-9093")));
     }
 
@@ -2399,7 +2400,7 @@ public class KafkaClusterListenersTest {
                 .build();
 
         List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster kc = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
         assertThat(kc.getListeners().stream().findFirst().orElseThrow().getType(), is(KafkaListenerType.TLSROUTE));
 
@@ -2427,7 +2428,7 @@ public class KafkaClusterListenersTest {
         assertThat(bootstrapServices.get(0).getSpec().getPorts().get(0).getTargetPort().getStrVal(), is("tcp-external"));
         assertThat(bootstrapServices.get(0).getSpec().getPorts().get(0).getNodePort(), is(nullValue()));
         assertThat(bootstrapServices.get(0).getSpec().getPorts().get(0).getProtocol(), is("TCP"));
-        io.strimzi.operator.cluster.TestUtils.checkOwnerReference(bootstrapServices.get(0), KAFKA);
+        TestUtils.checkOwnerReference(bootstrapServices.get(0), KAFKA);
 
         // Check per pod services
         List<Service> services = kc.generatePerPodServices();
@@ -2437,11 +2438,11 @@ public class KafkaClusterListenersTest {
             if (service.getMetadata().getName().contains("foo-brokers-")) {
                 assertThat(service.getMetadata().getName(), startsWith("foo-brokers-"));
                 assertThat(service.getSpec().getSelector().get(Labels.STRIMZI_POD_NAME_LABEL), oneOf("foo-brokers-5", "foo-brokers-6", "foo-brokers-7"));
-                io.strimzi.operator.cluster.TestUtils.checkOwnerReference(service, POOL_BROKERS);
+                TestUtils.checkOwnerReference(service, POOL_BROKERS);
             } else {
                 assertThat(service.getMetadata().getName(), startsWith("foo-mixed-"));
                 assertThat(service.getSpec().getSelector().get(Labels.STRIMZI_POD_NAME_LABEL), oneOf("foo-mixed-3", "foo-mixed-4"));
-                io.strimzi.operator.cluster.TestUtils.checkOwnerReference(service, POOL_MIXED);
+                TestUtils.checkOwnerReference(service, POOL_MIXED);
             }
 
             assertThat(service.getSpec().getType(), is("ClusterIP"));
@@ -2471,7 +2472,7 @@ public class KafkaClusterListenersTest {
         assertThat(bootstrapRoutes.get(0).getSpec().getParentRefs().get(0).getGroup(), is("gateway.networking.k8s.io"));
         assertThat(bootstrapRoutes.get(0).getSpec().getParentRefs().get(0).getName(), is("envoy-gateway"));
         assertThat(bootstrapRoutes.get(0).getSpec().getParentRefs().get(0).getNamespace(), is("envoy-gateway-system"));
-        io.strimzi.operator.cluster.TestUtils.checkOwnerReference(bootstrapRoutes.get(0), KAFKA);
+        TestUtils.checkOwnerReference(bootstrapRoutes.get(0), KAFKA);
 
         // Check per pod Gateway API TLS Route
         List<TLSRoute> routes = kc.generateExternalTlsRoutes();
@@ -2480,10 +2481,10 @@ public class KafkaClusterListenersTest {
         for (TLSRoute route : routes)    {
             if (route.getMetadata().getName().contains("foo-brokers-")) {
                 assertThat(route.getMetadata().getName(), oneOf("foo-brokers-5", "foo-brokers-6", "foo-brokers-7"));
-                io.strimzi.operator.cluster.TestUtils.checkOwnerReference(route, POOL_BROKERS);
+                TestUtils.checkOwnerReference(route, POOL_BROKERS);
             } else {
                 assertThat(route.getMetadata().getName(), oneOf("foo-mixed-3", "foo-mixed-4"));
-                io.strimzi.operator.cluster.TestUtils.checkOwnerReference(route, POOL_MIXED);
+                TestUtils.checkOwnerReference(route, POOL_MIXED);
             }
 
             if (route.getMetadata().getName().contains("foo-brokers-5")) {
@@ -2537,7 +2538,7 @@ public class KafkaClusterListenersTest {
 
         assertThrows(InvalidResourceException.class, () -> {
             List<KafkaPool> pools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, List.of(POOL_CONTROLLERS, POOL_MIXED, POOL_BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-            KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+            KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, kafkaAssembly, pools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
         });
     }
 }

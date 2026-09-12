@@ -11,7 +11,7 @@ import io.strimzi.api.kafka.model.user.KafkaUser;
 import io.strimzi.api.kafka.model.user.KafkaUserList;
 import io.strimzi.api.kafka.model.user.KafkaUserQuotas;
 import io.strimzi.api.kafka.model.user.KafkaUserStatus;
-import io.strimzi.certs.CertManager;
+import io.strimzi.certs.CertIssuer;
 import io.strimzi.operator.common.InvalidConfigurationException;
 import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.ReconciliationException;
@@ -23,9 +23,13 @@ import io.strimzi.operator.common.model.NamespaceAndName;
 import io.strimzi.operator.common.model.PasswordGenerator;
 import io.strimzi.operator.common.model.StatusUtils;
 import io.strimzi.operator.common.operator.resource.ReconcileResult;
-import io.strimzi.operator.common.operator.resource.concurrent.CrdOperator;
-import io.strimzi.operator.common.operator.resource.concurrent.SecretOperator;
+import io.strimzi.operator.common.operator.resource.kubernetes.CrdOperator;
+import io.strimzi.operator.common.operator.resource.kubernetes.SecretOperator;
 import io.strimzi.operator.user.UserOperatorConfig;
+import io.strimzi.operator.user.gatekeeper.UserOperatorGatekeeperPluginInvoker;
+import io.strimzi.operator.user.gatekeeper.impl.GatekeeperKafkaUserDeletionContextImpl;
+import io.strimzi.operator.user.gatekeeper.impl.GatekeeperKafkaUserEntryContextImpl;
+import io.strimzi.operator.user.gatekeeper.impl.GatekeeperKafkaUserExitContextImpl;
 import io.strimzi.operator.user.model.KafkaUserModel;
 import io.strimzi.operator.user.model.acl.SimpleAclRule;
 
@@ -45,7 +49,7 @@ import java.util.stream.Collectors;
 public class KafkaUserOperator {
     private static final ReconciliationLogger LOGGER = ReconciliationLogger.create(KafkaUserOperator.class.getName());
 
-    private final CertManager certManager;
+    private final CertIssuer certIssuer;
     private final AdminApiOperator<Set<SimpleAclRule>, Set<String>> aclOperator;
     private final AdminApiOperator<String, Set<String>> scramCredentialsOperator;
     private final AdminApiOperator<KafkaUserQuotas, Set<String>> quotasOperator;
@@ -59,7 +63,7 @@ public class KafkaUserOperator {
      * Creates the instance of KafkaUserOperator
      *
      * @param config                   User operator configuration
-     * @param certManager              For managing certificates.
+     * @param certIssuer               For issuing certificates.
      * @param secretOperator           For operating on secrets
      * @param kafkaUserCrdOperator     For operating on KafkaUser resources
      * @param scramCredentialsOperator For operating on SCRAM SHA credentials.
@@ -68,14 +72,14 @@ public class KafkaUserOperator {
      */
     public KafkaUserOperator(
             UserOperatorConfig config,
-            CertManager certManager,
+            CertIssuer certIssuer,
             SecretOperator secretOperator,
             CrdOperator<KubernetesClient, KafkaUser, KafkaUserList> kafkaUserCrdOperator,
             AdminApiOperator<String, Set<String>> scramCredentialsOperator,
             AdminApiOperator<KafkaUserQuotas, Set<String>> quotasOperator,
             AdminApiOperator<Set<SimpleAclRule>, Set<String>> aclOperator
     ) {
-        this.certManager = certManager;
+        this.certIssuer = certIssuer;
         this.scramCredentialsOperator = scramCredentialsOperator;
         this.quotasOperator = quotasOperator;
         this.aclOperator = aclOperator;
@@ -186,9 +190,11 @@ public class KafkaUserOperator {
     public CompletionStage<KafkaUserStatus> reconcile(Reconciliation reconciliation, KafkaUser kafkaUser, Secret userSecret)  {
         if (kafkaUser != null)  {
             // Create or update
-            return createOrUpdate(reconciliation, kafkaUser, userSecret);
+            return UserOperatorGatekeeperPluginInvoker.kafkaUserEntry(new GatekeeperKafkaUserEntryContextImpl(), kafkaUser) // Gatekeeper invocation
+                    .thenCompose(user -> createOrUpdate(reconciliation, user, userSecret)
+                            .thenCompose(status -> UserOperatorGatekeeperPluginInvoker.kafkaUserExit(new GatekeeperKafkaUserExitContextImpl(), user, status))); // Gatekeeper invocation
         } else {
-            // Delete the user from everywhere with both the TLS and SCRAM-SHa name variants
+            // Delete the user from everywhere with both the TLS and SCRAM-SHA name variants
             return delete(reconciliation).thenApply(i -> null);
         }
     }
@@ -214,7 +220,8 @@ public class KafkaUserOperator {
                 config.isAclsAdminApiSupported() ? aclOperator.reconcile(reconciliation, KafkaUserModel.getScramUserName(user), null).toCompletableFuture() : CompletableFuture.completedFuture(ReconcileResult.noop(null)),
                 scramCredentialsOperator.reconcile(reconciliation, KafkaUserModel.getScramUserName(user), null).toCompletableFuture(),
                 quotasOperator.reconcile(reconciliation, KafkaUserModel.getTlsUserName(user), null).toCompletableFuture(),
-                quotasOperator.reconcile(reconciliation, KafkaUserModel.getScramUserName(user), null).toCompletableFuture()
+                quotasOperator.reconcile(reconciliation, KafkaUserModel.getScramUserName(user), null).toCompletableFuture(),
+                UserOperatorGatekeeperPluginInvoker.kafkaUserDeletion(new GatekeeperKafkaUserDeletionContextImpl(), reconciliation.namespace(), reconciliation.name()).toCompletableFuture() // Gatekeeper invocation
         );
     }
 
@@ -230,6 +237,7 @@ public class KafkaUserOperator {
      * @return a CompletionStage
      */
     private CompletionStage<KafkaUserStatus> createOrUpdate(Reconciliation reconciliation, KafkaUser kafkaUser, Secret userSecret) {
+        // Reconciliation is not paused => we do the actual work
         KafkaUserModel user;
         KafkaUserStatus userStatus = new KafkaUserStatus();
 
@@ -248,7 +256,7 @@ public class KafkaUserOperator {
                 // Reconcile the user: update everything in Kafka and in the Secret
                 .thenCompose(i -> reconcileCredentialsQuotasAndAcls(reconciliation, user, userSecret, userStatus))
                 .handle((i, e) -> {
-                    if (e != null)  {
+                    if (e != null) {
                         throw new CompletionException(e);
                     } else {
                         StatusUtils.setStatusConditionAndObservedGeneration(kafkaUser, userStatus, (Throwable) null);
@@ -328,9 +336,9 @@ public class KafkaUserOperator {
             .toCompletableFuture();
 
         return CompletableFuture.allOf(caCertPromise, caKeyPromise)
-                .thenRun(() -> user.maybeGenerateCertificates(
+                .thenCompose(v -> user.maybeGenerateCertificates(
                         reconciliation,
-                        certManager,
+                        certIssuer,
                         passwordGenerator,
                         caCertPromise.join(),
                         caKeyPromise.join(),

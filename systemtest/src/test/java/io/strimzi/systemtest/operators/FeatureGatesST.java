@@ -4,14 +4,14 @@
  */
 package io.strimzi.systemtest.operators;
 
-import io.fabric8.kubernetes.api.model.EnvVar;
-import io.fabric8.kubernetes.api.model.apps.DeploymentBuilder;
 import io.skodjob.annotations.Desc;
 import io.skodjob.annotations.Label;
 import io.skodjob.annotations.Step;
 import io.skodjob.annotations.SuiteDoc;
 import io.skodjob.annotations.TestDoc;
 import io.skodjob.kubetest4j.resources.KubeResourceManager;
+import io.strimzi.api.kafka.model.connect.KafkaConnect;
+import io.strimzi.api.kafka.model.connect.build.DockerOutput;
 import io.strimzi.api.kafka.model.connect.build.TgzArtifactBuilder;
 import io.strimzi.api.kafka.model.kafka.KafkaResources;
 import io.strimzi.operator.common.Annotations;
@@ -30,8 +30,6 @@ import io.strimzi.systemtest.templates.crd.KafkaTemplates;
 import io.strimzi.systemtest.templates.crd.KafkaTopicTemplates;
 import io.strimzi.systemtest.utils.ClientUtils;
 import io.strimzi.systemtest.utils.RollingUpdateUtils;
-import io.strimzi.systemtest.utils.kubeUtils.controllers.DeploymentUtils;
-import io.strimzi.systemtest.utils.kubeUtils.controllers.StrimziPodSetUtils;
 import io.strimzi.systemtest.utils.kubeUtils.objects.PodUtils;
 import io.strimzi.test.k8s.KubeClusterResource;
 import io.strimzi.testclients.clients.kafka.KafkaConsumerClient;
@@ -41,10 +39,9 @@ import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.Tag;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Random;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.LockSupport;
 
 import static io.strimzi.systemtest.TestTags.REGRESSION;
 import static org.hamcrest.CoreMatchers.is;
@@ -68,52 +65,7 @@ import static org.junit.jupiter.api.Assumptions.assumeFalse;
 )
 public class FeatureGatesST extends AbstractST {
     private static final Logger LOGGER = LogManager.getLogger(FeatureGatesST.class);
-    private static final String SERVER_SIDE_APPLY_PHASE_1_DISABLED = "-ServerSideApplyPhase1";
     private static final String USE_BACKGROUND_POD_DELETION_ENABLED = "+UseBackgroundPodDeletion";
-
-    @IsolatedTest("Creates ClusterOperator with Server Side Apply FG enabled")
-    @TestDoc(
-        description = @Desc("This test verifies that Server Side Apply Phase 1 feature gate works correctly by testing annotation preservation behavior. When SSA is disabled, manual annotations are removed during reconciliation. When SSA is enabled, manual annotations are preserved."),
-        steps = {
-            @Step(value = "Deploy Cluster Operator with Server Side Apply Phase 1 disabled.", expected = "Cluster Operator is deployed without SSA feature gate."),
-            @Step(value = "Create Kafka cluster with broker and controller node pools.", expected = "Kafka cluster is deployed and ready."),
-            @Step(value = "Add manual annotations to Kafka resources and verify they are removed.", expected = "Manual annotations are removed during reconciliation when SSA is disabled."),
-            @Step(value = "Enable Server Side Apply Phase 1 feature gate.", expected = "Cluster Operator is reconfigured with SSA enabled and redeployed."),
-            @Step(value = "Add manual annotations to Kafka resources and verify they are preserved.", expected = "Manual annotations are preserved during reconciliation when SSA is enabled."),
-            @Step(value = "Disable Server Side Apply Phase 1 feature gate.", expected = "Cluster Operator is reconfigured with SSA disabled and rolled."),
-            @Step(value = "Add manual annotations to Kafka resources and verify they are removed again.", expected = "Manual annotations are removed during reconciliation when SSA is disabled again.")
-        },
-        labels = {
-            @Label(value = TestDocsLabels.KAFKA)
-        }
-    )
-    void testServerSideApply() {
-        TestStorage testStorage = new TestStorage(KubeResourceManager.get().getTestContext());
-
-        LOGGER.info("Deploying CO with SSA Phase 1 disabled");
-
-        // Firstly deploy CO without SSA enabled to check that changes to the resources will be re-written
-        setupClusterOperatorWithFeatureGate(SERVER_SIDE_APPLY_PHASE_1_DISABLED);
-
-        KubeResourceManager.get().createResourceWithWait(
-            KafkaNodePoolTemplates.brokerPoolPersistentStorage(testStorage.getNamespaceName(), testStorage.getBrokerPoolName(), testStorage.getClusterName(), 3).build(),
-            KafkaNodePoolTemplates.controllerPoolPersistentStorage(testStorage.getNamespaceName(), testStorage.getControllerPoolName(), testStorage.getClusterName(), 3).build()
-        );
-        KubeResourceManager.get().createResourceWithWait(KafkaTemplates.kafka(testStorage.getNamespaceName(), testStorage.getClusterName(), 3).build());
-
-        annotateResourcesAndCheckIfPresent(testStorage, false);
-
-        LOGGER.info("Enabling Server Side Apply Phase 1");
-        changeFeatureGatesAndWaitForCoRollingUpdate("");
-
-        annotateResourcesAndCheckIfPresent(testStorage, true);
-
-        LOGGER.info("Finally, changing back to SSA disabled");
-
-        changeFeatureGatesAndWaitForCoRollingUpdate(SERVER_SIDE_APPLY_PHASE_1_DISABLED);
-
-        annotateResourcesAndCheckIfPresent(testStorage, false);
-    }
 
     @IsolatedTest("Enables UseConnectBuildWithBuildah feature gate in CO")
     void testUseConnectBuildWithBuildah() {
@@ -122,22 +74,15 @@ public class FeatureGatesST extends AbstractST {
 
         TestStorage testStorage = new TestStorage(KubeResourceManager.get().getTestContext());
         final String camelChecksum = "6d1f9311fe10521a5de3262574ad7c21073cd45089fc67245f04a303562b0ea54869c8cd0375ee76de8b5c24d454a0545688018ccdae0563bd5f254aceb98b5e";
-        final String camelConnectorUrl = "https://repo.maven.apache.org/maven2/org/apache/camel/kafkaconnector/camel-timer-kafka-connector/0.9.0/camel-timer-kafka-connector-0.9.0-package.tar.gz";
+        final String camelConnectorUrl = (Environment.ST_MAVEN_MIRROR_URL != null ? Environment.ST_MAVEN_MIRROR_URL : "https://repo.maven.apache.org/maven2") + "/org/apache/camel/kafkaconnector/camel-timer-kafka-connector/0.9.0/camel-timer-kafka-connector-0.9.0-package.tar.gz";
         int randomNum = new Random().nextInt(Integer.MAX_VALUE);
         final String imageName = Environment.getImageOutputRegistry(testStorage.getNamespaceName(), testStorage.getNamespaceName(), String.valueOf(randomNum));
 
         LOGGER.info("Deploying CO with UseConnectBuildWithBuildah disabled");
 
-        setupClusterOperatorWithFeatureGate("");
+        setupClusterOperatorWithFeatureGate("-UseConnectBuildWithBuildah");
 
-        KubeResourceManager.get().createResourceWithWait(
-            KafkaNodePoolTemplates.brokerPoolPersistentStorage(testStorage.getNamespaceName(), testStorage.getBrokerPoolName(), testStorage.getClusterName(), 3).build(),
-            KafkaNodePoolTemplates.controllerPoolPersistentStorage(testStorage.getNamespaceName(), testStorage.getControllerPoolName(), testStorage.getClusterName(), 3).build()
-        );
-        KubeResourceManager.get().createResourceWithWait(KafkaTemplates.kafka(testStorage.getNamespaceName(), testStorage.getClusterName(), 3).build());
-        KubeResourceManager.get().createResourceWithWait(
-            KafkaTopicTemplates.topic(testStorage.getNamespaceName(), testStorage.getTopicName(), testStorage.getClusterName()).build(),
-            KafkaConnectTemplates.kafkaConnect(testStorage.getNamespaceName(), testStorage.getClusterName(), testStorage.getClusterName(), 1)
+        KafkaConnect connect = KafkaConnectTemplates.kafkaConnectBuild(testStorage.getNamespaceName(), testStorage.getClusterName(), testStorage.getClusterName(), 1)
                 .editMetadata()
                     .addToAnnotations(Annotations.STRIMZI_IO_USE_CONNECTOR_RESOURCES, "true")
                 .endMetadata()
@@ -146,7 +91,7 @@ public class FeatureGatesST extends AbstractST {
                     .addToConfig("value.converter.schemas.enable", false)
                     .addToConfig("key.converter", "org.apache.kafka.connect.storage.StringConverter")
                     .addToConfig("value.converter", "org.apache.kafka.connect.storage.StringConverter")
-                    .withNewBuild()
+                    .editBuild()
                         .addNewPlugin()
                             .withName("camel-connector")
                             .withArtifacts(
@@ -156,13 +101,23 @@ public class FeatureGatesST extends AbstractST {
                                     .build()
                             )
                         .endPlugin()
-                        .withNewDockerOutputLike(KafkaConnectTemplates.dockerOutput(imageName))
-                            .withAdditionalPushOptions("--tls-verify=false")
-                            .withAdditionalBuildOptions("--tls-verify=false")
-                        .endDockerOutput()
                     .endBuild()
                 .endSpec()
-                .build());
+                .build();
+
+        // We have to update the secure options for Kaniko
+        DockerOutput dockerOutput = (DockerOutput) connect.getSpec().getBuild().getOutput();
+        dockerOutput.setAdditionalBuildOptions(List.of("--insecure"));
+        dockerOutput.setAdditionalPushOptions(null);
+
+        KubeResourceManager.get().createResourceWithWait(
+            KafkaNodePoolTemplates.brokerPoolPersistentStorage(testStorage.getNamespaceName(), testStorage.getBrokerPoolName(), testStorage.getClusterName(), 3).build(),
+            KafkaNodePoolTemplates.controllerPoolPersistentStorage(testStorage.getNamespaceName(), testStorage.getControllerPoolName(), testStorage.getClusterName(), 3).build()
+        );
+        KubeResourceManager.get().createResourceWithWait(KafkaTemplates.kafka(testStorage.getNamespaceName(), testStorage.getClusterName(), 3).build());
+        KubeResourceManager.get().createResourceWithWait(
+            KafkaTopicTemplates.topic(testStorage.getNamespaceName(), testStorage.getTopicName(), testStorage.getClusterName()).build(),
+            connect);
 
         Map<String, Object> connectorConfig = new HashMap<>();
         connectorConfig.put("topics", testStorage.getTopicName());
@@ -218,81 +173,14 @@ public class FeatureGatesST extends AbstractST {
         Map<String, String> brokerPods = PodUtils.podSnapshot(testStorage.getNamespaceName(), testStorage.getBrokerSelector());
 
         LOGGER.info("Triggering manual rolling update of broker pods");
-        StrimziPodSetUtils.annotateStrimziPodSet(testStorage.getNamespaceName(), testStorage.getBrokerComponentName(),
-            Map.of(Annotations.ANNO_STRIMZI_IO_MANUAL_ROLLING_UPDATE, "true"));
+        // annotating Pods and not StrimziPodSet to not hit race condition when applying the manual rolling update annotation
+        for (String brokerPod : brokerPods.keySet()) {
+            PodUtils.annotatePod(testStorage.getNamespaceName(), brokerPod, Annotations.ANNO_STRIMZI_IO_MANUAL_ROLLING_UPDATE, "true");
+        }
 
         brokerPods = RollingUpdateUtils.waitTillComponentHasRolled(testStorage.getNamespaceName(), testStorage.getBrokerSelector(), 3, brokerPods);
 
         assertThat("Broker pods were rolled successfully with UseBackgroundPodDeletion enabled", brokerPods.size(), is(3));
-    }
-
-    private static void annotateResourcesAndCheckIfPresent(TestStorage testStorage, boolean shouldBePresent) {
-        final String annotationKey = "my-annotation";
-        final String annotationValue = "my-value";
-        final String annotationFull = String.format("%s=%s", annotationKey, annotationValue);
-
-        String brokerPodName = KubeResourceManager.get().kubeClient().listPods(testStorage.getNamespaceName(), testStorage.getBrokerSelector()).get(0).getMetadata().getName();
-        String controllerPodName = KubeResourceManager.get().kubeClient().listPods(testStorage.getNamespaceName(), testStorage.getControllerSelector()).get(0).getMetadata().getName();
-
-        String bootstrapService = KafkaResources.bootstrapServiceName(testStorage.getClusterName());
-        String controllerPvc = String.format("data-%s", controllerPodName);
-        String kafkaServiceAccount = KafkaResources.kafkaComponentName(testStorage.getClusterName());
-
-        KubeResourceManager.get().kubeCmdClient().inNamespace(testStorage.getNamespaceName())
-            .exec("annotate", "configmap", brokerPodName, annotationFull);
-        KubeResourceManager.get().kubeCmdClient().inNamespace(testStorage.getNamespaceName())
-            .exec("annotate", "service", bootstrapService, annotationFull);
-        KubeResourceManager.get().kubeCmdClient().inNamespace(testStorage.getNamespaceName())
-            .exec("annotate", "pvc", controllerPvc, annotationFull);
-        KubeResourceManager.get().kubeCmdClient().inNamespace(testStorage.getNamespaceName())
-            .exec("annotate", "serviceaccount", kafkaServiceAccount, annotationFull);
-
-        LOGGER.info("Waiting for {} for reconciliation in order to see if the annotation will stay or not.", TestConstants.RECONCILIATION_INTERVAL);
-
-        // Wait for one reconciliation interval to happen
-        LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(TestConstants.RECONCILIATION_INTERVAL));
-
-        Map<String, String> currentAnnotations = KubeResourceManager.get().kubeClient().getClient().configMaps()
-            .inNamespace(testStorage.getNamespaceName()).withName(brokerPodName).get().getMetadata().getAnnotations();
-        assertThat(currentAnnotations.containsKey(annotationKey), is(shouldBePresent));
-
-        currentAnnotations = KubeResourceManager.get().kubeClient().getClient().services()
-            .inNamespace(testStorage.getNamespaceName()).withName(bootstrapService).get().getMetadata().getAnnotations();
-        assertThat(currentAnnotations.containsKey(annotationKey), is(shouldBePresent));
-
-        currentAnnotations = KubeResourceManager.get().kubeClient().getClient().persistentVolumeClaims()
-            .inNamespace(testStorage.getNamespaceName()).withName(controllerPvc).get().getMetadata().getAnnotations();
-        assertThat(currentAnnotations.containsKey(annotationKey), is(shouldBePresent));
-
-        currentAnnotations = KubeResourceManager.get().kubeClient().getClient().serviceAccounts()
-            .inNamespace(testStorage.getNamespaceName()).withName(kafkaServiceAccount).get().getMetadata().getAnnotations();
-        assertThat(currentAnnotations.containsKey(annotationKey), is(shouldBePresent));
-    }
-
-    /**
-     * Changes the feature gate value in `STRIMZI_FEATURE_GATES` env variable to {@param featureGatesValue}.
-     *
-     * @param featureGatesValue     value of FG that should be set in CO's `STRIMZI_FEATURE_GATES` env variable
-     */
-    private void changeFeatureGatesAndWaitForCoRollingUpdate(String featureGatesValue) {
-        LOGGER.info("Changing STRIMZI_FEATURE_GATES to {}", featureGatesValue);
-
-        Map<String, String> coPod = DeploymentUtils.depSnapshot(SetupClusterOperator.getInstance().getOperatorNamespace(), SetupClusterOperator.getInstance().getOperatorDeploymentName());
-
-        KubeResourceManager.get().kubeClient().getClient().apps().deployments().inNamespace(SetupClusterOperator.getInstance().getOperatorNamespace())
-            .withName(SetupClusterOperator.getInstance().getOperatorDeploymentName()).edit(dep -> new DeploymentBuilder(dep)
-                .editSpec()
-                    .editTemplate()
-                        .editSpec()
-                            .editFirstContainer()
-                                .addToEnv(new EnvVar("STRIMZI_FEATURE_GATES", featureGatesValue, null))
-                            .endContainer()
-                        .endSpec()
-                    .endTemplate()
-                .endSpec()
-                .build());
-
-        DeploymentUtils.waitTillDepHasRolled(SetupClusterOperator.getInstance().getOperatorNamespace(), SetupClusterOperator.getInstance().getOperatorDeploymentName(), 1, coPod);
     }
 
     /**

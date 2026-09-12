@@ -19,9 +19,6 @@ import com.fasterxml.jackson.dataformat.yaml.YAMLMapper;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.fabric8.kubernetes.api.model.Quantity;
 import io.fabric8.kubernetes.client.CustomResource;
-import io.strimzi.api.annotations.ApiVersion;
-import io.strimzi.api.annotations.KubeVersion;
-import io.strimzi.api.annotations.VersionRange;
 import io.strimzi.crdgenerator.annotations.CelValidation;
 import io.strimzi.crdgenerator.annotations.Crd;
 import io.strimzi.crdgenerator.annotations.Description;
@@ -31,6 +28,7 @@ import io.strimzi.crdgenerator.annotations.Minimum;
 import io.strimzi.crdgenerator.annotations.MinimumItems;
 import io.strimzi.crdgenerator.annotations.OneOf;
 import io.strimzi.crdgenerator.annotations.Pattern;
+import io.strimzi.crdgenerator.annotations.PreserveUnknownFields;
 import io.strimzi.crdgenerator.annotations.RequiredInVersions;
 import io.strimzi.crdgenerator.annotations.Type;
 
@@ -60,7 +58,7 @@ import java.util.TreeMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import static io.strimzi.api.annotations.ApiVersion.V1;
+import static io.strimzi.crdgenerator.ApiVersion.V1;
 import static io.strimzi.crdgenerator.Property.hasAnyGetterAndAnySetter;
 import static io.strimzi.crdgenerator.Property.properties;
 import static io.strimzi.crdgenerator.Property.sortedProperties;
@@ -573,7 +571,12 @@ class CrdGenerator {
 
         result.put("type", "object");
 
-        result.set("properties", buildSchemaProperties(crApiVersion, crdClass, description));
+        ObjectNode properties = buildSchemaProperties(crApiVersion, crdClass, description);
+        if (!properties.isEmpty())   {
+            // We set the proeprties only if not empty because otherwise it causes problems with diffing in Argo
+            result.set("properties", properties);
+        }
+
         ArrayNode oneOf = buildSchemaOneOf(crdClass);
         if (oneOf != null) {
             result.set("oneOf", oneOf);
@@ -807,7 +810,6 @@ class CrdGenerator {
         if (propertyType.getGenericType() instanceof ParameterizedType
                 && ((ParameterizedType) propertyType.getGenericType()).getRawType().equals(Map.class)
                 && ((ParameterizedType) propertyType.getGenericType()).getActualTypeArguments()[0].equals(Integer.class)) {
-            System.err.println("It's OK");
             schema = nf.objectNode();
             schema.put("type", "object");
             schema.putObject("patternProperties").set("-?[0-9]+", buildArraySchema(crApiVersion, property, new PropertyType(null, ((ParameterizedType) propertyType.getGenericType()).getActualTypeArguments()[1]), description));
@@ -822,6 +824,10 @@ class CrdGenerator {
             schema = buildArraySchema(crApiVersion, property, property.getType(), description);
         } else {
             schema = buildObjectSchema(crApiVersion, returnType, description);
+        }
+
+        if (property.isAnnotationPresent(PreserveUnknownFields.class))  {
+            preserveUnknownFields(schema);
         }
 
         if (description) {
@@ -885,6 +891,7 @@ class CrdGenerator {
      * @param valueType value Class
      * @return true if key-value types are equal to specified types, false otherwise.
      */
+    @SuppressWarnings("checkstyle:NoFullyQualifiedClassNames") // Type[] cannot be imported because of naming conflicts
     private boolean isMapOfTypes(PropertyType propertyType, Class<?> keyType, Class<?> valueType) {
         java.lang.reflect.Type[] types = ((ParameterizedType) propertyType.getGenericType()).getActualTypeArguments();
         return keyType.equals(types[0]) && valueType.equals(types[1]);

@@ -23,17 +23,18 @@ import io.strimzi.operator.cluster.ClusterOperatorConfig;
 import io.strimzi.operator.cluster.KafkaVersionTestUtils;
 import io.strimzi.operator.cluster.PlatformFeaturesAvailability;
 import io.strimzi.operator.cluster.ResourceUtils;
-import io.strimzi.operator.cluster.model.CertUtils;
+import io.strimzi.operator.cluster.model.CertSecretUtils;
 import io.strimzi.operator.cluster.model.KafkaVersion;
 import io.strimzi.operator.cluster.model.PodRevision;
 import io.strimzi.operator.cluster.model.PodSetUtils;
+import io.strimzi.operator.cluster.operator.VertxUtil;
 import io.strimzi.operator.cluster.operator.resource.ResourceOperatorSupplier;
 import io.strimzi.operator.common.Annotations;
 import io.strimzi.operator.common.Reconciliation;
-import io.strimzi.operator.common.model.Ca;
+import io.strimzi.operator.common.ca.Ca;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.model.PasswordGenerator;
-import io.strimzi.operator.common.operator.MockCertManager;
+import io.strimzi.operator.common.operator.MockCertIssuer;
 import io.strimzi.platform.KubernetesVersion;
 import io.strimzi.test.mockkube3.MockKube3;
 import io.vertx.core.Vertx;
@@ -175,7 +176,7 @@ public class PartialRollingUpdateMockTest {
         podSetController = new StrimziPodSetController(namespace, Labels.EMPTY, supplier.kafkaOperator, supplier.connectOperator, supplier.mirrorMaker2Operator, supplier.strimziPodSetOperator, supplier.podOperations, supplier.metricsProvider, Integer.parseInt(ClusterOperatorConfig.POD_SET_CONTROLLER_WORK_QUEUE_SIZE.defaultValue()));
         podSetController.start();
 
-        kco = new KafkaAssemblyOperator(vertx, pfa, new MockCertManager(), new PasswordGenerator(10, "a", "a"),
+        kco = new KafkaAssemblyOperator(vertx, pfa, new MockCertIssuer(), new PasswordGenerator(10, "a", "a"),
                 supplier, ResourceUtils.dummyClusterOperatorConfig(VERSIONS));
 
         LOGGER.info("Initial reconciliation");
@@ -201,7 +202,8 @@ public class PartialRollingUpdateMockTest {
     }
 
     ResourceOperatorSupplier supplier(KubernetesClient bootstrapClient, PlatformFeaturesAvailability pfa) {
-        return new ResourceOperatorSupplier(vertx,
+        return new ResourceOperatorSupplier(
+                VertxUtil.asExecutor(vertx.createSharedWorkerExecutor("kubernetes-ops-pool")),
                 bootstrapClient,
                 ResourceUtils.adminClientProvider(), ResourceUtils.kafkaAgentClientProvider(),
                 ResourceUtils.metricsProvider(),
@@ -266,7 +268,7 @@ public class PartialRollingUpdateMockTest {
 
         for (Pod pod : initialPods) {
             String podCertHash = pod.getMetadata().getAnnotations().get(Annotations.ANNO_STRIMZI_SERVER_CERT_HASH);
-            String expectedCertHash = CertUtils.getCertificateThumbprint(certSecrets.get(pod.getMetadata().getName()), Ca.SecretEntry.CRT.asKey(pod.getMetadata().getName()));
+            String expectedCertHash = CertSecretUtils.getCertificateThumbprint(certSecrets.get(pod.getMetadata().getName()), Ca.SecretEntry.CRT.asKey(pod.getMetadata().getName()));
             context.verify(() -> assertThat(podCertHash, is(expectedCertHash)));
         }
 
@@ -282,7 +284,7 @@ public class PartialRollingUpdateMockTest {
 
                     for (Pod pod : initialPods) {
                         String podCertHash = pod.getMetadata().getAnnotations().get(Annotations.ANNO_STRIMZI_SERVER_CERT_HASH);
-                        String expectedCertHash = CertUtils.getCertificateThumbprint(certSecrets.get(pod.getMetadata().getName()), Ca.SecretEntry.CRT.asKey(pod.getMetadata().getName()));
+                        String expectedCertHash = CertSecretUtils.getCertificateThumbprint(certSecrets.get(pod.getMetadata().getName()), Ca.SecretEntry.CRT.asKey(pod.getMetadata().getName()));
                         assertThat(podCertHash, is(expectedCertHash));
                     }
 

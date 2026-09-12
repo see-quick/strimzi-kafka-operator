@@ -10,23 +10,28 @@ import io.strimzi.api.kafka.model.kafka.Kafka;
 import io.strimzi.api.kafka.model.kafka.KafkaBuilder;
 import io.strimzi.api.kafka.model.kafka.KafkaList;
 import io.strimzi.api.kafka.model.kafka.KafkaStatus;
+import io.strimzi.api.kafka.model.kafka.clustersecurity.ClusterSecurityAuthenticationType;
+import io.strimzi.api.kafka.model.kafka.clustersecurity.ClusterSecurityEncryptionType;
+import io.strimzi.api.kafka.model.kafka.clustersecurity.ClusterSecurityStatus;
+import io.strimzi.api.kafka.model.kafka.clustersecurity.ClusterSecurityStatusBuilder;
 import io.strimzi.api.kafka.model.kafka.listener.GenericKafkaListenerBuilder;
 import io.strimzi.api.kafka.model.kafka.listener.KafkaListenerType;
 import io.strimzi.api.kafka.model.kafka.listener.ListenerAddressBuilder;
 import io.strimzi.api.kafka.model.kafka.listener.ListenerStatus;
 import io.strimzi.api.kafka.model.kafka.listener.ListenerStatusBuilder;
-import io.strimzi.certs.CertManager;
+import io.strimzi.certs.CertIssuer;
 import io.strimzi.operator.cluster.ClusterOperatorConfig;
 import io.strimzi.operator.cluster.KafkaVersionTestUtils;
 import io.strimzi.operator.cluster.PlatformFeaturesAvailability;
 import io.strimzi.operator.cluster.ResourceUtils;
 import io.strimzi.operator.cluster.model.KafkaVersion;
+import io.strimzi.operator.cluster.model.clustersecurity.kafka.KafkaClusterSecurityContext;
 import io.strimzi.operator.cluster.operator.resource.ResourceOperatorSupplier;
-import io.strimzi.operator.cluster.operator.resource.kubernetes.CrdOperator;
 import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.model.PasswordGenerator;
 import io.strimzi.operator.common.model.StatusUtils;
-import io.strimzi.operator.common.operator.MockCertManager;
+import io.strimzi.operator.common.operator.MockCertIssuer;
+import io.strimzi.operator.common.operator.resource.kubernetes.CrdOperator;
 import io.strimzi.platform.KubernetesVersion;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -42,6 +47,7 @@ import org.mockito.ArgumentCaptor;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 import static java.util.Collections.singletonList;
 import static java.util.Collections.singletonMap;
@@ -57,7 +63,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(VertxExtension.class)
 public class KafkaStatusTest {
     private final KubernetesVersion kubernetesVersion = KubernetesVersion.MINIMAL_SUPPORTED_VERSION;
-    private final MockCertManager certManager = new MockCertManager();
+    private final MockCertIssuer certIssuer = new MockCertIssuer();
     private final PasswordGenerator passwordGenerator = new PasswordGenerator(10, "a", "a");
     private final ClusterOperatorConfig config = ResourceUtils.dummyClusterOperatorConfig(VERSIONS);
     private static final KafkaVersion.Lookup VERSIONS = KafkaVersionTestUtils.getKafkaVersionLookup();
@@ -100,6 +106,14 @@ public class KafkaStatusTest {
                             .withStatus("True")
                             .build())
                     .withClusterId("my-cluster-id")
+                    .withClusterSecurity(new ClusterSecurityStatusBuilder()
+                            .withNewEncryption()
+                                .withType(ClusterSecurityEncryptionType.TLS)
+                            .endEncryption()
+                            .withNewAuthentication()
+                                .withType(ClusterSecurityAuthenticationType.MTLS)
+                            .endAuthentication()
+                            .build())
                 .endStatus()
                 .build();
     }
@@ -112,14 +126,14 @@ public class KafkaStatusTest {
         // Mock the Kafka Operator
         CrdOperator<KubernetesClient, Kafka, KafkaList> mockKafkaOps = supplier.kafkaOperator;
 
-        when(mockKafkaOps.getAsync(eq(namespace), eq(clusterName))).thenReturn(Future.succeededFuture(getKafkaCrd()));
+        when(mockKafkaOps.getAsync(eq(namespace), eq(clusterName))).thenReturn(CompletableFuture.completedFuture(getKafkaCrd()));
         when(mockKafkaOps.get(eq(namespace), eq(clusterName))).thenReturn(kafka);
 
         ArgumentCaptor<Kafka> kafkaCaptor = ArgumentCaptor.forClass(Kafka.class);
-        when(mockKafkaOps.updateStatusAsync(any(), kafkaCaptor.capture())).thenReturn(Future.succeededFuture());
+        when(mockKafkaOps.updateStatusAsync(any(), kafkaCaptor.capture())).thenReturn(CompletableFuture.completedFuture(null));
 
         MockWorkingKafkaAssemblyOperator kao = new MockWorkingKafkaAssemblyOperator(vertx, new PlatformFeaturesAvailability(false, kubernetesVersion),
-                certManager,
+                certIssuer,
                 passwordGenerator,
                 supplier,
                 config);
@@ -149,6 +163,14 @@ public class KafkaStatusTest {
             assertThat(status.getOperatorLastSuccessfulVersion(), is(KafkaAssemblyOperator.OPERATOR_VERSION));
             assertThat(status.getKafkaVersion(), is(KafkaVersionTestUtils.LATEST_KAFKA_VERSION));
 
+            // Test ClusterSecurity status
+            assertThat(status.getClusterSecurity(), is(notNullValue()));
+            ClusterSecurityStatus clusterSecurityStatus = KafkaClusterSecurityContext.deserializeStatus(status.getClusterSecurity());
+            assertThat(clusterSecurityStatus.getEncryption(), is(notNullValue()));
+            assertThat(clusterSecurityStatus.getEncryption().getType(), is(ClusterSecurityEncryptionType.TLS));
+            assertThat(clusterSecurityStatus.getAuthentication(), is(notNullValue()));
+            assertThat(clusterSecurityStatus.getAuthentication().getType(), is(ClusterSecurityAuthenticationType.MTLS));
+
             async.flag();
         })));
     }
@@ -162,13 +184,13 @@ public class KafkaStatusTest {
         // Mock the Kafka Operator
         CrdOperator<KubernetesClient, Kafka, KafkaList> mockKafkaOps = supplier.kafkaOperator;
 
-        when(mockKafkaOps.getAsync(eq(namespace), eq(clusterName))).thenReturn(Future.succeededFuture(kafka));
+        when(mockKafkaOps.getAsync(eq(namespace), eq(clusterName))).thenReturn(CompletableFuture.completedFuture(kafka));
 
         ArgumentCaptor<Kafka> kafkaCaptor = ArgumentCaptor.forClass(Kafka.class);
-        when(mockKafkaOps.updateStatusAsync(any(), kafkaCaptor.capture())).thenReturn(Future.succeededFuture());
+        when(mockKafkaOps.updateStatusAsync(any(), kafkaCaptor.capture())).thenReturn(CompletableFuture.completedFuture(null));
 
         MockWorkingKafkaAssemblyOperator kao = new MockWorkingKafkaAssemblyOperator(vertx, new PlatformFeaturesAvailability(false, kubernetesVersion),
-                certManager,
+                certIssuer,
                 passwordGenerator,
                 supplier,
                 config);
@@ -188,6 +210,14 @@ public class KafkaStatusTest {
 
                 assertThat(status.getOperatorLastSuccessfulVersion(), is(nullValue()));
                 assertThat(status.getKafkaVersion(), is(nullValue()));
+
+                // Test ClusterSecurity status
+                assertThat(status.getClusterSecurity(), is(notNullValue()));
+                ClusterSecurityStatus clusterSecurityStatus = KafkaClusterSecurityContext.deserializeStatus(status.getClusterSecurity());
+                assertThat(clusterSecurityStatus.getEncryption(), is(notNullValue()));
+                assertThat(clusterSecurityStatus.getEncryption().getType(), is(ClusterSecurityEncryptionType.TLS));
+                assertThat(clusterSecurityStatus.getAuthentication(), is(notNullValue()));
+                assertThat(clusterSecurityStatus.getAuthentication().getType(), is(ClusterSecurityAuthenticationType.MTLS));
 
                 async.flag();
             })));
@@ -224,13 +254,13 @@ public class KafkaStatusTest {
                 .endStatus()
                 .build();
 
-        when(mockKafkaOps.getAsync(eq(namespace), eq(clusterName))).thenReturn(Future.succeededFuture(readyKafka));
+        when(mockKafkaOps.getAsync(eq(namespace), eq(clusterName))).thenReturn(CompletableFuture.completedFuture(readyKafka));
 
         ArgumentCaptor<Kafka> kafkaCaptor = ArgumentCaptor.forClass(Kafka.class);
-        when(mockKafkaOps.updateStatusAsync(any(), kafkaCaptor.capture())).thenReturn(Future.succeededFuture());
+        when(mockKafkaOps.updateStatusAsync(any(), kafkaCaptor.capture())).thenReturn(CompletableFuture.completedFuture(null));
 
         MockWorkingKafkaAssemblyOperator kao = new MockWorkingKafkaAssemblyOperator(vertx, new PlatformFeaturesAvailability(false, kubernetesVersion),
-                certManager,
+                certIssuer,
                 passwordGenerator,
                 supplier,
                 config);
@@ -242,6 +272,14 @@ public class KafkaStatusTest {
 
             assertThat(status.getOperatorLastSuccessfulVersion(), is(KafkaAssemblyOperator.OPERATOR_VERSION));
             assertThat(status.getKafkaVersion(), is(KafkaVersionTestUtils.LATEST_KAFKA_VERSION));
+
+            // Test ClusterSecurity status
+            assertThat(status.getClusterSecurity(), is(notNullValue()));
+            ClusterSecurityStatus clusterSecurityStatus = KafkaClusterSecurityContext.deserializeStatus(status.getClusterSecurity());
+            assertThat(clusterSecurityStatus.getEncryption(), is(notNullValue()));
+            assertThat(clusterSecurityStatus.getEncryption().getType(), is(ClusterSecurityEncryptionType.TLS));
+            assertThat(clusterSecurityStatus.getAuthentication(), is(notNullValue()));
+            assertThat(clusterSecurityStatus.getAuthentication().getType(), is(ClusterSecurityAuthenticationType.MTLS));
 
             async.flag();
         })));
@@ -264,16 +302,16 @@ public class KafkaStatusTest {
         // Mock the Kafka Operator
         CrdOperator<KubernetesClient, Kafka, KafkaList> mockKafkaOps = supplier.kafkaOperator;
 
-        when(mockKafkaOps.getAsync(eq(namespace), eq(clusterName))).thenReturn(Future.succeededFuture(getKafkaCrd()));
+        when(mockKafkaOps.getAsync(eq(namespace), eq(clusterName))).thenReturn(CompletableFuture.completedFuture(getKafkaCrd()));
         when(mockKafkaOps.get(eq(namespace), eq(clusterName))).thenReturn(kafka);
 
         ArgumentCaptor<Kafka> kafkaCaptor = ArgumentCaptor.forClass(Kafka.class);
-        when(mockKafkaOps.updateStatusAsync(any(), kafkaCaptor.capture())).thenReturn(Future.succeededFuture());
+        when(mockKafkaOps.updateStatusAsync(any(), kafkaCaptor.capture())).thenReturn(CompletableFuture.completedFuture(null));
 
         MockFailingKafkaAssemblyOperator kao = new MockFailingKafkaAssemblyOperator(
                 exception,
                 vertx, new PlatformFeaturesAvailability(false, kubernetesVersion),
-                certManager,
+                certIssuer,
                 passwordGenerator,
                 supplier,
                 config);
@@ -301,6 +339,14 @@ public class KafkaStatusTest {
 
             assertThat(status.getOperatorLastSuccessfulVersion(), is(nullValue()));
             assertThat(status.getKafkaVersion(), is(nullValue()));
+
+            // Test ClusterSecurity status
+            assertThat(status.getClusterSecurity(), is(notNullValue()));
+            ClusterSecurityStatus clusterSecurityStatus = KafkaClusterSecurityContext.deserializeStatus(status.getClusterSecurity());
+            assertThat(clusterSecurityStatus.getEncryption(), is(notNullValue()));
+            assertThat(clusterSecurityStatus.getEncryption().getType(), is(ClusterSecurityEncryptionType.TLS));
+            assertThat(clusterSecurityStatus.getAuthentication(), is(notNullValue()));
+            assertThat(clusterSecurityStatus.getAuthentication().getType(), is(ClusterSecurityAuthenticationType.MTLS));
 
             async.flag();
         })));
@@ -341,16 +387,16 @@ public class KafkaStatusTest {
                 .endStatus()
                 .build();
 
-        when(mockKafkaOps.getAsync(eq(namespace), eq(clusterName))).thenReturn(Future.succeededFuture(readyKafka));
+        when(mockKafkaOps.getAsync(eq(namespace), eq(clusterName))).thenReturn(CompletableFuture.completedFuture(readyKafka));
         when(mockKafkaOps.get(eq(namespace), eq(clusterName))).thenReturn(readyKafka);
 
         ArgumentCaptor<Kafka> kafkaCaptor = ArgumentCaptor.forClass(Kafka.class);
-        when(mockKafkaOps.updateStatusAsync(any(), kafkaCaptor.capture())).thenReturn(Future.succeededFuture());
+        when(mockKafkaOps.updateStatusAsync(any(), kafkaCaptor.capture())).thenReturn(CompletableFuture.completedFuture(null));
 
         MockFailingKafkaAssemblyOperator kao = new MockFailingKafkaAssemblyOperator(
                 new RuntimeException("Something went wrong"),
                 vertx, new PlatformFeaturesAvailability(false, kubernetesVersion),
-                certManager,
+                certIssuer,
                 passwordGenerator,
                 supplier,
                 config);
@@ -379,6 +425,63 @@ public class KafkaStatusTest {
             assertThat(status.getOperatorLastSuccessfulVersion(), is("old-operator"));
             assertThat(status.getKafkaMetadataVersion(), is("old-metadata-version"));
 
+            // Test ClusterSecurity status
+            assertThat(status.getClusterSecurity(), is(notNullValue()));
+            ClusterSecurityStatus clusterSecurityStatus = KafkaClusterSecurityContext.deserializeStatus(status.getClusterSecurity());
+            assertThat(clusterSecurityStatus.getEncryption(), is(notNullValue()));
+            assertThat(clusterSecurityStatus.getEncryption().getType(), is(ClusterSecurityEncryptionType.TLS));
+            assertThat(clusterSecurityStatus.getAuthentication(), is(notNullValue()));
+            assertThat(clusterSecurityStatus.getAuthentication().getType(), is(ClusterSecurityAuthenticationType.MTLS));
+
+            async.flag();
+        })));
+    }
+
+    @Test
+    public void testStatusAfterClusterSecurityDecodingFailure(VertxTestContext context) {
+        ResourceOperatorSupplier supplier = ResourceUtils.supplierWithMocks(false);
+
+        // Mock the Kafka Operator
+        CrdOperator<KubernetesClient, Kafka, KafkaList> mockKafkaOps = supplier.kafkaOperator;
+
+        Kafka readyKafka = new KafkaBuilder(getKafkaCrd())
+                .editStatus()
+                    .withClusterSecurity(new ClusterSecurityStatusBuilder()
+                            .withNewEncryption()
+                                .withType(ClusterSecurityEncryptionType.TLS)
+                            .endEncryption()
+                            .build())
+                .endStatus()
+                .build();
+
+        when(mockKafkaOps.getAsync(eq(namespace), eq(clusterName))).thenReturn(CompletableFuture.completedFuture(readyKafka));
+        when(mockKafkaOps.get(eq(namespace), eq(clusterName))).thenReturn(readyKafka);
+
+        ArgumentCaptor<Kafka> kafkaCaptor = ArgumentCaptor.forClass(Kafka.class);
+        when(mockKafkaOps.updateStatusAsync(any(), kafkaCaptor.capture())).thenReturn(CompletableFuture.completedFuture(null));
+
+        KafkaAssemblyOperator kao = new KafkaAssemblyOperator(
+                vertx, new PlatformFeaturesAvailability(false, kubernetesVersion),
+                certIssuer,
+                passwordGenerator,
+                supplier,
+                config);
+
+        Checkpoint async = context.checkpoint();
+        kao.reconcile(new Reconciliation("test-trigger", Kafka.RESOURCE_KIND, namespace, clusterName)).onComplete(context.failing(v -> context.verify(() -> {
+            assertThat(kafkaCaptor.getValue(), is(notNullValue()));
+            assertThat(kafkaCaptor.getValue().getStatus(), is(notNullValue()));
+            KafkaStatus status = kafkaCaptor.getValue().getStatus();
+
+            assertThat(status.getConditions().size(), is(1));
+            assertThat(status.getConditions().get(0).getType(), is("NotReady"));
+            assertThat(status.getConditions().get(0).getStatus(), is("True"));
+            assertThat(status.getConditions().get(0).getReason(), is("InvalidResourceException"));
+            assertThat(status.getConditions().get(0).getMessage(), is("Invalid ClusterSecurityStatus: encryption or authentication configuration is not set"));
+
+            // Test ClusterSecurity status
+            assertThat(status.getClusterSecurity(), is(notNullValue()));
+
             async.flag();
         })));
     }
@@ -393,13 +496,13 @@ public class KafkaStatusTest {
         // Mock the Kafka Operator
         CrdOperator<KubernetesClient, Kafka, KafkaList> mockKafkaOps = supplier.kafkaOperator;
 
-        when(mockKafkaOps.getAsync(eq(namespace), eq(clusterName))).thenReturn(Future.succeededFuture(kafka));
+        when(mockKafkaOps.getAsync(eq(namespace), eq(clusterName))).thenReturn(CompletableFuture.completedFuture(kafka));
 
         ArgumentCaptor<Kafka> kafkaCaptor = ArgumentCaptor.forClass(Kafka.class);
-        when(mockKafkaOps.updateStatusAsync(any(), kafkaCaptor.capture())).thenReturn(Future.succeededFuture());
+        when(mockKafkaOps.updateStatusAsync(any(), kafkaCaptor.capture())).thenReturn(CompletableFuture.completedFuture(null));
 
         MockInitialStatusKafkaAssemblyOperator kao = new MockInitialStatusKafkaAssemblyOperator(vertx, new PlatformFeaturesAvailability(false, kubernetesVersion),
-                certManager,
+                certIssuer,
                 passwordGenerator,
                 supplier,
                 config);
@@ -412,6 +515,7 @@ public class KafkaStatusTest {
             KafkaStatus status = kafkaCaptor.getAllValues().get(0).getStatus();
 
             assertThat(status.getListeners(), is(nullValue()));
+            assertThat(status.getClusterSecurity(), is(nullValue()));
 
             assertThat(status.getConditions().size(), is(1));
             assertThat(status.getConditions().get(0).getType(), is("NotReady"));
@@ -430,13 +534,13 @@ public class KafkaStatusTest {
         // Mock the Kafka Operator
         CrdOperator<KubernetesClient, Kafka, KafkaList> mockKafkaOps = supplier.kafkaOperator;
 
-        when(mockKafkaOps.getAsync(eq(namespace), eq(clusterName))).thenReturn(Future.succeededFuture(kafka));
+        when(mockKafkaOps.getAsync(eq(namespace), eq(clusterName))).thenReturn(CompletableFuture.completedFuture(kafka));
 
         ArgumentCaptor<Kafka> kafkaCaptor = ArgumentCaptor.forClass(Kafka.class);
-        when(mockKafkaOps.updateStatusAsync(any(), kafkaCaptor.capture())).thenReturn(Future.succeededFuture());
+        when(mockKafkaOps.updateStatusAsync(any(), kafkaCaptor.capture())).thenReturn(CompletableFuture.completedFuture(null));
 
         MockInitialStatusKafkaAssemblyOperator kao = new MockInitialStatusKafkaAssemblyOperator(vertx, new PlatformFeaturesAvailability(false, kubernetesVersion),
-                certManager,
+                certIssuer,
                 passwordGenerator,
                 supplier,
                 config);
@@ -450,8 +554,8 @@ public class KafkaStatusTest {
 
     // This allows to test the status handling when reconciliation succeeds
     static class MockWorkingKafkaAssemblyOperator extends KafkaAssemblyOperator  {
-        public MockWorkingKafkaAssemblyOperator(Vertx vertx, PlatformFeaturesAvailability pfa, CertManager certManager, PasswordGenerator passwordGenerator, ResourceOperatorSupplier supplier, ClusterOperatorConfig config) {
-            super(vertx, pfa, certManager, passwordGenerator, supplier, config);
+        public MockWorkingKafkaAssemblyOperator(Vertx vertx, PlatformFeaturesAvailability pfa, CertIssuer certIssuer, PasswordGenerator passwordGenerator, ResourceOperatorSupplier supplier, ClusterOperatorConfig config) {
+            super(vertx, pfa, certIssuer, passwordGenerator, supplier, config);
         }
 
         @Override
@@ -487,8 +591,8 @@ public class KafkaStatusTest {
     static class MockFailingKafkaAssemblyOperator extends KafkaAssemblyOperator  {
         private final Throwable exception;
 
-        public MockFailingKafkaAssemblyOperator(Throwable exception, Vertx vertx, PlatformFeaturesAvailability pfa, CertManager certManager, PasswordGenerator passwordGenerator, ResourceOperatorSupplier supplier, ClusterOperatorConfig config) {
-            super(vertx, pfa, certManager, passwordGenerator, supplier, config);
+        public MockFailingKafkaAssemblyOperator(Throwable exception, Vertx vertx, PlatformFeaturesAvailability pfa, CertIssuer certIssuer, PasswordGenerator passwordGenerator, ResourceOperatorSupplier supplier, ClusterOperatorConfig config) {
+            super(vertx, pfa, certIssuer, passwordGenerator, supplier, config);
             this.exception = exception;
         }
 
@@ -510,8 +614,8 @@ public class KafkaStatusTest {
 
     // This allows to test the initial status handling when new resource is created
     static class MockInitialStatusKafkaAssemblyOperator extends KafkaAssemblyOperator  {
-        public MockInitialStatusKafkaAssemblyOperator(Vertx vertx, PlatformFeaturesAvailability pfa, CertManager certManager, PasswordGenerator passwordGenerator, ResourceOperatorSupplier supplier, ClusterOperatorConfig config) {
-            super(vertx, pfa, certManager, passwordGenerator, supplier, config);
+        public MockInitialStatusKafkaAssemblyOperator(Vertx vertx, PlatformFeaturesAvailability pfa, CertIssuer certIssuer, PasswordGenerator passwordGenerator, ResourceOperatorSupplier supplier, ClusterOperatorConfig config) {
+            super(vertx, pfa, certIssuer, passwordGenerator, supplier, config);
         }
 
         @Override

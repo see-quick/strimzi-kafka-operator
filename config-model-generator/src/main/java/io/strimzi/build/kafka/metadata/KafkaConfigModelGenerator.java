@@ -75,7 +75,7 @@ public class KafkaConfigModelGenerator {
         return p.getProperty("version");
     }
 
-    @SuppressWarnings({"checkstyle:CyclomaticComplexity"})
+    @SuppressWarnings({"checkstyle:CyclomaticComplexity", "checkstyle:NoFullyQualifiedClassNames"}) // NoFullyQualifiedClassNames is a false positive, fully qualified class name used in a string
     private static Map<String, ConfigModel> configs(String version) throws NoSuchMethodException, IllegalAccessException, InvocationTargetException {
         ConfigDef def = brokerConfigs();
         Map<String, String> dynamicUpdates = brokerDynamicUpdates();
@@ -304,6 +304,7 @@ public class KafkaConfigModelGenerator {
         }
     }
 
+    @SuppressWarnings("checkstyle:NoFullyQualifiedClassNames") // False positive, fully qualified class name used in a string
     static Map<String, String> brokerDynamicUpdates() {
         // From Kafka 4.3.0, this logic moved from the Scala class kafka.server.DynamicBrokerConfig to the Java class
         // org.apache.kafka.server.config.DynamicBrokerConfig. As we need to build the configuration models for both
@@ -312,7 +313,13 @@ public class KafkaConfigModelGenerator {
         // This condition can be removed once we support only Kafka 4.3.0 and newer.
         if (classExists("org.apache.kafka.server.config.DynamicBrokerConfig")) {
             // Kafka 4.3.0+
-            return org.apache.kafka.server.config.DynamicBrokerConfig.dynamicConfigUpdateModes();
+            try {
+                Class<?> clazz = Class.forName("org.apache.kafka.server.config.DynamicBrokerConfig");
+                Method method = clazz.getDeclaredMethod("dynamicConfigUpdateModes");
+                return (Map<String, String>) method.invoke(null);
+            } catch (ClassNotFoundException | NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
+                throw new RuntimeException("Failed to get dynamic config update modes", e);
+            }
         } else {
             // Kafka versions older than 4.3.0
             try {

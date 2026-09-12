@@ -6,7 +6,8 @@ package io.strimzi.operator.common.auth;
 
 import io.fabric8.kubernetes.api.model.Secret;
 import io.strimzi.operator.common.Util;
-import io.strimzi.operator.common.model.Ca;
+import io.strimzi.operator.common.ca.Ca;
+import io.strimzi.operator.common.ca.CertificateUtils;
 
 import java.io.IOException;
 import java.security.GeneralSecurityException;
@@ -22,7 +23,7 @@ import java.util.stream.Collectors;
 /**
  * Represents the set of certificates to be trusted by a TLS client or server
  */
-public class PemTrustSet {
+public class PemTrustSet implements TrustSet    {
     private final Map<String, byte[]> trustedCertificateMap;
     private final String secretName;
     private final String secretNamespace;
@@ -49,7 +50,7 @@ public class PemTrustSet {
                 .stream()
                 .map(cert -> {
                     try {
-                        return Ca.x509CertificateToPem(cert);
+                        return CertificateUtils.x509CertificateToPem(cert);
                     } catch (CertificateEncodingException e) {
                         throw new RuntimeException("Failed to convert X509 certificate to PEM format: " + cert.getSubjectX500Principal().getName(), e);
                     }
@@ -90,7 +91,7 @@ public class PemTrustSet {
                 .stream()
                 .map(entry -> {
                     try {
-                        return Ca.x509Certificate(entry.getValue());
+                        return CertificateUtils.x509Certificate(entry.getValue());
                     } catch (CertificateException e) {
                         throw new RuntimeException("Bad/corrupt certificate found in data." + entry.getKey() + " of Secret "
                                 + secretName + " in namespace " + secretNamespace);

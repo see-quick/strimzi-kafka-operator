@@ -11,16 +11,17 @@ import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 import com.github.tomakehurst.wiremock.stubbing.Scenario;
 import io.fabric8.kubernetes.api.model.Secret;
 import io.fabric8.kubernetes.api.model.SecretBuilder;
+import io.strimzi.api.kafka.model.kafka.KafkaResources;
 import io.strimzi.api.kafka.model.kafka.cruisecontrol.CruiseControlResources;
-import io.strimzi.certs.OpenSslCertManager;
-import io.strimzi.certs.Subject;
+import io.strimzi.certs.OpenSslCertIssuer;
+import io.strimzi.certs.StrimziSubject;
 import io.strimzi.operator.cluster.model.ModelUtils;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.model.cruisecontrol.CruiseControlApiProperties;
 import io.strimzi.operator.common.model.cruisecontrol.CruiseControlEndpoints;
 import io.strimzi.operator.common.model.cruisecontrol.CruiseControlParameters;
 import io.strimzi.operator.common.model.cruisecontrol.CruiseControlUserTaskStatus;
-import io.strimzi.operator.common.operator.MockCertManager;
+import io.strimzi.operator.common.operator.MockCertIssuer;
 import io.strimzi.test.ReadWriteUtils;
 
 import java.io.File;
@@ -80,12 +81,12 @@ public class MockCruiseControl {
     private static final String USER_TASKS_SCENARIO = "user-tasks-scenario";
     private static final String USER_TASKS_VERBOSE_SCENARIO = "user-tasks-verbose-scenario";
 
-    public static final Secret CC_SECRET = new SecretBuilder()
+    public static final Secret CLUSTER_CA_CERT_SECRET = new SecretBuilder()
             .withNewMetadata()
-                .withName(CruiseControlResources.secretName(CLUSTER))
+                .withName(KafkaResources.clusterCaCertificateSecretName(CLUSTER))
                 .withNamespace(NAMESPACE)
             .endMetadata()
-            .addToData("cruise-control.crt", MockCertManager.clusterCaCert())
+            .addToData("ca.crt", MockCertIssuer.clusterCaCert())
             .build();
 
     private static Map<String, String> apiSecretData = Map.of(CruiseControlApiProperties.REBALANCE_OPERATOR_PASSWORD_KEY, "password");
@@ -95,6 +96,16 @@ public class MockCruiseControl {
 
     private static final String KEYSTORE_PASSWORD = "changeit";
     private final WireMockServer server;
+
+    /**
+     * Sets up and returns a Cruise Control mock HTTP server.
+     *
+     * @param serverPort The port number the server should listen on.
+     */
+    public MockCruiseControl(int serverPort) {
+        this.server = new WireMockServer(WireMockConfiguration.options().port(serverPort));
+        this.server.start();
+    }
 
     /**
      * Sets up and returns a Cruise Control mock server.
@@ -129,10 +140,10 @@ public class MockCruiseControl {
      */
     private static File createKeystoreFromPem(File caKeyFile, File caCertFile)
             throws IOException, CertificateException, KeyStoreException, NoSuchAlgorithmException, InvalidKeySpecException {
-        OpenSslCertManager certManager = new OpenSslCertManager();
+        OpenSslCertIssuer certIssuer = new OpenSslCertIssuer();
 
         // Create subject with localhost SANs
-        Subject subject = new Subject.Builder()
+        StrimziSubject subject = new StrimziSubject.Builder()
                 .withCommonName("localhost")
                 .addDnsName("localhost")
                 .addIpAddress("127.0.0.1")
@@ -150,9 +161,9 @@ public class MockCruiseControl {
         keystoreFile.deleteOnExit();
 
         try {
-            certManager.generateCsr(serverKeyFile, csrFile, subject);
-            certManager.generateCert(csrFile, caKeyFile, caCertFile, serverCertFile, subject, 365);
-            certManager.addKeyAndCertToKeyStore(serverKeyFile, serverCertFile, "server", keystoreFile, KEYSTORE_PASSWORD);
+            certIssuer.generateCsr(serverKeyFile, csrFile, subject);
+            certIssuer.generateCert(csrFile, caKeyFile, caCertFile, serverCertFile, subject, 365);
+            certIssuer.addKeyAndCertToKeyStore(serverKeyFile, serverCertFile, "server", keystoreFile, KEYSTORE_PASSWORD);
 
             return keystoreFile;
         } finally {
@@ -368,6 +379,23 @@ public class MockCruiseControl {
                         .withStatus(500)
                         .withHeader(USER_TASK_ID_HEADER, BROKERS_NOT_EXIST_ERROR_RESPONSE_UTID)
                         .withBody(jsonError)));
+    }
+
+    public void mockNewProposal() {
+        for (boolean verbose : new boolean[]{false, true}) {
+            String fileName = verbose
+                ? "CC-Rebalance-no-goals-verbose-refreshed.json"
+                : "CC-Rebalance-no-goals-refreshed.json";
+            String userTaskId = verbose
+                ? REBALANCE_NO_GOALS_VERBOSE_RESPONSE_UTID
+                : REBALANCE_NO_GOALS_RESPONSE_UTID;
+
+            server.stubFor(rebalanceRequestMatcher(verbose, CruiseControlEndpoints.REBALANCE)
+                .willReturn(aResponse()
+                    .withStatus(200)
+                    .withHeader("User-Task-ID", userTaskId)
+                    .withBody(readJsonResource(fileName))));
+        }
     }
 
     /**

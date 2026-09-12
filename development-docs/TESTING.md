@@ -17,7 +17,6 @@ For more information about the build process, see [Dev guide document](DEV_GUIDE
 - [Running single test class](#running-single-test-class)
 - [Skip Teardown](#skip-teardown)
 - [Accessing GitHub Actions logs](#accessing-github-actions-logs)
-- [Testing-farm](../systemtest/tmt/README.md)
 - [Running tests with custom images](#running-tests-with-custom-images)
 - [Performance testing](#performance-testing)
 
@@ -354,10 +353,20 @@ All environment variables are defined in [Environment](systemtest/src/main/java/
 | KAFKA_TIERED_STORAGE_IMAGE            | Kafka image already containing Tiered Storage plugin - the Aiven one. In case that this and `KAFKA_TIERED_STORAGE_BASE_IMAGE` are both configured, this env takes precedence.                                                                                        | empty                                                             |
 | KAFKA_TIERED_STORAGE_CLASSPATH        | Classpath to the libs for Tiered Storage plugin - inside the Kafka image. This is then configured inside the classpath field for Tiered Storage spec inside the Kafka CR.                                                                                            | /opt/kafka/plugins/tiered-storage/*                               |
 | KAFKA_TIERED_STORAGE_BASE_IMAGE       | Base Kafka image that will be used for building a new custom one - adding the Aiven Tiered Storage plugin to it. If both this env variable and `KAFKA_TIERED_STORAGE_IMAGE` are configured, the `KAFKA_TIERED_STORAGE_IMAGE` takes precedence and no image is built. | quay.io/strimzi/kafka:latest-kafka-LATEST_SUPPORTED_KAFKA_VERSION |
+| CLUSTER_SECURITY_ENCRYPTION           | Encryption used for the internal communication of the Kafka clusters deployed by the tests. Supported values are `tls` and `none`.                                                                                                                                   | tls                                                               |
+| CLUSTER_SECURITY_AUTHENTICATION       | Authentication used for the internal communication of the Kafka clusters deployed by the tests. Supported values are `mtls`, `service-account` and `none`. `mtls` can be used only together with `tls` encryption.                                                   | mtls                                                              |
 
 If you want to use your images with a different tag or from a separate repository, you can use `DOCKER_REGISTRY`, `DOCKER_ORG` and `DOCKER_TAG` environment variables.
 
 `KUBERNETES_DOMAIN` should be specified only in case when you are using a specific configuration in your Kubernetes cluster.
+
+`CLUSTER_SECURITY_ENCRYPTION` and `CLUSTER_SECURITY_AUTHENTICATION` configure the security of the internal Kafka cluster communication for the whole test run.
+They are applied to every `Kafka` custom resource created by the tests through the `strimzi.io/internal-cluster-security` annotation.
+When the default combination (`tls` encryption with `mtls` authentication) is used, the annotation is not set at all, so that the default behaviour of the Cluster Operator is covered as well.
+Tests that verify a specific internal cluster security configuration (such as `ClusterSecurityST`) set the annotation on their own and are not affected by these environment variables.
+
+The operator upgrade and downgrade tests (`AbstractKRaftUpgradeST` and its subclasses) and the OLM tests (`OlmAbstractST` and its subclasses) always run with the default configuration and ignore these environment variables.
+The Kafka clusters in these tests are deployed from the examples of a given Strimzi release and are reconciled by a version of the Cluster Operator that might not know the `strimzi.io/internal-cluster-security` annotation.
 
 ##### Specific Kafka version
 
@@ -583,15 +592,15 @@ This test case runs at most **5 minutes**.
 
 ### Triggering Performance Tests
 
-Performance tests can be triggered using either Testing Farm or Jenkins. 
+Performance tests can be triggered using either GHA or Jenkins. 
 One can also run them locally as our standard system tests using some IDE or directly by maven.
 
-#### Testing Farm
-Currently, there are two possible triggers:
+#### GHA
+
+You can trigger the performance tests by using:
+
 ```
-/packit test --labels performance
-/packit test --labels user-capacity
-/packit test --labels topic-capacity
+/gha run pipeline=performance
 ```
 
 #### Jenkins

@@ -738,7 +738,7 @@ class CoreFeaturesIT implements TestSeparator {
 
             // then
             try (var ignored = LogCaptor.logMessageMatches(BatchingTopicController.LOGGER,
-                    org.apache.logging.log4j.Level.DEBUG,
+                    Level.DEBUG,
                     "Ignoring KafkaTopic .*? not selected by selector",
                     5L,
                     TimeUnit.SECONDS)) {
@@ -763,7 +763,7 @@ class CoreFeaturesIT implements TestSeparator {
         var expectedTopicName = TopicOperatorUtil.topicName(kt);
         KafkaTopic unmanaged;
         try (var ignored = LogCaptor.logMessageMatches(BatchingTopicController.LOGGER,
-                org.apache.logging.log4j.Level.DEBUG,
+                Level.DEBUG,
                 "Ignoring KafkaTopic .*? not selected by selector",
                 5L,
                 TimeUnit.SECONDS)) {
@@ -814,7 +814,7 @@ class CoreFeaturesIT implements TestSeparator {
 
             KafkaTopic created;
             try (var ignored = LogCaptor.logMessageMatches(BatchingTopicController.LOGGER,
-                    org.apache.logging.log4j.Level.DEBUG,
+                    Level.DEBUG,
                     "Ignoring KafkaTopic .*? not selected by selector",
                     5L,
                     TimeUnit.SECONDS)) {
@@ -1457,9 +1457,9 @@ class CoreFeaturesIT implements TestSeparator {
         assertTrue(readyIsFalse().test(created));
         Condition condition = assertExactlyOneCondition(created);
         assertEquals(TopicOperatorException.Reason.KAFKA_ERROR.value, condition.getReason());
-        assertEquals("org.apache.kafka.common.errors.InvalidReplicationFactorException: Unable to replicate the partition " +
-            "32767 time(s): The target replication factor of 32767 cannot be reached because only 1 broker(s) are registered.", 
-            condition.getMessage());
+        assertTrue(condition.getMessage().startsWith(
+            "org.apache.kafka.common.errors.InvalidReplicationFactorException: Unable to replicate the partition " +
+            "32767 time(s): The target replication factor of 32767 cannot be reached because only 1 broker(s) are registered"));
     }
 
     @Test

@@ -13,7 +13,6 @@ import io.strimzi.operator.common.Annotations;
 import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.ReconciliationLogger;
 import io.strimzi.operator.common.model.StatusUtils;
-import io.vertx.core.Future;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -21,6 +20,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 /**
  * This class reconciles the PVCs for the Kafka clusters. It has two public methods:
@@ -56,30 +57,30 @@ public class PvcReconciler {
      * @param kafkaStatus   Status of the Kafka custom resource where warnings about any issues with resizing will be added
      * @param pvcs          List of desired PVC used by this controller
      *
-     * @return Future with set of node IDs which should be restarted to complete the filesystem resizing
+     * @return CompletionStage with set of node IDs which should be restarted to complete the filesystem resizing
      */
-    public Future<Collection<Integer>> resizeAndReconcilePvcs(KafkaStatus kafkaStatus, List<PersistentVolumeClaim> pvcs) {
+    public CompletionStage<Collection<Integer>> resizeAndReconcilePvcs(KafkaStatus kafkaStatus, List<PersistentVolumeClaim> pvcs) {
         Set<Integer> podIdsToRestart = new HashSet<>();
-        List<Future<Void>> futures = new ArrayList<>(pvcs.size());
+        List<CompletableFuture<Void>> completableFutures = new ArrayList<>(pvcs.size());
 
         for (PersistentVolumeClaim desiredPvc : pvcs)  {
-            Future<Void> perPvcFuture = pvcOperator.getAsync(reconciliation.namespace(), desiredPvc.getMetadata().getName())
-                    .compose(currentPvc -> {
+            CompletionStage<Void> perPvcFuture = pvcOperator.getAsync(reconciliation.namespace(), desiredPvc.getMetadata().getName())
+                    .thenCompose(currentPvc -> {
                         if (currentPvc == null || currentPvc.getStatus() == null || !"Bound".equals(currentPvc.getStatus().getPhase())) {
                             // This branch handles the following conditions:
                             // * The PVC doesn't exist yet, we should create it
                             // * The PVC is not Bound, we should reconcile it
                             return pvcOperator.reconcile(reconciliation, reconciliation.namespace(), desiredPvc.getMetadata().getName(), desiredPvc)
-                                    .mapEmpty();
+                                    .thenApply(i -> null);
                         } else if (currentPvc.getStatus().getConditions().stream().anyMatch(cond -> "Resizing".equals(cond.getType()) && "true".equals(cond.getStatus().toLowerCase(Locale.ENGLISH))))  {
                             // The PVC is Bound, but it is already resizing => Nothing to do, we should let it resize
                             LOGGER.debugCr(reconciliation, "The PVC {} is resizing, nothing to do", desiredPvc.getMetadata().getName());
-                            return Future.succeededFuture();
+                            return CompletableFuture.completedFuture(null);
                         } else if (currentPvc.getStatus().getConditions().stream().anyMatch(cond -> "FileSystemResizePending".equals(cond.getType()) && "true".equals(cond.getStatus().toLowerCase(Locale.ENGLISH))))  {
                             // The PVC is Bound and resized but waiting for FS resizing => We need to restart the pod which is using it
                             podIdsToRestart.add(getPodIndexFromPvcName(desiredPvc.getMetadata().getName()));
                             LOGGER.infoCr(reconciliation, "The PVC {} is waiting for file system resizing and the pod using it might need to be restarted.", desiredPvc.getMetadata().getName());
-                            return Future.succeededFuture();
+                            return CompletableFuture.completedFuture(null);
                         } else {
                             // The PVC is Bound and resizing is not in progress => We should check if the SC supports resizing and check if size changed
                             Long currentSize = StorageUtils.convertToMillibytes(currentPvc.getSpec().getResources().getRequests().get("storage"));
@@ -91,16 +92,16 @@ public class PvcReconciler {
                             } else  {
                                 // size didn't change, just reconcile
                                 return pvcOperator.reconcile(reconciliation, reconciliation.namespace(), desiredPvc.getMetadata().getName(), desiredPvc)
-                                        .mapEmpty();
+                                        .thenApply(i -> null);
                             }
                         }
                     });
 
-            futures.add(perPvcFuture);
+            completableFutures.add(perPvcFuture.toCompletableFuture());
         }
 
-        return Future.all(futures)
-                .map(podIdsToRestart);
+        return CompletableFuture.allOf(completableFutures.toArray(CompletableFuture[]::new))
+                .thenApply(i -> podIdsToRestart);
     }
 
     /**
@@ -111,39 +112,39 @@ public class PvcReconciler {
      * @param current       The current PVC with the old size
      * @param desired       The desired PVC with the new size
      *
-     * @return          Future which completes when the PVC / PV resizing is completed.
+     * @return          CompletionStage which completes when the PVC / PV resizing is completed.
      */
-    private Future<Void> resizePvc(KafkaStatus kafkaStatus, PersistentVolumeClaim current, PersistentVolumeClaim desired)  {
+    private CompletionStage<Void> resizePvc(KafkaStatus kafkaStatus, PersistentVolumeClaim current, PersistentVolumeClaim desired)  {
         String storageClassName = current.getSpec().getStorageClassName();
 
         if (storageClassName != null && !storageClassName.isEmpty()) {
             return storageClassOperator.getAsync(storageClassName)
-                    .compose(sc -> {
+                    .thenCompose(sc -> {
                         if (sc == null) {
                             kafkaStatus.addCondition(StatusUtils.buildWarningCondition("PvcResizingWarning",
                                     "Storage Class " + storageClassName + " not found. " +
                                             "PVC " + desired.getMetadata().getName() + " cannot be resized."));
                             LOGGER.warnCr(reconciliation, "Storage Class {} not found. PVC {} cannot be resized. Reconciliation will proceed without reconciling this PVC.", storageClassName, desired.getMetadata().getName());
-                            return Future.succeededFuture();
+                            return CompletableFuture.completedFuture(null);
                         } else if (sc.getAllowVolumeExpansion() == null || !sc.getAllowVolumeExpansion())    {
                             // Resizing not supported in SC => do nothing
                             kafkaStatus.addCondition(StatusUtils.buildWarningCondition("PvcResizingWarning",
                                     "Storage Class " + storageClassName + " does not support resizing of volumes. " +
                                             "PVC " + desired.getMetadata().getName() + " cannot be resized."));
                             LOGGER.warnCr(reconciliation, "Storage Class {} does not support resizing of volumes. PVC {} cannot be resized. Reconciliation will proceed without reconciling this PVC.", storageClassName, desired.getMetadata().getName());
-                            return Future.succeededFuture();
+                            return CompletableFuture.completedFuture(null);
                         } else  {
                             // Resizing supported by SC => We can reconcile the PVC to have it resized
                             LOGGER.infoCr(reconciliation, "Resizing PVC {} from {} to {}.", desired.getMetadata().getName(), current.getStatus().getCapacity().get("storage").getAmount(), desired.getSpec().getResources().getRequests().get("storage").getAmount());
                             return pvcOperator.reconcile(reconciliation, reconciliation.namespace(), desired.getMetadata().getName(), desired)
-                                    .mapEmpty();
+                                    .thenApply(i -> null);
                         }
                     });
         } else {
             kafkaStatus.addCondition(StatusUtils.buildWarningCondition("PvcResizingWarning",
                     "PVC " + desired.getMetadata().getName() + " does not use any Storage Class and cannot be resized."));
             LOGGER.warnCr(reconciliation, "PVC {} does not use any Storage Class and cannot be resized. Reconciliation will proceed without reconciling this PVC.", desired.getMetadata().getName());
-            return Future.succeededFuture();
+            return CompletableFuture.completedFuture(null);
         }
     }
 
@@ -153,20 +154,19 @@ public class PvcReconciler {
      * @param maybeDeletePvcs   List of existing PVCs which should be considered for deletion
      * @param desiredPvcs       List of PVCs which should be kept
      *
-     * @return                  Future which completes when all PVCs which needed to be deleted were deleted
+     * @return                  CompletionStage which completes when all PVCs which needed to be deleted were deleted
      */
-    public Future<Void> deletePersistentClaims(List<String> maybeDeletePvcs, List<String> desiredPvcs) {
-        List<Future<Void>> futures = new ArrayList<>();
+    public CompletionStage<Void> deletePersistentClaims(List<String> maybeDeletePvcs, List<String> desiredPvcs) {
+        List<CompletableFuture<Void>> completableFutures = new ArrayList<>();
 
         maybeDeletePvcs.removeAll(desiredPvcs);
 
         for (String pvcName : maybeDeletePvcs)  {
             LOGGER.debugCr(reconciliation, "Considering PVC {} for deletion", pvcName);
-            futures.add(considerPersistentClaimDeletion(pvcName));
+            completableFutures.add(considerPersistentClaimDeletion(pvcName).toCompletableFuture());
         }
 
-        return Future.all(futures)
-                .mapEmpty();
+        return CompletableFuture.allOf(completableFutures.toArray(CompletableFuture[]::new));
     }
 
     /**
@@ -174,18 +174,18 @@ public class PvcReconciler {
      *
      * @param pvcName   Name of the PVC to consider for deletion
      *
-     * @return          Future which completes when the PVC is deleted or when we find out that it should not be deleted
+     * @return          CompletionStage which completes when the PVC is deleted or when we find out that it should not be deleted
      */
-    private Future<Void> considerPersistentClaimDeletion(String pvcName)   {
+    private CompletionStage<Void> considerPersistentClaimDeletion(String pvcName)   {
         return pvcOperator.getAsync(reconciliation.namespace(), pvcName)
-                .compose(pvc -> {
+                .thenCompose(pvc -> {
                     // The PVC might be null in case it was deleted in the mean time by something else such as garbage collection
                     if (pvc != null && Annotations.booleanAnnotation(pvc, Annotations.ANNO_STRIMZI_IO_DELETE_CLAIM, false)) {
                         LOGGER.infoCr(reconciliation, "Deleting PVC {}", pvcName);
                         return pvcOperator.reconcile(reconciliation, reconciliation.namespace(), pvcName, null)
-                                .mapEmpty();
+                                .thenApply(i -> null);
                     } else {
-                        return Future.succeededFuture();
+                        return CompletableFuture.completedFuture(null);
                     }
                 });
     }

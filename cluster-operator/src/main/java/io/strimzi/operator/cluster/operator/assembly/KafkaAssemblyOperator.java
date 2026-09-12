@@ -22,30 +22,31 @@ import io.strimzi.api.kafka.model.kafka.Storage;
 import io.strimzi.api.kafka.model.nodepool.KafkaNodePool;
 import io.strimzi.api.kafka.model.nodepool.KafkaNodePoolList;
 import io.strimzi.api.kafka.model.podset.StrimziPodSet;
-import io.strimzi.certs.CertManager;
+import io.strimzi.certs.CertIssuer;
 import io.strimzi.operator.cluster.ClusterOperatorConfig;
 import io.strimzi.operator.cluster.PlatformFeaturesAvailability;
-import io.strimzi.operator.cluster.model.ClusterCa;
 import io.strimzi.operator.cluster.model.KafkaCluster;
 import io.strimzi.operator.cluster.model.KafkaVersionChange;
 import io.strimzi.operator.cluster.model.ModelUtils;
 import io.strimzi.operator.cluster.model.NodeRef;
+import io.strimzi.operator.cluster.model.clustersecurity.kafka.KafkaClusterSecurityContext;
 import io.strimzi.operator.cluster.operator.VertxUtil;
 import io.strimzi.operator.cluster.operator.resource.ResourceOperatorSupplier;
-import io.strimzi.operator.cluster.operator.resource.kubernetes.CrdOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.StrimziPodSetOperator;
 import io.strimzi.operator.common.Annotations;
 import io.strimzi.operator.common.InvalidConfigurationException;
 import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.ReconciliationException;
 import io.strimzi.operator.common.ReconciliationLogger;
+import io.strimzi.operator.common.ca.Ca;
 import io.strimzi.operator.common.config.ConfigParameter;
-import io.strimzi.operator.common.model.ClientsCa;
+import io.strimzi.operator.common.model.InvalidResourceException;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.model.NamespaceAndName;
 import io.strimzi.operator.common.model.PasswordGenerator;
 import io.strimzi.operator.common.model.StatusDiff;
 import io.strimzi.operator.common.model.StatusUtils;
+import io.strimzi.operator.common.operator.resource.kubernetes.CrdOperator;
 import io.vertx.core.AsyncResult;
 import io.vertx.core.Future;
 import io.vertx.core.Handler;
@@ -113,15 +114,15 @@ public class KafkaAssemblyOperator extends AbstractAssemblyOperator<KubernetesCl
      *
      * @param vertx The Vertx instance
      * @param pfa Platform features availability properties
-     * @param certManager Certificate manager
+     * @param certIssuer Certificate issuer
      * @param passwordGenerator Password generator
      * @param supplier Supplies the operators for different resources
      * @param config ClusterOperator configuration. Used to get the user-configured image pull policy and the secrets.
      */
     public KafkaAssemblyOperator(Vertx vertx, PlatformFeaturesAvailability pfa,
-                                 CertManager certManager, PasswordGenerator passwordGenerator,
+                                 CertIssuer certIssuer, PasswordGenerator passwordGenerator,
                                  ResourceOperatorSupplier supplier, ClusterOperatorConfig config) {
-        super(vertx, pfa, Kafka.RESOURCE_KIND, certManager, passwordGenerator,
+        super(vertx, pfa, Kafka.RESOURCE_KIND, certIssuer, passwordGenerator,
                 supplier.kafkaOperator, supplier, config);
         this.config = config;
         this.supplier = supplier;
@@ -137,7 +138,7 @@ public class KafkaAssemblyOperator extends AbstractAssemblyOperator<KubernetesCl
     @Override
     public void reconcileThese(String trigger, Set<NamespaceAndName> desiredNames, String namespace, Handler<AsyncResult<Void>> handler) {
         super.reconcileThese(trigger, desiredNames, namespace, ignore -> {
-            nodePoolOperator.listAsync(namespace, selector())
+            VertxUtil.toFuture(nodePoolOperator.listAsync(namespace, selector()))
                     .onComplete(ar -> {
                         if (ar.succeeded()) {
                             metrics.resetNodePoolCounters(namespace);
@@ -198,6 +199,11 @@ public class KafkaAssemblyOperator extends AbstractAssemblyOperator<KubernetesCl
                     // the auto-rebalance is enabled otherwise I could reset it to null if needed
                     status.setAutoRebalance(kafkaAssembly.getStatus().getAutoRebalance());
                 }
+
+                if (status.getClusterSecurity() == null)    {
+                    // Copy the cluster security state if needed
+                    status.setClusterSecurity(kafkaAssembly.getStatus().getClusterSecurity());
+                }
             }
 
             if (reconcileResult.succeeded())    {
@@ -231,7 +237,8 @@ public class KafkaAssemblyOperator extends AbstractAssemblyOperator<KubernetesCl
     Future<Void> reconcile(ReconciliationState reconcileState)  {
         Promise<Void> chainPromise = Promise.promise();
 
-        reconcileState.initialStatus()
+        reconcileState.initialize()
+                .compose(state -> state.initialStatus())
                 // Preparation steps => prepare cluster descriptions, handle CA creation or changes
                 .compose(state -> state.reconcileCas(clock))
                 .compose(state -> state.emitCertificateSecretMetrics())
@@ -266,8 +273,8 @@ public class KafkaAssemblyOperator extends AbstractAssemblyOperator<KubernetesCl
 
         /* test */ KafkaVersionChange versionChange;
 
-        /* test */ ClusterCa clusterCa;
-        /* test */ ClientsCa clientsCa;
+        private Ca clusterCa;
+        private Ca clientsCa;
 
         // Needed by Cruise control to configure the cluster, its nodes and their storage and resource configuration
         private Set<NodeRef> kafkaBrokerNodes;
@@ -275,6 +282,7 @@ public class KafkaAssemblyOperator extends AbstractAssemblyOperator<KubernetesCl
         private Map<String, ResourceRequirements> kafkaBrokerResources;
         // needed to take information for the auto-rebalancing on scaling via Cruise Control
         private Set<Integer> scalingDownBlockedNodes;
+        private KafkaClusterSecurityContext securityContext;
 
         /* test */ KafkaStatus kafkaStatus = new KafkaStatus();
 
@@ -283,6 +291,25 @@ public class KafkaAssemblyOperator extends AbstractAssemblyOperator<KubernetesCl
             this.kafkaAssembly = kafkaAssembly;
             this.namespace = kafkaAssembly.getMetadata().getNamespace();
             this.name = kafkaAssembly.getMetadata().getName();
+        }
+
+        /**
+         * Initializes the reconciliation state.
+         *
+         * @return  Future that returns when the reconciliation state has been initialized
+         */
+        Future<ReconciliationState> initialize() {
+            // Initialize the security context from the Kafka CR and set it in the status.
+            try {
+                this.securityContext = KafkaClusterSecurityContext.fromCrd(kafkaAssembly);
+                this.kafkaStatus.setClusterSecurity(securityContext.toStatus());
+
+                // NOTE: To correctly propagate any possible errors into the Kafka CR, we have to make sure to fail
+                // the Future in case of any errors.
+                return Future.succeededFuture(this);
+            } catch (InvalidResourceException e) {
+                return Future.failedFuture(e);
+            }
         }
 
         /**
@@ -296,19 +323,19 @@ public class KafkaAssemblyOperator extends AbstractAssemblyOperator<KubernetesCl
         Future<Void> updateStatus(KafkaStatus desiredStatus) {
             Promise<Void> updateStatusPromise = Promise.promise();
 
-            kafkaOperator.getAsync(namespace, name).onComplete(getRes -> {
+            VertxUtil.toFuture(kafkaOperator.getAsync(namespace, name)).onComplete(getRes -> {
                 if (getRes.succeeded())    {
                     Kafka kafka = getRes.result();
 
                     if (kafka != null) {
                         KafkaStatus currentStatus = kafka.getStatus();
 
-                        StatusDiff ksDiff = new StatusDiff(currentStatus, desiredStatus);
+                        StatusDiff ksDiff = new StatusDiff(reconciliation, currentStatus, desiredStatus);
 
                         if (!ksDiff.isEmpty()) {
                             Kafka resourceWithNewStatus = new KafkaBuilder(kafka).withStatus(desiredStatus).build();
 
-                            kafkaOperator.updateStatusAsync(reconciliation, resourceWithNewStatus).onComplete(updateRes -> {
+                            VertxUtil.toFuture(kafkaOperator.updateStatusAsync(reconciliation, resourceWithNewStatus)).onComplete(updateRes -> {
                                 if (updateRes.succeeded()) {
                                     LOGGER.debugCr(reconciliation, "Completed status update");
                                     updateStatusPromise.complete();
@@ -342,7 +369,7 @@ public class KafkaAssemblyOperator extends AbstractAssemblyOperator<KubernetesCl
         Future<ReconciliationState> initialStatus() {
             Promise<ReconciliationState> initialStatusPromise = Promise.promise();
 
-            kafkaOperator.getAsync(namespace, name).onComplete(getRes -> {
+            VertxUtil.toFuture(kafkaOperator.getAsync(namespace, name)).onComplete(getRes -> {
                 if (getRes.succeeded())    {
                     Kafka kafka = getRes.result();
 
@@ -395,7 +422,7 @@ public class KafkaAssemblyOperator extends AbstractAssemblyOperator<KubernetesCl
          * @return  CaReconciler instance
          */
         CaReconciler caReconciler()   {
-            return new CaReconciler(reconciliation, kafkaAssembly, config, supplier, certManager, passwordGenerator);
+            return new CaReconciler(reconciliation, kafkaAssembly, config, supplier, certIssuer, passwordGenerator, securityContext);
         }
 
         /**
@@ -408,13 +435,13 @@ public class KafkaAssemblyOperator extends AbstractAssemblyOperator<KubernetesCl
          * @return  Future with Reconciliation State
          */
         Future<ReconciliationState> reconcileCas(Clock clock)    {
-            return caReconciler()
+            return VertxUtil.toFuture(caReconciler()
                     .reconcile(clock)
-                    .compose(cas -> {
+                    .thenApply(cas -> {
                         this.clusterCa = cas.clusterCa();
                         this.clientsCa = cas.clientsCa();
-                        return Future.succeededFuture(this);
-                    });
+                        return this;
+                    }));
         }
 
         /**
@@ -447,8 +474,8 @@ public class KafkaAssemblyOperator extends AbstractAssemblyOperator<KubernetesCl
          * @return  Future with Reconciliation State
          */
         Future<ReconciliationState> versionChange()    {
-            return versionChangeCreator()
-                    .reconcile()
+            return VertxUtil.toFuture(versionChangeCreator()
+                    .reconcile())
                     .compose(versionChange -> {
                         this.versionChange = versionChange;
                         return Future.succeededFuture(this);
@@ -476,7 +503,8 @@ public class KafkaAssemblyOperator extends AbstractAssemblyOperator<KubernetesCl
                     config,
                     supplier,
                     pfa,
-                    vertx
+                    vertx,
+                    scalingDownBlockedNodes
             );
         }
 
@@ -493,8 +521,8 @@ public class KafkaAssemblyOperator extends AbstractAssemblyOperator<KubernetesCl
                     .withStrimziCluster(reconciliation.name())
                     .withStrimziName(KafkaResources.kafkaComponentName(reconciliation.name()));
 
-            Future<List<KafkaNodePool>> nodePoolFuture = nodePoolOperator.listAsync(namespace, Labels.fromMap(Map.of(Labels.STRIMZI_CLUSTER_LABEL, name)));
-            Future<List<StrimziPodSet>> podSetFuture = strimziPodSetOperator.listAsync(namespace, kafkaSelectorLabels);
+            Future<List<KafkaNodePool>> nodePoolFuture = VertxUtil.toFuture(nodePoolOperator.listAsync(namespace, Labels.fromMap(Map.of(Labels.STRIMZI_CLUSTER_LABEL, name))));
+            Future<List<StrimziPodSet>> podSetFuture = VertxUtil.toFuture(strimziPodSetOperator.listAsync(namespace, kafkaSelectorLabels));
 
             return Future.join(podSetFuture, nodePoolFuture)
                     .compose(res -> {
@@ -515,9 +543,9 @@ public class KafkaAssemblyOperator extends AbstractAssemblyOperator<KubernetesCl
                         }
 
                         KafkaClusterCreator kafkaClusterCreator =
-                                new KafkaClusterCreator(vertx, reconciliation, config, supplier);
-                        return kafkaClusterCreator
-                                .prepareKafkaCluster(kafkaAssembly, nodePools, oldStorage, versionChange, kafkaStatus, true)
+                                new KafkaClusterCreator(reconciliation, config, supplier);
+                        return VertxUtil.toFuture(kafkaClusterCreator
+                                .prepareKafkaCluster(kafkaAssembly, nodePools, oldStorage, versionChange, kafkaStatus, true, securityContext))
                                 .compose(kafkaCluster -> {
                                     // We store this for use with Cruise Control later. As these configurations might
                                     // not be exactly the same as in the original custom resource (for example because
@@ -559,8 +587,8 @@ public class KafkaAssemblyOperator extends AbstractAssemblyOperator<KubernetesCl
                     supplier,
                     kafkaAssembly,
                     versions,
-                    clusterCa
-            );
+                    clusterCa,
+                    securityContext);
         }
 
         /**
@@ -572,8 +600,8 @@ public class KafkaAssemblyOperator extends AbstractAssemblyOperator<KubernetesCl
          * @return      Future with Reconciliation State
          */
         Future<ReconciliationState> reconcileKafkaExporter(Clock clock)    {
-            return kafkaExporterReconciler()
-                    .reconcile(pfa.isOpenshift(), imagePullPolicy, imagePullSecrets, clock)
+            return VertxUtil.toFuture(kafkaExporterReconciler()
+                    .reconcile(pfa.isOpenshift(), imagePullPolicy, imagePullSecrets, clock))
                     .map(this);
         }
 
@@ -593,8 +621,8 @@ public class KafkaAssemblyOperator extends AbstractAssemblyOperator<KubernetesCl
                     kafkaBrokerNodes,
                     kafkaBrokerStorage,
                     kafkaBrokerResources,
-                    clusterCa
-            );
+                    clusterCa,
+                    securityContext);
         }
 
         /**
@@ -606,8 +634,8 @@ public class KafkaAssemblyOperator extends AbstractAssemblyOperator<KubernetesCl
          * @return      Future with Reconciliation State
          */
         Future<ReconciliationState> reconcileCruiseControl(Clock clock)    {
-            return cruiseControlReconciler()
-                    .reconcile(pfa.isOpenshift(), imagePullPolicy, imagePullSecrets, clock)
+            return VertxUtil.toFuture(cruiseControlReconciler()
+                            .reconcile(pfa.isOpenshift(), imagePullPolicy, imagePullSecrets, clock))
                     .map(this);
         }
 
@@ -622,8 +650,8 @@ public class KafkaAssemblyOperator extends AbstractAssemblyOperator<KubernetesCl
                     config,
                     supplier,
                     kafkaAssembly,
-                    clusterCa
-            );
+                    clusterCa,
+                    securityContext);
         }
 
         /**
@@ -645,8 +673,8 @@ public class KafkaAssemblyOperator extends AbstractAssemblyOperator<KubernetesCl
          */
         Future<ReconciliationState> reconcileKafkaAutoRebalancing() {
             if (isAutoRebalancingEnabled()) {
-                return kafkaAutoRebalancingReconciler()
-                        .reconcile(kafkaStatus)
+                return VertxUtil.toFuture(kafkaAutoRebalancingReconciler()
+                        .reconcile(kafkaStatus))
                         .map(this);
             } else {
                 LOGGER.debugCr(reconciliation, "Cruise Control or inner autorebalance field not defined in the Kafka custom resource, no auto-rebalancing to reconcile");
@@ -689,6 +717,11 @@ public class KafkaAssemblyOperator extends AbstractAssemblyOperator<KubernetesCl
             status.setClusterId(kafka.getStatus().getClusterId());
         }
 
+        // We copy the cluster security if set
+        if (kafka.getStatus() != null && kafka.getStatus().getClusterSecurity() != null)  {
+            status.setClusterSecurity(kafka.getStatus().getClusterSecurity());
+        }
+
         return status;
     }
 
@@ -700,7 +733,7 @@ public class KafkaAssemblyOperator extends AbstractAssemblyOperator<KubernetesCl
      */
     @Override
     protected Future<Boolean> delete(Reconciliation reconciliation) {
-        return ReconcilerUtils.withIgnoreRbacError(reconciliation, clusterRoleBindingOperations.reconcile(reconciliation, KafkaResources.initContainerClusterRoleBindingName(reconciliation.name(), reconciliation.namespace()), null), null)
+        return ReconcilerUtils.withIgnoreRbacError(reconciliation, VertxUtil.toFuture(clusterRoleBindingOperations.reconcile(reconciliation, KafkaResources.initContainerClusterRoleBindingName(reconciliation.name(), reconciliation.namespace()), null)), null)
                 .map(Boolean.FALSE); // Return FALSE since other resources are still deleted by garbage collection
     }
 

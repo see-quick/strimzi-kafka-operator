@@ -14,6 +14,7 @@ import io.fabric8.kubernetes.api.model.PersistentVolumeClaim;
 import io.fabric8.kubernetes.api.model.ResourceRequirements;
 import io.fabric8.kubernetes.api.model.Secret;
 import io.fabric8.kubernetes.api.model.Service;
+import io.fabric8.kubernetes.api.model.ServiceAccount;
 import io.fabric8.kubernetes.api.model.ServicePort;
 import io.fabric8.kubernetes.api.model.Volume;
 import io.fabric8.kubernetes.api.model.VolumeMount;
@@ -53,8 +54,8 @@ import io.strimzi.api.kafka.model.common.template.ContainerTemplate;
 import io.strimzi.api.kafka.model.common.template.ExternalTrafficPolicy;
 import io.strimzi.api.kafka.model.common.template.InternalServiceTemplate;
 import io.strimzi.api.kafka.model.common.template.PodDisruptionBudgetTemplate;
-import io.strimzi.api.kafka.model.common.template.PodTemplate;
 import io.strimzi.api.kafka.model.common.template.ResourceTemplate;
+import io.strimzi.api.kafka.model.common.template.StatefulPodTemplate;
 import io.strimzi.api.kafka.model.kafka.Kafka;
 import io.strimzi.api.kafka.model.kafka.KafkaAuthorization;
 import io.strimzi.api.kafka.model.kafka.KafkaClusterSpec;
@@ -73,7 +74,11 @@ import io.strimzi.api.kafka.model.kafka.tieredstorage.TieredStorage;
 import io.strimzi.api.kafka.model.nodepool.KafkaNodePoolStatus;
 import io.strimzi.api.kafka.model.podset.StrimziPodSet;
 import io.strimzi.certs.CertAndKey;
+import io.strimzi.certs.IpAndDnsValidation;
+import io.strimzi.certs.StrimziSubject;
 import io.strimzi.operator.cluster.ClusterOperatorConfig;
+import io.strimzi.operator.cluster.model.clustersecurity.kafka.KafkaClusterSecurityContext;
+import io.strimzi.operator.cluster.model.clustersecurity.kafka.ServiceAccountAuthenticationConfiguration;
 import io.strimzi.operator.cluster.model.cruisecontrol.CruiseControlMetricsReporter;
 import io.strimzi.operator.cluster.model.jmx.JmxModel;
 import io.strimzi.operator.cluster.model.jmx.SupportsJmx;
@@ -88,6 +93,7 @@ import io.strimzi.operator.cluster.model.securityprofiles.PodSecurityProviderCon
 import io.strimzi.operator.common.Annotations;
 import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.Util;
+import io.strimzi.operator.common.ca.Ca;
 import io.strimzi.operator.common.model.InvalidResourceException;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.model.StatusUtils;
@@ -96,7 +102,6 @@ import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import org.apache.kafka.server.common.MetadataVersion;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -105,6 +110,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -211,6 +218,11 @@ public class KafkaCluster extends AbstractModel implements SupportsMetrics, Supp
     public static final String BROKER_METADATA_VERSION_FILENAME = "metadata.version";
 
     /**
+     * Key under which the agent configuration is stored in Config Map
+     */
+    /* test */ static final String AGENT_CONFIGURATION_FILENAME = "agent.config";
+
+    /**
      * Key under which the class of the quota plugin can be configured
      */
     private static final String CLIENT_CALLBACK_CLASS_OPTION = "client.quota.callback.class";
@@ -229,6 +241,7 @@ public class KafkaCluster extends AbstractModel implements SupportsMetrics, Supp
     private LoggingModel logging;
     private QuotasPlugin quotas;
     /* test */ KafkaConfiguration configuration;
+    private KafkaClusterSecurityContext securityContext;
     private final boolean inPlaceResizing;
     private final boolean inPlaceResizingWaitForDeferred;
 
@@ -287,8 +300,9 @@ public class KafkaCluster extends AbstractModel implements SupportsMetrics, Supp
      *                                      various protocol and metadata versions) to be used in this reconciliation
      * @param clusterId                     Kafka cluster Id (or null if it is not known yet)
      * @param sharedEnvironmentProvider     Shared environment provider
+     * @param securityContext               Kafka cluster security context
      *
-     * @return Kafka cluster instance
+     * @return  Kafka cluster instance
      */
     @SuppressWarnings({"NPathComplexity"})
     public static KafkaCluster fromCrd(Reconciliation reconciliation,
@@ -297,7 +311,8 @@ public class KafkaCluster extends AbstractModel implements SupportsMetrics, Supp
                                        KafkaVersion.Lookup versions,
                                        KafkaVersionChange versionChange,
                                        String clusterId,
-                                       SharedEnvironmentProvider sharedEnvironmentProvider) {
+                                       SharedEnvironmentProvider sharedEnvironmentProvider,
+                                       KafkaClusterSecurityContext securityContext) {
         KafkaSpec kafkaSpec = kafka.getSpec();
         KafkaClusterSpec kafkaClusterSpec = kafkaSpec.getKafka();
 
@@ -305,15 +320,14 @@ public class KafkaCluster extends AbstractModel implements SupportsMetrics, Supp
 
         result.clusterId = clusterId;
         result.nodePools = pools;
+        result.securityContext = securityContext;
 
         // This also validates that the Kafka version is supported
         result.kafkaVersion = versions.supportedVersion(kafkaClusterSpec.getVersion());
 
         // Validates and sets the metadata version used in KRaft
-        if (versionChange.metadataVersion() != null) {
-            validateMetadataVersion(versionChange.metadataVersion());
-            result.metadataVersion = versionChange.metadataVersion();
-        }
+        validateMetadataVersion(versionChange.metadataVersion());
+        result.metadataVersion = versionChange.metadataVersion();
 
         // Number of broker nodes => used later in various validation methods
         long numberOfBrokers = result.brokerNodes().size();
@@ -1309,44 +1323,92 @@ public class KafkaCluster extends AbstractModel implements SupportsMetrics, Supp
      *
      * @return  The generated Secrets containing Kafka node certificates and custom certificates
      */
-    public List<Secret> generateCertificatesSecrets(ClusterCa clusterCa, List<Secret> existingSecrets, Map<String, String> customCertsData, Set<String> externalBootstrapDnsName, Map<Integer, Set<String>> externalDnsNames, boolean isMaintenanceTimeWindowsSatisfied) {
+    public CompletionStage<List<Secret>> generateCertificatesSecrets(Ca clusterCa, List<Secret> existingSecrets, Map<String, String> customCertsData, Set<String> externalBootstrapDnsName, Map<Integer, Set<String>> externalDnsNames, boolean isMaintenanceTimeWindowsSatisfied) {
         Map<String, Secret> existingSecretWithName = existingSecrets.stream().collect(Collectors.toMap(secret -> secret.getMetadata().getName(), secret -> secret));
-        Set<NodeRef> nodes = nodes();
-        Map<String, CertAndKey> existingCerts = new HashMap<>();
-        for (NodeRef node : nodes) {
+
+        List<CompletableFuture<Map.Entry<String, CertAndKey>>> futureList = new ArrayList<>();
+
+        nodes().forEach(node -> {
             String podName = node.podName();
             // Reuse existing certificate if it exists
+            CertAndKey existingCertAndKey = null;
             if (existingSecretWithName.get(podName) != null) {
                 Secret existingSecret = existingSecretWithName.get(podName);
-                CertAndKey nodeCertAndKey = CertUtils.keyStoreCertAndKey(existingSecret, podName, clusterCa.caCertGenerationAnnotation());
-                existingCerts.put(podName, nodeCertAndKey);
+                existingCertAndKey = CertSecretUtils.keyStoreCertAndKey(existingSecret, podName, clusterCa.caCertGenerationAnnotation());
             } else {
                 LOGGER.debugCr(reconciliation, "No existing certificate found for pod {}/{}", namespace, podName);
             }
+            StrimziSubject subject = buildKafkaNodeCertsSubject(node, externalBootstrapDnsName, externalDnsNames);
+
+            futureList.add(clusterCa.maybeCopyOrGenerateServerCerts(reconciliation, podName, subject, existingCertAndKey, isMaintenanceTimeWindowsSatisfied, true)
+                    .thenApply(certAndKey -> Map.entry(podName, certAndKey))
+                    .toCompletableFuture());
+        });
+
+        return CompletableFuture.allOf(futureList.toArray(new CompletableFuture[0]))
+                .thenApply(v -> futureList.stream()
+                        .map(CompletableFuture::join)
+                        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue)))
+                .thenApply(certAndKeys -> buildSecretsFromCertAndKeys(
+                        certAndKeys,
+                        customCertsData,
+                        clusterCa
+                ));
+    }
+
+    private StrimziSubject buildKafkaNodeCertsSubject(NodeRef node, Set<String> externalBootstrapAddresses, Map<Integer, Set<String>> externalAddresses) {
+        StrimziSubject.Builder subject = new StrimziSubject.Builder()
+                .withOrganizationName(Ca.IO_STRIMZI)
+                .withCommonName(KafkaResources.kafkaComponentName(cluster));
+
+        subject.addDnsNames(ModelUtils.generateAllServiceDnsNames(namespace, KafkaResources.bootstrapServiceName(cluster)));
+        subject.addDnsNames(ModelUtils.generateAllServiceDnsNames(namespace, KafkaResources.brokersServiceName(cluster)));
+
+        subject.addDnsName(DnsNameGenerator.podDnsName(namespace, KafkaResources.brokersServiceName(cluster), node.podName()));
+        subject.addDnsName(DnsNameGenerator.podDnsNameWithoutClusterDomain(namespace, KafkaResources.brokersServiceName(cluster), node.podName()));
+
+        // Controller-only nodes do not have the SANs for external listeners.
+        // That helps us to avoid unnecessary rolling updates when the SANs change
+        if (node.broker())    {
+            if (externalBootstrapAddresses != null) {
+                for (String dnsName : externalBootstrapAddresses) {
+                    if (IpAndDnsValidation.isValidIpAddress(dnsName)) {
+                        subject.addIpAddress(dnsName);
+                    } else {
+                        subject.addDnsName(dnsName);
+                    }
+                }
+            }
+
+            if (externalAddresses.get(node.nodeId()) != null) {
+                for (String dnsName : externalAddresses.get(node.nodeId())) {
+                    if (IpAndDnsValidation.isValidIpAddress(dnsName)) {
+                        subject.addIpAddress(dnsName);
+                    } else {
+                        subject.addDnsName(dnsName);
+                    }
+                }
+            }
         }
 
-        Map<String, CertAndKey> updatedCerts;
-        try {
-            updatedCerts = clusterCa.generateBrokerCerts(namespace, cluster, existingCerts,
-                    nodes, externalBootstrapDnsName, externalDnsNames, isMaintenanceTimeWindowsSatisfied);
-        } catch (IOException e) {
-            LOGGER.warnCr(reconciliation, "Error while generating certificates", e);
-            throw new RuntimeException("Failed to prepare Kafka certificates", e);
-        }
+        return subject.build();
+    }
 
-        return updatedCerts.entrySet()
+    private List<Secret> buildSecretsFromCertAndKeys(Map<String, CertAndKey> certAndKeys, Map<String, String> customCertsData, Ca clusterCa) {
+        return certAndKeys.entrySet()
                 .stream()
                 .map(entry -> {
-                    Map<String, String> secretData = new HashMap<>(CertUtils.buildSecretData(entry.getKey(), entry.getValue()));
+                    Map<String, String> secretData = new HashMap<>(CertSecretUtils.buildSecretData(entry.getKey(), entry.getValue()));
+
                     if (customCertsData != null && !customCertsData.isEmpty()) {
                         secretData.putAll(customCertsData);
                     }
-
-                    return ModelUtils.createSecret(entry.getKey(), namespace, labels, ownerReference,
+                    return ModelUtils.createSecret(
+                            entry.getKey(), namespace, labels, ownerReference,
                             secretData,
-                            Map.ofEntries(
-                                    clusterCa.caCertGenerationFullAnnotation()),
-                            emptyMap());
+                            Map.of(clusterCa.caCertGenerationAnnotation(), String.valueOf(entry.getValue().caCertGeneration())),
+                            emptyMap()
+                    );
                 })
                 .toList();
     }
@@ -1436,12 +1498,17 @@ public class KafkaCluster extends AbstractModel implements SupportsMetrics, Supp
      *
      * @return List of non-data volumes used by the Kafka pods
      */
-    private List<Volume> getNonDataVolumes(NodeRef node, PodTemplate templatePod) {
+    private List<Volume> getNonDataVolumes(NodeRef node, StatefulPodTemplate templatePod) {
         List<Volume> volumeList = new ArrayList<>();
 
+        volumeList.add(VolumeUtils.createServiceAccountVolume());
         volumeList.add(VolumeUtils.createTempDirVolume(templatePod));
         volumeList.add(VolumeUtils.createConfigMapVolume(LOG_AND_METRICS_CONFIG_VOLUME_NAME, node.podName()));
         volumeList.add(VolumeUtils.createEmptyDirVolume("ready-files", "1Ki", "Memory"));
+
+        if (securityContext.authentication() instanceof ServiceAccountAuthenticationConfiguration saAuthentication)   {
+            volumeList.add(VolumeUtils.createStrimziAuthenticationTokenProjection(saAuthentication.audience(), saAuthentication.expirationSeconds()));
+        }
 
         // Some volumes are used only on nodes with broker role and are not needed on controller-only nodes
         if (node.broker()) {
@@ -1452,6 +1519,7 @@ public class KafkaCluster extends AbstractModel implements SupportsMetrics, Supp
         }
 
         TemplateUtils.addAdditionalVolumes(templatePod, volumeList);
+        TemplateUtils.addAdditionalTemplatedVolumes(node, templatePod, volumeList);
 
         return volumeList;
     }
@@ -1466,7 +1534,7 @@ public class KafkaCluster extends AbstractModel implements SupportsMetrics, Supp
      *
      * @return              List of volumes to be included in the StrimziPodSet pod
      */
-    private List<Volume> getPodSetVolumes(NodeRef node, Storage storage, PodTemplate templatePod) {
+    private List<Volume> getPodSetVolumes(NodeRef node, Storage storage, StatefulPodTemplate templatePod) {
         List<Volume> volumeList = new ArrayList<>();
 
         volumeList.addAll(VolumeUtils.createPodSetVolumes(node.podName(), storage, false));
@@ -1486,9 +1554,14 @@ public class KafkaCluster extends AbstractModel implements SupportsMetrics, Supp
      */
     private List<VolumeMount> getVolumeMounts(Storage storage, ContainerTemplate containerTemplate, boolean isBroker) {
         List<VolumeMount> volumeMountList = new ArrayList<>(VolumeUtils.createVolumeMounts(storage, false));
+        volumeMountList.add(VolumeUtils.createServiceAccountVolumeMount());
         volumeMountList.add(VolumeUtils.createTempDirVolumeMount());
         volumeMountList.add(VolumeUtils.createVolumeMount(LOG_AND_METRICS_CONFIG_VOLUME_NAME, LOG_AND_METRICS_CONFIG_VOLUME_MOUNT));
         volumeMountList.add(VolumeUtils.createVolumeMount("ready-files", "/var/opt/kafka"));
+
+        if (securityContext.authentication() instanceof ServiceAccountAuthenticationConfiguration)   {
+            volumeMountList.add(VolumeUtils.createStrimziAuthenticationTokenVolumeMount());
+        }
 
         // Some volumes are used only on nodes with broker role and are not needed on controller-only nodes
         if (isBroker)   {
@@ -1505,6 +1578,7 @@ public class KafkaCluster extends AbstractModel implements SupportsMetrics, Supp
 
     private List<VolumeMount> getInitContainerVolumeMounts(KafkaPool pool) {
         List<VolumeMount> volumeMountList = new ArrayList<>();
+        volumeMountList.add(VolumeUtils.createServiceAccountVolumeMount());
         volumeMountList.add(VolumeUtils.createVolumeMount(INIT_VOLUME_NAME, INIT_VOLUME_MOUNT));
         TemplateUtils.addAdditionalVolumeMounts(volumeMountList, pool.templateInitContainer);
         return volumeMountList;
@@ -1787,17 +1861,19 @@ public class KafkaCluster extends AbstractModel implements SupportsMetrics, Supp
      * @param nodeId              ID of the broker for which is this configuration generated
      * @param advertisedHostnames Map with advertised hostnames for different listeners
      * @param advertisedPorts     Map with advertised ports for different listeners
+     * @param cordoned            Whether the broker should be cordoned
      *
      * @return The Kafka broker configuration as a String
      */
-    public String generatePerBrokerConfiguration(int nodeId, Map<Integer, Map<String, String>> advertisedHostnames, Map<Integer, Map<String, String>> advertisedPorts)   {
+    public String generatePerBrokerConfiguration(int nodeId, Map<Integer, Map<String, String>> advertisedHostnames, Map<Integer, Map<String, String>> advertisedPorts, boolean cordoned)   {
         KafkaPool pool = nodePoolForNodeId(nodeId);
 
         return generatePerBrokerConfiguration(
                 pool.nodeRef(nodeId),
                 pool,
                 advertisedHostnames,
-                advertisedPorts
+                advertisedPorts,
+                cordoned
         );
     }
 
@@ -1808,14 +1884,16 @@ public class KafkaCluster extends AbstractModel implements SupportsMetrics, Supp
      * @param pool                  Pool to which this node belongs - this is used to get pool-specific settings such as storage
      * @param advertisedHostnames   Map with advertised hostnames
      * @param advertisedPorts       Map with advertised ports
+     * @param cordoned              Whether the broker should be cordoned
      *
      * @return  String with the Kafka broker configuration
      */
-    private String generatePerBrokerConfiguration(NodeRef node, KafkaPool pool, Map<Integer, Map<String, String>> advertisedHostnames, Map<Integer, Map<String, String>> advertisedPorts)   {
-        return new KafkaBrokerConfigurationBuilder(reconciliation, node)
+    private String generatePerBrokerConfiguration(NodeRef node, KafkaPool pool, Map<Integer, Map<String, String>> advertisedHostnames, Map<Integer, Map<String, String>> advertisedPorts, boolean cordoned)   {
+        return new KafkaBrokerConfigurationBuilder(reconciliation, node, securityContext)
                 .withRackId(rack)
                 .withKRaft(cluster, namespace, nodes())
                 .withKRaftMetadataLogDir(VolumeUtils.kraftMetadataPath(pool.storage))
+                .withCordonedLogDirs(cordoned, kafkaVersion)
                 .withLogDirs(VolumeUtils.createVolumeMounts(pool.storage, false))
                 .withListeners(cluster,
                         namespace,
@@ -1837,16 +1915,30 @@ public class KafkaCluster extends AbstractModel implements SupportsMetrics, Supp
     }
 
     /**
+     * Internal method used to generate a Kafka agent configuration for given Kafka node.
+     *
+     * @param node  Node reference with Node ID and pod name
+     *
+     * @return  String with the Kafka agent configuration
+     */
+    private String generateAgentConfiguration(NodeRef node)   {
+        return new KafkaAgentConfigurationBuilder(reconciliation, node)
+                .withSecurity(securityContext)
+                .build();
+    }
+
+    /**
      * Generates a list of configuration ConfigMaps - one for each broker in the cluster. The ConfigMaps contain the
      * configurations which should be used by given broker. This is used with StrimziPodSets.
      *
-     * @param metricsAndLogging   Object with logging and metrics configuration collected from external user-provided config maps
-     * @param advertisedHostnames Map with advertised hostnames for different brokers and listeners
-     * @param advertisedPorts     Map with advertised ports for different brokers and listeners
+     * @param metricsAndLogging         Object with logging and metrics configuration collected from external user-provided config maps
+     * @param advertisedHostnames       Map with advertised hostnames for different brokers and listeners
+     * @param advertisedPorts           Map with advertised ports for different brokers and listeners
+     * @param scalingDownBlockedNodes   Set of node IDs that are blocked from scaling down and should be cordoned
      *
      * @return ConfigMap with the shared configuration.
      */
-    public List<ConfigMap> generatePerBrokerConfigurationConfigMaps(MetricsAndLogging metricsAndLogging, Map<Integer, Map<String, String>> advertisedHostnames, Map<Integer, Map<String, String>> advertisedPorts)   {
+    public List<ConfigMap> generatePerBrokerConfigurationConfigMaps(MetricsAndLogging metricsAndLogging, Map<Integer, Map<String, String>> advertisedHostnames, Map<Integer, Map<String, String>> advertisedPorts, Set<Integer> scalingDownBlockedNodes)   {
         String parsedMetrics = null;
         if (metrics instanceof JmxPrometheusExporterModel exporter) {
             parsedMetrics = exporter.metricsJson(reconciliation, metricsAndLogging.metricsCm());
@@ -1863,7 +1955,8 @@ public class KafkaCluster extends AbstractModel implements SupportsMetrics, Supp
                 }
 
                 data.put(LoggingModel.LOG4J2_CONFIG_MAP_KEY, parsedLogging);
-                data.put(BROKER_CONFIGURATION_FILENAME, generatePerBrokerConfiguration(node, pool, advertisedHostnames, advertisedPorts));
+                data.put(BROKER_CONFIGURATION_FILENAME, generatePerBrokerConfiguration(node, pool, advertisedHostnames, advertisedPorts, scalingDownBlockedNodes.contains(node.nodeId())));
+                data.put(AGENT_CONFIGURATION_FILENAME, generateAgentConfiguration(node));
                 data.put(BROKER_CLUSTER_ID_FILENAME, clusterId);
                 data.put(BROKER_METADATA_VERSION_FILENAME, metadataVersion);
 
@@ -1873,6 +1966,27 @@ public class KafkaCluster extends AbstractModel implements SupportsMetrics, Supp
         }
 
         return configMaps;
+    }
+
+    /**
+     * Generates the Kubernetes service account used for Service-account-based authentication on internal Kafka interfaces.
+     * When the Service-account-based authentication is not used, returns null to make sure the Service Account does not
+     * exist.
+     *
+     * @return The service account (or null when service-account-based authentication is not used).
+     */
+    public ServiceAccount generateClusterOperatorServiceAccount() {
+        if (securityContext.authentication() instanceof ServiceAccountAuthenticationConfiguration) {
+            return ServiceAccountUtils.createServiceAccount(
+                    KafkaResources.clusterOperatorServiceAccount(cluster),
+                    namespace,
+                    labels,
+                    ownerReference,
+                    null
+            );
+        } else {
+            return null;
+        }
     }
 
     /**
@@ -1985,6 +2099,15 @@ public class KafkaCluster extends AbstractModel implements SupportsMetrics, Supp
         }
 
         return consolidatedWarningConditions;
+    }
+
+    /**
+     * Returns the security context of this Kafka cluster
+     *
+     * @return  Kafka cluster security context
+     */
+    public KafkaClusterSecurityContext securityContext() {
+        return securityContext;
     }
 
     /**

@@ -34,36 +34,36 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Java and Maven
-        uses: strimzi/github-actions/.github/actions/dependencies/setup-java@v1
+        uses: strimzi/github-actions/.github/actions/dependencies/setup-java@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
         with:
           javaVersion: "21"
 
       - name: Install yq
-        uses: strimzi/github-actions/.github/actions/dependencies/install-yq@v1
+        uses: strimzi/github-actions/.github/actions/dependencies/install-yq@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
         with:
           version: "v4.6.3"
 
       - name: Install Helm
-        uses: strimzi/github-actions/.github/actions/dependencies/install-helm@v1
+        uses: strimzi/github-actions/.github/actions/dependencies/install-helm@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
         with:
           helmVersion: "v3.16.0"
 
       - name: Install AsciiDoctor
-        uses: strimzi/github-actions/.github/actions/dependencies/install-ascii-doctor@v1
+        uses: strimzi/github-actions/.github/actions/dependencies/install-ascii-doctor@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
         with:
           rubyVersion: "3.2"
 
       - name: Prepare release artifacts
-        uses: strimzi/github-actions/.github/actions/build/release-artifacts@v1
+        uses: strimzi/github-actions/.github/actions/build/release-artifacts@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
         with:
           releaseVersion: ${{ inputs.releaseVersion }}
           artifactSuffix: "operators"
 
       - name: Deploy to Maven Central
-        uses: strimzi/github-actions/.github/actions/build/deploy-java@v1
+        uses: strimzi/github-actions/.github/actions/build/deploy-java@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
         with:
           modules: "./,crd-annotations,crd-generator,test,api"
           gpgPassphrase: ${{ secrets.GPG_PASSPHRASE }}
@@ -86,13 +86,13 @@ jobs:
     permissions:
       packages: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup ORAS
-        uses: oras-project/setup-oras@v1
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
 
       - name: Download strimzi binaries from source build
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: binaries-operators.tar
           run-id: ${{ inputs.sourceBuildRunId }}
@@ -117,27 +117,31 @@ jobs:
     if: ${{ startsWith(github.ref, 'refs/heads/release-') && inputs.useSuffix == true }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    outputs:
+      images: ${{ steps.push-containers.outputs.images }}
+      sbomsArtifact: ${{ steps.push-containers.outputs.sbomsArtifact }}
     permissions:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Docker
-        uses: strimzi/github-actions/.github/actions/dependencies/install-docker@v1
+        uses: strimzi/github-actions/.github/actions/dependencies/install-docker@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
 
       - name: Install yq
-        uses: strimzi/github-actions/.github/actions/dependencies/install-yq@v1
+        uses: strimzi/github-actions/.github/actions/dependencies/install-yq@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
         with:
           version: "v4.6.3"
 
       - name: Install Syft
-        uses: strimzi/github-actions/.github/actions/dependencies/install-syft@v1
+        uses: strimzi/github-actions/.github/actions/dependencies/install-syft@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
         with:
           version: "1.20.0"
 
       - name: Push containers using push-containers action
-        uses: strimzi/github-actions/.github/actions/build/push-containers@v1
+        id: push-containers
+        uses: strimzi/github-actions/.github/actions/build/push-containers@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
         with:
           registryUser: ${{ secrets.QUAY_USER }}
           registryPassword: ${{ secrets.QUAY_PASS }}
@@ -147,6 +151,20 @@ jobs:
           architectures: "amd64,arm64,ppc64le,s390x"
           artifactSuffix: "operators"
           buildRunId: ${{ inputs.sourceBuildRunId }}
+
+  # Attest containers with suffix
+  attest-with-suffix:
+    name: Attestation (with suffix)
+    needs:
+      - push-containers-with-suffix
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: strimzi/github-actions/.github/workflows/reusable-attest.yml@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
+    with:
+      containerImages: ${{ needs.push-containers-with-suffix.outputs.images }}
+      sbomsArtifact: ${{ needs.push-containers-with-suffix.outputs.sbomsArtifact }}
 
   # Push containers without suffix (e.g., 0.49.0)
   push-containers:
@@ -165,27 +183,31 @@ jobs:
       }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    outputs:
+      images: ${{ steps.push-containers.outputs.images }}
+      sbomsArtifact: ${{ steps.push-containers.outputs.sbomsArtifact }}
     permissions:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Docker
-        uses: strimzi/github-actions/.github/actions/dependencies/install-docker@v1
+        uses: strimzi/github-actions/.github/actions/dependencies/install-docker@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
 
       - name: Install yq
-        uses: strimzi/github-actions/.github/actions/dependencies/install-yq@v1
+        uses: strimzi/github-actions/.github/actions/dependencies/install-yq@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
         with:
           version: "v4.6.3"
 
       - name: Install Syft
-        uses: strimzi/github-actions/.github/actions/dependencies/install-syft@v1
+        uses: strimzi/github-actions/.github/actions/dependencies/install-syft@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
         with:
           version: "1.20.0"
 
       - name: Push containers using push-containers action
-        uses: strimzi/github-actions/.github/actions/build/push-containers@v1
+        id: push-containers
+        uses: strimzi/github-actions/.github/actions/build/push-containers@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
         with:
           registryUser: ${{ secrets.QUAY_USER }}
           registryPassword: ${{ secrets.QUAY_PASS }}
@@ -204,21 +226,24 @@ jobs:
       - push-java-artifacts-to-ghcr
       - push-containers
     if: |-
-      ${{ always() && startsWith(github.ref, 'refs/heads/release-') && 
+      ${{ always() && startsWith(github.ref, 'refs/heads/release-') &&
         needs.push-containers.result == 'success'
       }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      image: ${{ steps.publish-helm-chart.outputs.image }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Helm
-        uses: strimzi/github-actions/.github/actions/dependencies/install-helm@v1
+        uses: strimzi/github-actions/.github/actions/dependencies/install-helm@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
         with:
           helmVersion: "v3.16.0"
 
       - name: Publish Helm charts using publish-helm action
-        uses: strimzi/github-actions/.github/actions/build/publish-helm-chart@v1
+        id: publish-helm-chart
+        uses: strimzi/github-actions/.github/actions/build/publish-helm-chart@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
         with:
           registryUser: ${{ secrets.QUAY_HELM_USER }}
           registryPassword: ${{ secrets.QUAY_HELM_PASS }}
@@ -227,3 +252,60 @@ jobs:
           helmChartName: "strimzi-kafka-operator-helm-3-chart"
           releaseVersion: ${{ inputs.releaseVersion }}
           artifactSuffix: "operators"
+
+  # Attest release archives, Helm chart, and container images
+  attest:
+    name: Attestation
+    needs:
+      - push-containers
+      - prepare-release-artifacts
+      - publish-helm-chart
+    if: |-
+      ${{ always() && startsWith(github.ref, 'refs/heads/release-') &&
+        needs.push-containers.result == 'success'
+      }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: strimzi/github-actions/.github/workflows/reusable-attest.yml@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
+    with:
+      containerImages: ${{ needs.push-containers.outputs.images }}
+      sbomsArtifact: ${{ needs.push-containers.outputs.sbomsArtifact }}
+      artifactSuffix: "operators"
+      releaseVersion: ${{ inputs.releaseVersion }}
+      helmChartName: "strimzi-kafka-operator-helm-3-chart"
+      helmChartImage: ${{ needs.publish-helm-chart.outputs.image }}
+
+  # Run Snyk security scans on Maven dependencies and container images
+  snyk-scan:
+    name: Snyk Scan
+    needs:
+      - prepare-release-artifacts
+    if: ${{ startsWith(github.ref, 'refs/heads/release-') }}
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    uses: ./.github/workflows/snyk.yml
+    with:
+      releaseVersion: ${{ inputs.releaseVersion }}
+      sourceBuildRunId: ${{ inputs.sourceBuildRunId }}
+    secrets:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+  # Run FOSSA scans on Maven dependencies and container images
+  fossa-scan:
+    name: FOSSA Scan
+    needs:
+      - prepare-release-artifacts
+    if: ${{ startsWith(github.ref, 'refs/heads/release-') }}
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/fossa.yml
+    with:
+      releaseVersion: ${{ inputs.releaseVersion }}
+      sourceBuildRunId: ${{ inputs.sourceBuildRunId }}
+    secrets:
+      FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}

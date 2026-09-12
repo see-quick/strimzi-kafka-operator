@@ -1,0 +1,60 @@
+name: "Unit Test Strimzi"
+description: "Runs Strimzi unit tests with Maven (Surefire only, no Kind cluster needed)"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Java and Maven
+      uses: strimzi/github-actions/.github/actions/dependencies/setup-java@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
+      with:
+        javaVersion: "21"
+
+    - name: Install Docker
+      uses: strimzi/github-actions/.github/actions/dependencies/install-docker@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
+
+    - name: Install yq
+      uses: strimzi/github-actions/.github/actions/dependencies/install-yq@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
+      with:
+        version: "v4.6.3"
+
+    - name: Install Helm
+      uses: strimzi/github-actions/.github/actions/dependencies/install-helm@52b17c19f3687e37b47c9c64696b96f28f53625b # v2.3
+      with:
+        helmVersion: "v3.16.0"
+
+    - name: Restore Maven cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.m2/repository
+        key: maven-${{ hashFiles('**/pom.xml') }}
+        restore-keys: |
+          maven-
+
+    - name: Run unit tests
+      shell: bash
+      run: |
+        mvn -e -V -B -Dmaven.javadoc.skip=true \
+          -DskipITs \
+          -Dsurefire.rerunFailingTestsCount=5 \
+          install
+      env:
+        TESTCONTAINERS_RYUK_DISABLED: true
+        TESTCONTAINERS_CHECKS_DISABLE: true
+        STRIMZI_TEST_CONTAINER_LOGGING_ENABLED: false
+
+    - name: Publish test results
+      uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+      if: always()
+      with:
+        name: 'Unit Tests'
+        path: '**/TEST-*.xml'
+        reporter: java-junit
+        fail-on-error: false
+
+    - name: Upload test coverage to Codecov
+      uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+      with:
+        files: ./**/target/site/jacoco/jacoco.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false

@@ -22,26 +22,27 @@ import io.strimzi.api.kafka.model.kafka.listener.NodeAddressType;
 import io.strimzi.api.kafka.model.nodepool.KafkaNodePool;
 import io.strimzi.api.kafka.model.nodepool.KafkaNodePoolBuilder;
 import io.strimzi.api.kafka.model.nodepool.ProcessRoles;
-import io.strimzi.certs.OpenSslCertManager;
+import io.strimzi.certs.OpenSslCertIssuer;
 import io.strimzi.operator.cluster.ClusterOperatorConfig;
 import io.strimzi.operator.cluster.KafkaVersionTestUtils;
 import io.strimzi.operator.cluster.PlatformFeaturesAvailability;
 import io.strimzi.operator.cluster.ResourceUtils;
 import io.strimzi.operator.cluster.model.AbstractModel;
-import io.strimzi.operator.cluster.model.ClusterCa;
 import io.strimzi.operator.cluster.model.KafkaCluster;
 import io.strimzi.operator.cluster.model.KafkaVersion;
+import io.strimzi.operator.cluster.model.clustersecurity.kafka.KafkaClusterSecurityContext;
 import io.strimzi.operator.cluster.operator.resource.ResourceOperatorSupplier;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.NodeOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.PodOperator;
 import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.ReconciliationLogger;
-import io.strimzi.operator.common.auth.TlsPemIdentity;
-import io.strimzi.operator.common.model.CaConfig;
-import io.strimzi.operator.common.model.ClientsCa;
+import io.strimzi.operator.common.auth.Identity;
+import io.strimzi.operator.common.ca.Ca;
+import io.strimzi.operator.common.ca.CaConfig;
+import io.strimzi.operator.common.ca.InternalCa;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.model.PasswordGenerator;
-import io.strimzi.operator.common.operator.MockCertManager;
+import io.strimzi.operator.common.operator.MockCertIssuer;
 import io.strimzi.platform.KubernetesVersion;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -58,6 +59,8 @@ import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.is;
@@ -75,19 +78,22 @@ public class KafkaReconcilerStatusTest {
     private final static KafkaVersion.Lookup VERSIONS = KafkaVersionTestUtils.getKafkaVersionLookup();
     private final static PlatformFeaturesAvailability PFA = new PlatformFeaturesAvailability(true, KubernetesVersion.MINIMAL_SUPPORTED_VERSION);
     private final static ClusterOperatorConfig CO_CONFIG = ResourceUtils.dummyClusterOperatorConfig();
-    private final static ClusterCa CLUSTER_CA = new ClusterCa(
+    private final static InternalCa CLUSTER_CA = new InternalCa(
             Reconciliation.DUMMY_RECONCILIATION,
-            new OpenSslCertManager(),
+            Ca.CaRole.CLUSTER_CA,
+            new OpenSslCertIssuer(),
             new PasswordGenerator(10, "a", "a"),
-            ResourceUtils.createInitialCaCertSecret(NAMESPACE, CLUSTER_NAME, AbstractModel.clusterCaCertSecretName(CLUSTER_NAME), MockCertManager.clusterCaCert(), MockCertManager.clusterCaCertStore(), "123456"),
-            ResourceUtils.createInitialCaKeySecret(NAMESPACE, CLUSTER_NAME, AbstractModel.clusterCaKeySecretName(CLUSTER_NAME), MockCertManager.clusterCaKey())
+            ResourceUtils.createInitialCaCertSecret(NAMESPACE, CLUSTER_NAME, AbstractModel.clusterCaCertSecretName(CLUSTER_NAME), MockCertIssuer.clusterCaCert(), MockCertIssuer.clusterCaCertStore(), "123456"),
+            ResourceUtils.createInitialCaKeySecret(NAMESPACE, CLUSTER_NAME, AbstractModel.clusterCaKeySecretName(CLUSTER_NAME), MockCertIssuer.clusterCaKey()),
+            CaConfig.createDefault()
     );
-    private final static ClientsCa CLIENTS_CA = new ClientsCa(
+    private final static InternalCa CLIENTS_CA = new InternalCa(
             Reconciliation.DUMMY_RECONCILIATION,
-            new OpenSslCertManager(),
+            Ca.CaRole.CLIENTS_CA,
+            new OpenSslCertIssuer(),
             new PasswordGenerator(10, "a", "a"),
-            ResourceUtils.createInitialCaCertSecret(NAMESPACE, CLUSTER_NAME, AbstractModel.clusterCaCertSecretName(CLUSTER_NAME), MockCertManager.clusterCaCert(), MockCertManager.clusterCaCertStore(), "123456"),
-            ResourceUtils.createInitialCaKeySecret(NAMESPACE, CLUSTER_NAME, AbstractModel.clusterCaKeySecretName(CLUSTER_NAME), MockCertManager.clusterCaKey()),
+            ResourceUtils.createInitialCaCertSecret(NAMESPACE, CLUSTER_NAME, AbstractModel.clusterCaCertSecretName(CLUSTER_NAME), MockCertIssuer.clusterCaCert(), MockCertIssuer.clusterCaCertStore(), "123456"),
+            ResourceUtils.createInitialCaKeySecret(NAMESPACE, CLUSTER_NAME, AbstractModel.clusterCaKeySecretName(CLUSTER_NAME), MockCertIssuer.clusterCaKey()),
             CaConfig.createDefault()
     );
     private final static Kafka KAFKA = new KafkaBuilder()
@@ -359,7 +365,7 @@ public class KafkaReconcilerStatusTest {
         pods.add(pod2);
 
         PodOperator mockPodOps = supplier.podOperations;
-        when(mockPodOps.listAsync(eq(NAMESPACE), any(Labels.class))).thenReturn(Future.succeededFuture(pods));
+        when(mockPodOps.listAsync(eq(NAMESPACE), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(pods));
 
         // Mock Kubernetes worker nodes
         NodeOperator mockNodeOps = supplier.nodeOperator;
@@ -469,7 +475,7 @@ public class KafkaReconcilerStatusTest {
         pods.add(pod2);
 
         PodOperator mockPodOps = supplier.podOperations;
-        when(mockPodOps.listAsync(eq(NAMESPACE), any(Labels.class))).thenReturn(Future.succeededFuture(pods));
+        when(mockPodOps.listAsync(eq(NAMESPACE), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(pods));
 
         // Mock Kubernetes worker nodes
         NodeOperator mockNodeOps = supplier.nodeOperator;
@@ -569,7 +575,7 @@ public class KafkaReconcilerStatusTest {
         pods.add(pod2);
 
         PodOperator mockPodOps = supplier.podOperations;
-        when(mockPodOps.listAsync(eq(NAMESPACE), any(Labels.class))).thenReturn(Future.succeededFuture(pods));
+        when(mockPodOps.listAsync(eq(NAMESPACE), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(pods));
 
         // Mock Kubernetes worker nodes
         NodeOperator mockNodeOps = supplier.nodeOperator;
@@ -666,7 +672,7 @@ public class KafkaReconcilerStatusTest {
         pods.add(pod2);
 
         PodOperator mockPodOps = supplier.podOperations;
-        when(mockPodOps.listAsync(eq(NAMESPACE), any(Labels.class))).thenReturn(Future.succeededFuture(pods));
+        when(mockPodOps.listAsync(eq(NAMESPACE), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(pods));
 
         // Mock Kubernetes worker nodes
         NodeOperator mockNodeOps = supplier.nodeOperator;
@@ -757,7 +763,7 @@ public class KafkaReconcilerStatusTest {
         pods.add(pod2);
 
         PodOperator mockPodOps = supplier.podOperations;
-        when(mockPodOps.listAsync(eq(NAMESPACE), any(Labels.class))).thenReturn(Future.succeededFuture(pods));
+        when(mockPodOps.listAsync(eq(NAMESPACE), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(pods));
 
         // Mock Kubernetes worker nodes
         NodeOperator mockNodeOps = supplier.nodeOperator;
@@ -837,7 +843,7 @@ public class KafkaReconcilerStatusTest {
         pods.add(pod2);
 
         PodOperator mockPodOps = supplier.podOperations;
-        when(mockPodOps.listAsync(eq(NAMESPACE), any(Labels.class))).thenReturn(Future.succeededFuture(pods));
+        when(mockPodOps.listAsync(eq(NAMESPACE), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(pods));
 
         // Mock Kubernetes worker nodes
         NodeOperator mockNodeOps = supplier.nodeOperator;
@@ -910,18 +916,18 @@ public class KafkaReconcilerStatusTest {
                 .endStatus()
                 .build();
 
-        when(mockNodeOps.getAsync(eq("node-0"))).thenReturn(Future.succeededFuture(node0));
-        when(mockNodeOps.getAsync(eq("node-1"))).thenReturn(Future.succeededFuture(node1));
-        when(mockNodeOps.getAsync(eq("node-2"))).thenReturn(Future.succeededFuture(node2));
-        when(mockNodeOps.getAsync(eq("node-3"))).thenReturn(Future.succeededFuture(node3));
-        when(mockNodeOps.getAsync(eq("node-999"))).thenReturn(Future.succeededFuture(null)); // Node that does not exist
+        when(mockNodeOps.getAsync(eq("node-0"))).thenReturn(CompletableFuture.completedFuture(node0));
+        when(mockNodeOps.getAsync(eq("node-1"))).thenReturn(CompletableFuture.completedFuture(node1));
+        when(mockNodeOps.getAsync(eq("node-2"))).thenReturn(CompletableFuture.completedFuture(node2));
+        when(mockNodeOps.getAsync(eq("node-3"))).thenReturn(CompletableFuture.completedFuture(node3));
+        when(mockNodeOps.getAsync(eq("node-999"))).thenReturn(CompletableFuture.completedFuture(null)); // Node that does not exist
     }
 
     static class MockKafkaReconcilerStatusTasks extends KafkaReconciler {
         private static final ReconciliationLogger LOGGER = ReconciliationLogger.create(MockKafkaReconcilerStatusTasks.class.getName());
 
         public MockKafkaReconcilerStatusTasks(Reconciliation reconciliation, ResourceOperatorSupplier supplier, Kafka kafkaCr, List<KafkaNodePool> kafkaNodePools) {
-            super(reconciliation, kafkaCr, null, createKafkaCluster(reconciliation, supplier, kafkaCr, kafkaNodePools), CLUSTER_CA, CLIENTS_CA, CO_CONFIG, supplier, PFA, vertx);
+            super(reconciliation, kafkaCr, null, createKafkaCluster(reconciliation, supplier, kafkaCr, kafkaNodePools), CLUSTER_CA, CLIENTS_CA, CO_CONFIG, supplier, PFA, vertx, Set.of());
         }
 
         private static KafkaCluster createKafkaCluster(Reconciliation reconciliation, ResourceOperatorSupplier supplier, Kafka kafkaCr, List<KafkaNodePool> kafkaNodePools)   {
@@ -932,13 +938,14 @@ public class KafkaReconcilerStatusTest {
                     Map.of(),
                     KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE,
                     VERSIONS,
-                    supplier.sharedEnvironmentProvider);
+                    supplier.sharedEnvironmentProvider,
+                    KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
         }
 
         @Override
         public Future<Void> reconcile(KafkaStatus kafkaStatus, Clock clock)    {
             return modelWarnings(kafkaStatus)
-                    .compose(i -> initClientAuthenticationCertificates())
+                    .compose(i -> initClusterOperatorIdentity())
                     .compose(i -> listeners())
                     .compose(i -> clusterId(kafkaStatus))
                     .compose(i -> nodePortExternalListenerStatus())
@@ -959,8 +966,8 @@ public class KafkaReconcilerStatusTest {
         }
 
         @Override
-        protected Future<Void> initClientAuthenticationCertificates() {
-            coTlsPemIdentity = new TlsPemIdentity(null, null);
+        protected Future<Void> initClusterOperatorIdentity() {
+            coIdentity = new Identity(null, null);
             return Future.succeededFuture();
         }
     }
@@ -969,7 +976,7 @@ public class KafkaReconcilerStatusTest {
         private static final ReconciliationLogger LOGGER = ReconciliationLogger.create(MockKafkaReconcilerStatusTasks.class.getName());
 
         public MockKafkaReconcilerFailsWithVersionUpdate(Reconciliation reconciliation, ResourceOperatorSupplier supplier, Kafka kafkaCr, List<KafkaNodePool> kafkaNodePools) {
-            super(reconciliation, kafkaCr, kafkaNodePools, createKafkaCluster(reconciliation, supplier, kafkaCr, kafkaNodePools), CLUSTER_CA, CLIENTS_CA, CO_CONFIG, supplier, PFA, vertx);
+            super(reconciliation, kafkaCr, kafkaNodePools, createKafkaCluster(reconciliation, supplier, kafkaCr, kafkaNodePools), CLUSTER_CA, CLIENTS_CA, CO_CONFIG, supplier, PFA, vertx, Set.of());
         }
 
         private static KafkaCluster createKafkaCluster(Reconciliation reconciliation, ResourceOperatorSupplier supplier, Kafka kafkaCr, List<KafkaNodePool> kafkaNodePools)   {
@@ -980,7 +987,8 @@ public class KafkaReconcilerStatusTest {
                     Map.of(),
                     KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE,
                     VERSIONS,
-                    supplier.sharedEnvironmentProvider);
+                    supplier.sharedEnvironmentProvider,
+                    KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
         }
 
         @Override

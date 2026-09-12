@@ -8,6 +8,7 @@ import io.strimzi.operator.common.config.ConfigParameter;
 import io.strimzi.operator.common.featuregates.FeatureGates;
 import io.strimzi.operator.common.model.Labels;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -17,6 +18,7 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 import static io.strimzi.operator.common.config.ConfigParameterParser.BOOLEAN;
+import static io.strimzi.operator.common.config.ConfigParameterParser.COMMA_SEPARATED_LIST;
 import static io.strimzi.operator.common.config.ConfigParameterParser.INTEGER;
 import static io.strimzi.operator.common.config.ConfigParameterParser.LABEL_PREDICATE;
 import static io.strimzi.operator.common.config.ConfigParameterParser.LONG;
@@ -32,6 +34,14 @@ import static io.strimzi.operator.common.config.ConfigParameterParser.strictlyPo
  * Cluster Operator configuration
  */
 public class UserOperatorConfig {
+    /**
+     * List of mandatory Gatekeeper plugins that are not user-configurable but are hardcoded by Strimzi
+     */
+    private static final List<String> MANDATORY_GATEKEEPER_PLUGINS = List.of();
+    /**
+     * List of default Gatekeeper plugins that are used by default, but users can change / reconfigure them.
+     */
+    private static final List<String> DEFAULT_GATEKEEPER_PLUGINS = List.of();
 
     private static final Map<String, ConfigParameter<?>> CONFIG_VALUES = new HashMap<>();
 
@@ -67,6 +77,10 @@ public class UserOperatorConfig {
      * The name of the secret containing the clients Certification Authority key.
      */
     public static final ConfigParameter<String> CA_KEY_SECRET_NAME = new ConfigParameter<>("STRIMZI_CA_KEY_NAME", NON_EMPTY_STRING, CONFIG_VALUES);
+    /**
+     * The path to where the projected Service Account token is mounted.
+     */
+    public static final ConfigParameter<String> SERVICE_ACCOUNT_TOKEN_PATH = new ConfigParameter<>("STRIMZI_SERVICE_ACCOUNT_TOKEN_PATH", STRING, null, CONFIG_VALUES);
     /**
      * Map with labels which should be used to find the KafkaUser resources.
      */
@@ -151,6 +165,14 @@ public class UserOperatorConfig {
      * Set true to generate PKCS12 stores in CA and User secrets
      */
     public static final ConfigParameter<Boolean> PKCS12_KEYSTORE_GENERATION = new ConfigParameter<>("STRIMZI_PKCS12_KEYSTORE_GENERATION", BOOLEAN, "true", CONFIG_VALUES);
+    /**
+     * Comma-separated list of custom Gatekeeper plugins that should be enabled
+     */
+    public static final ConfigParameter<List<String>> GATEKEEPER_CUSTOM_PLUGINS = new ConfigParameter<>("STRIMZI_GATEKEEPER_CUSTOM_PLUGINS", COMMA_SEPARATED_LIST, "", CONFIG_VALUES);
+    /**
+     * Comma-separated list of default Gatekeeper plugins. If not set, the default list of default plugins is used.
+     */
+    public static final ConfigParameter<List<String>> GATEKEEPER_DEFAULT_PLUGINS = new ConfigParameter<>("STRIMZI_GATEKEEPER_DEFAULT_PLUGINS", COMMA_SEPARATED_LIST, "", CONFIG_VALUES);
 
     private final Map<String, Object> map;
 
@@ -316,6 +338,15 @@ public class UserOperatorConfig {
      */
     public String getEuoCertName() {
         return get(EO_CERT_NAME);
+    }
+
+    /**
+     * Gets the path of the Service Account token
+     *
+     * @return The path of the Service Account token
+     */
+    public String getServiceAccountTokenPath() {
+        return get(SERVICE_ACCOUNT_TOKEN_PATH);
     }
 
     /**
@@ -502,6 +533,52 @@ public class UserOperatorConfig {
         return get(PKCS12_KEYSTORE_GENERATION);
     }
 
+    /**
+     * Gets the list of custom Gatekeeper plugins.
+     *
+     * @return List of custom Gatekeeper plugins
+     */
+    public List<String> getGatekeeperCustomPlugins() {
+        return get(GATEKEEPER_CUSTOM_PLUGINS);
+    }
+
+    /**
+     * Gets the list of default Gatekeeper plugins.
+     *
+     * @return List of default Gatekeeper plugins
+     */
+    public List<String> getGatekeeperDefaultPlugins() {
+        return get(GATEKEEPER_DEFAULT_PLUGINS);
+    }
+
+    /**
+     * Gets the full list of the Gatekeeper plugins that should be used. This is constructed from the partial lists:
+     *   - Custom
+     *   - Default
+     *   - Mandatory
+     *
+     * @return  List of all Gatekeeper plugins that should be used
+     */
+    public List<String> getGatekeeperPlugins() {
+        List<String> plugins = new ArrayList<>();
+
+        List<String> customPlugins = get(GATEKEEPER_CUSTOM_PLUGINS);
+        if (customPlugins != null) {
+            plugins.addAll(customPlugins);
+        }
+
+        List<String> defaultPlugins = get(GATEKEEPER_DEFAULT_PLUGINS);
+        if (defaultPlugins != null) {
+            plugins.addAll(defaultPlugins);
+        } else {
+            plugins.addAll(DEFAULT_GATEKEEPER_PLUGINS);
+        }
+
+        plugins.addAll(MANDATORY_GATEKEEPER_PLUGINS);
+
+        return plugins;
+    }
+
     @Override
     public String toString() {
         return "UserOperatorBuilderConfig{" +
@@ -515,6 +592,7 @@ public class UserOperatorConfig {
                 "\n\teuoKeySecretName='" + getEuoKeySecretName() + '\'' +
                 "\n\teuoCertName='" + getEuoCertName() + '\'' +
                 "\n\teuoKeyName='" + getEuoKeyName() + '\'' +
+                "\n\tserviceAccountTokenPath='" + getServiceAccountTokenPath() + '\'' +
                 "\n\tcaNamespace='" + getCaNamespaceOrNamespace() + '\'' +
                 "\n\tsecretPrefix='" + getSecretPrefix() + '\'' +
                 "\n\tclientsCaValidityDays=" + getClientsCaValidityDays() +
@@ -534,6 +612,9 @@ public class UserOperatorConfig {
                 "\n\tfeatureGates='" + featureGates() + "'" +
                 "\n\tignoredUsersPattern='" + (ignoredUsersPattern() != null ? ignoredUsersPattern().pattern() : null) + "'" +
                 "\n\tisPkcs12KeystoreGeneration='" + isPkcs12KeystoreGeneration() + "'" +
+                "\n\tgatekeeperCustomPlugins='" + getGatekeeperCustomPlugins() + "'" +
+                "\n\tgatekeeperDefaultPlugins='" + getGatekeeperDefaultPlugins() + "'" +
+                "\n\tgatekeeperPlugins='" + getGatekeeperPlugins() + "'" +
                 '}';
     }
 }

@@ -27,13 +27,12 @@ import io.strimzi.api.kafka.model.nodepool.KafkaNodePoolBuilder;
 import io.strimzi.api.kafka.model.nodepool.KafkaNodePoolList;
 import io.strimzi.api.kafka.model.nodepool.ProcessRoles;
 import io.strimzi.api.kafka.model.podset.StrimziPodSet;
-import io.strimzi.certs.CertManager;
+import io.strimzi.certs.CertIssuer;
 import io.strimzi.operator.cluster.ClusterOperatorConfig;
 import io.strimzi.operator.cluster.KafkaVersionTestUtils;
 import io.strimzi.operator.cluster.PlatformFeaturesAvailability;
 import io.strimzi.operator.cluster.ResourceUtils;
 import io.strimzi.operator.cluster.model.AbstractModel;
-import io.strimzi.operator.cluster.model.ClusterCa;
 import io.strimzi.operator.cluster.model.KafkaCluster;
 import io.strimzi.operator.cluster.model.KafkaPool;
 import io.strimzi.operator.cluster.model.KafkaVersion;
@@ -44,23 +43,25 @@ import io.strimzi.operator.cluster.model.PodSetUtils;
 import io.strimzi.operator.cluster.model.RestartReason;
 import io.strimzi.operator.cluster.model.RestartReasons;
 import io.strimzi.operator.cluster.model.SharedEnvironmentProvider;
+import io.strimzi.operator.cluster.model.clustersecurity.kafka.KafkaClusterSecurityContext;
 import io.strimzi.operator.cluster.model.nodepools.NodePoolUtils;
 import io.strimzi.operator.cluster.operator.resource.ResourceOperatorSupplier;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.ConfigMapOperator;
-import io.strimzi.operator.cluster.operator.resource.kubernetes.CrdOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.PodOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.PvcOperator;
-import io.strimzi.operator.cluster.operator.resource.kubernetes.SecretOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.StrimziPodSetOperator;
 import io.strimzi.operator.common.InvalidConfigurationException;
 import io.strimzi.operator.common.Reconciliation;
-import io.strimzi.operator.common.auth.TlsPemIdentity;
-import io.strimzi.operator.common.model.CaConfig;
-import io.strimzi.operator.common.model.ClientsCa;
+import io.strimzi.operator.common.auth.Identity;
+import io.strimzi.operator.common.ca.Ca;
+import io.strimzi.operator.common.ca.CaConfig;
+import io.strimzi.operator.common.ca.InternalCa;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.model.PasswordGenerator;
-import io.strimzi.operator.common.operator.MockCertManager;
+import io.strimzi.operator.common.operator.MockCertIssuer;
 import io.strimzi.operator.common.operator.resource.ReconcileResult;
+import io.strimzi.operator.common.operator.resource.kubernetes.CrdOperator;
+import io.strimzi.operator.common.operator.resource.kubernetes.SecretOperator;
 import io.strimzi.platform.KubernetesVersion;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -90,6 +91,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 
@@ -121,7 +123,7 @@ public class KafkaAssemblyOperatorWithKRaftTest {
     private static final SharedEnvironmentProvider SHARED_ENV_PROVIDER = new MockSharedEnvironmentProvider();
     private static final ClusterOperatorConfig CONFIG = ResourceUtils.dummyClusterOperatorConfig();
     private static final KubernetesVersion KUBERNETES_VERSION = KubernetesVersion.MINIMAL_SUPPORTED_VERSION;
-    private static final MockCertManager CERT_MANAGER = new MockCertManager();
+    private static final MockCertIssuer CERT_ISSUER = new MockCertIssuer();
     private static final PasswordGenerator PASSWORD_GENERATOR = new PasswordGenerator(10, "a", "a");
     private static final String NAMESPACE = "my-ns";
     private static final String CLUSTER_NAME = "my-cluster";
@@ -175,7 +177,7 @@ public class KafkaAssemblyOperatorWithKRaftTest {
             .endSpec()
             .build();
     private static final List<KafkaPool> POOLS = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, KAFKA, List.of(CONTROLLERS, BROKERS), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-    private static final KafkaCluster KAFKA_CLUSTER = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, KAFKA, POOLS, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+    private static final KafkaCluster KAFKA_CLUSTER = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, KAFKA, POOLS, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
 
     private static final Map<Integer, Map<String, String>> ADVERTISED_HOSTNAMES = Map.of(
             3, Map.of("PLAIN_9092", "broker-3"),
@@ -193,20 +195,23 @@ public class KafkaAssemblyOperatorWithKRaftTest {
             7, Map.of("PLAIN_9092", "10007")
     );
 
-    private final static ClusterCa CLUSTER_CA = new ClusterCa(
+    private final static InternalCa CLUSTER_CA = new InternalCa(
             Reconciliation.DUMMY_RECONCILIATION,
-            CERT_MANAGER,
+            Ca.CaRole.CLUSTER_CA,
+            CERT_ISSUER,
             PASSWORD_GENERATOR,
-            ResourceUtils.createInitialCaCertSecret(NAMESPACE, CLUSTER_NAME, AbstractModel.clusterCaCertSecretName(CLUSTER_NAME), MockCertManager.clusterCaCert(), MockCertManager.clusterCaCertStore(), "123456"),
-            ResourceUtils.createInitialCaKeySecret(NAMESPACE, CLUSTER_NAME, AbstractModel.clusterCaKeySecretName(CLUSTER_NAME), MockCertManager.clusterCaKey())
+            ResourceUtils.createInitialCaCertSecret(NAMESPACE, CLUSTER_NAME, AbstractModel.clusterCaCertSecretName(CLUSTER_NAME), MockCertIssuer.clusterCaCert(), MockCertIssuer.clusterCaCertStore(), "123456"),
+            ResourceUtils.createInitialCaKeySecret(NAMESPACE, CLUSTER_NAME, AbstractModel.clusterCaKeySecretName(CLUSTER_NAME), MockCertIssuer.clusterCaKey()),
+            CaConfig.createDefault()
     );
 
-    private final static ClientsCa CLIENTS_CA = new ClientsCa(
+    private final static InternalCa CLIENTS_CA = new InternalCa(
             Reconciliation.DUMMY_RECONCILIATION,
-            CERT_MANAGER,
+            Ca.CaRole.CLIENTS_CA,
+            CERT_ISSUER,
             PASSWORD_GENERATOR,
-            ResourceUtils.createInitialCaCertSecret(NAMESPACE, CLUSTER_NAME, AbstractModel.clusterCaCertSecretName(CLUSTER_NAME), MockCertManager.clusterCaCert(), MockCertManager.clusterCaCertStore(), "123456"),
-            ResourceUtils.createInitialCaKeySecret(NAMESPACE, CLUSTER_NAME, AbstractModel.clusterCaKeySecretName(CLUSTER_NAME), MockCertManager.clusterCaKey()),
+            ResourceUtils.createInitialCaCertSecret(NAMESPACE, CLUSTER_NAME, AbstractModel.clusterCaCertSecretName(CLUSTER_NAME), MockCertIssuer.clusterCaCert(), MockCertIssuer.clusterCaCertStore(), "123456"),
+            ResourceUtils.createInitialCaKeySecret(NAMESPACE, CLUSTER_NAME, AbstractModel.clusterCaKeySecretName(CLUSTER_NAME), MockCertIssuer.clusterCaKey()),
             CaConfig.createDefault()
     );
 
@@ -273,24 +278,24 @@ public class KafkaAssemblyOperatorWithKRaftTest {
         ResourceOperatorSupplier supplier = ResourceUtils.supplierWithMocks(false);
 
         SecretOperator secretOps = supplier.secretOperations;
-        when(secretOps.reconcile(any(), any(), any(), any())).thenReturn(Future.succeededFuture());
-        when(secretOps.listAsync(any(), any(Labels.class))).thenReturn(Future.succeededFuture(List.of()));
-        when(secretOps.getAsync(any(), any())).thenReturn(Future.succeededFuture());
+        when(secretOps.reconcile(any(), any(), any(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(secretOps.listAsync(any(), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(List.of()));
+        when(secretOps.getAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         ConfigMapOperator mockCmOps = supplier.configMapOperations;
-        when(mockCmOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(Future.succeededFuture(List.of()));
+        when(mockCmOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(List.of()));
         ArgumentCaptor<String> cmReconciliationCaptor = ArgumentCaptor.forClass(String.class);
-        when(mockCmOps.reconcile(any(), any(), cmReconciliationCaptor.capture(), any())).thenReturn(Future.succeededFuture());
+        when(mockCmOps.reconcile(any(), any(), cmReconciliationCaptor.capture(), any())).thenReturn(CompletableFuture.completedFuture(null));
         ArgumentCaptor<String> cmDeletionCaptor = ArgumentCaptor.forClass(String.class);
-        when(mockCmOps.deleteAsync(any(), any(), cmDeletionCaptor.capture(), anyBoolean())).thenReturn(Future.succeededFuture());
+        when(mockCmOps.deleteAsync(any(), any(), cmDeletionCaptor.capture(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(null));
 
         PvcOperator mockPvcOps = supplier.pvcOperations;
-        when(mockPvcOps.getAsync(any(), any())).thenReturn(Future.succeededFuture());
-        when(mockPvcOps.reconcile(any(), any(), any(), any())).thenReturn(Future.succeededFuture());
+        when(mockPvcOps.getAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(mockPvcOps.reconcile(any(), any(), any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         StrimziPodSetOperator mockPodSetOps = supplier.strimziPodSetOperator;
         // Kafka
-        when(mockPodSetOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(Future.succeededFuture(kafkaPodSets));
+        when(mockPodSetOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(kafkaPodSets));
         when(mockPodSetOps.batchReconcile(any(), any(), any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenAnswer(i -> {
             List<StrimziPodSet> podSets = i.getArgument(2);
             HashMap<String, ReconcileResult<StrimziPodSet>> result = new HashMap<>();
@@ -300,21 +305,21 @@ public class KafkaAssemblyOperatorWithKRaftTest {
                 result.put(podSet.getMetadata().getName(), patched == null ? ReconcileResult.created(podSet) : ReconcileResult.noop(patched));
             }
 
-            return Future.succeededFuture(result);
+            return CompletableFuture.completedFuture(result);
         });
 
         PodOperator mockPodOps = supplier.podOperations;
-        when(mockPodOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(Future.succeededFuture(Collections.emptyList()));
-        when(mockPodOps.listAsync(any(), any(Labels.class))).thenReturn(Future.succeededFuture(Collections.emptyList()));
-        when(mockPodOps.readiness(any(), any(), any(), anyLong(), anyLong())).thenReturn(Future.succeededFuture());
+        when(mockPodOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(Collections.emptyList()));
+        when(mockPodOps.listAsync(any(), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(Collections.emptyList()));
+        when(mockPodOps.readiness(any(), any(), any(), anyLong(), anyLong())).thenReturn(CompletableFuture.completedFuture(null));
 
         CrdOperator<KubernetesClient, Kafka, KafkaList> mockKafkaOps = supplier.kafkaOperator;
-        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq(CLUSTER_NAME))).thenReturn(Future.succeededFuture(KAFKA));
-        when(mockKafkaOps.updateStatusAsync(any(), any())).thenReturn(Future.succeededFuture());
+        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq(CLUSTER_NAME))).thenReturn(CompletableFuture.completedFuture(KAFKA));
+        when(mockKafkaOps.updateStatusAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         CrdOperator<KubernetesClient, KafkaNodePool, KafkaNodePoolList> mockKafkaNodePoolOps = supplier.kafkaNodePoolOperator;
         ArgumentCaptor<KafkaNodePool> kafkaNodePoolStatusCaptor = ArgumentCaptor.forClass(KafkaNodePool.class);
-        when(mockKafkaNodePoolOps.updateStatusAsync(any(), kafkaNodePoolStatusCaptor.capture())).thenReturn(Future.succeededFuture());
+        when(mockKafkaNodePoolOps.updateStatusAsync(any(), kafkaNodePoolStatusCaptor.capture())).thenReturn(CompletableFuture.completedFuture(null));
 
         MockKafkaReconciler kr = new MockKafkaReconciler(
                 new Reconciliation("test-trigger", Kafka.RESOURCE_KIND, NAMESPACE, CLUSTER_NAME),
@@ -330,7 +335,7 @@ public class KafkaAssemblyOperatorWithKRaftTest {
 
         MockKafkaAssemblyOperator kao = new MockKafkaAssemblyOperator(
                 vertx, new PlatformFeaturesAvailability(false, KUBERNETES_VERSION),
-                CERT_MANAGER,
+                CERT_ISSUER,
                 PASSWORD_GENERATOR,
                 supplier,
                 CONFIG,
@@ -382,24 +387,24 @@ public class KafkaAssemblyOperatorWithKRaftTest {
         ResourceOperatorSupplier supplier = ResourceUtils.supplierWithMocks(false);
 
         SecretOperator secretOps = supplier.secretOperations;
-        when(secretOps.reconcile(any(), any(), any(), any())).thenReturn(Future.succeededFuture());
-        when(secretOps.listAsync(any(), any(Labels.class))).thenReturn(Future.succeededFuture(List.of()));
-        when(secretOps.getAsync(any(), any())).thenReturn(Future.succeededFuture());
+        when(secretOps.reconcile(any(), any(), any(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(secretOps.listAsync(any(), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(List.of()));
+        when(secretOps.getAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         ConfigMapOperator mockCmOps = supplier.configMapOperations;
-        when(mockCmOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(Future.succeededFuture(KAFKA_CLUSTER.generatePerBrokerConfigurationConfigMaps(new MetricsAndLogging(null, null), ADVERTISED_HOSTNAMES, ADVERTISED_PORTS)));
+        when(mockCmOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(KAFKA_CLUSTER.generatePerBrokerConfigurationConfigMaps(new MetricsAndLogging(null, null), ADVERTISED_HOSTNAMES, ADVERTISED_PORTS, Set.of())));
         ArgumentCaptor<String> cmReconciliationCaptor = ArgumentCaptor.forClass(String.class);
-        when(mockCmOps.reconcile(any(), any(), cmReconciliationCaptor.capture(), any())).thenReturn(Future.succeededFuture());
+        when(mockCmOps.reconcile(any(), any(), cmReconciliationCaptor.capture(), any())).thenReturn(CompletableFuture.completedFuture(null));
         ArgumentCaptor<String> cmDeletionCaptor = ArgumentCaptor.forClass(String.class);
-        when(mockCmOps.deleteAsync(any(), any(), cmDeletionCaptor.capture(), anyBoolean())).thenReturn(Future.succeededFuture());
+        when(mockCmOps.deleteAsync(any(), any(), cmDeletionCaptor.capture(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(null));
 
         PvcOperator mockPvcOps = supplier.pvcOperations;
-        when(mockPvcOps.getAsync(any(), any())).thenReturn(Future.succeededFuture());
-        when(mockPvcOps.reconcile(any(), any(), any(), any())).thenReturn(Future.succeededFuture());
+        when(mockPvcOps.getAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(mockPvcOps.reconcile(any(), any(), any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         StrimziPodSetOperator mockPodSetOps = supplier.strimziPodSetOperator;
         // Kafka
-        when(mockPodSetOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(Future.succeededFuture(List.of()));
+        when(mockPodSetOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(List.of()));
         when(mockPodSetOps.batchReconcile(any(), any(), any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenAnswer(i -> {
             List<StrimziPodSet> podSets = i.getArgument(2);
             HashMap<String, ReconcileResult<StrimziPodSet>> result = new HashMap<>();
@@ -409,20 +414,20 @@ public class KafkaAssemblyOperatorWithKRaftTest {
                 result.put(podSet.getMetadata().getName(), ReconcileResult.created(patched));
             }
 
-            return Future.succeededFuture(result);
+            return CompletableFuture.completedFuture(result);
         });
 
         PodOperator mockPodOps = supplier.podOperations;
-        when(mockPodOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(Future.succeededFuture(Collections.emptyList()));
-        when(mockPodOps.listAsync(any(), any(Labels.class))).thenReturn(Future.succeededFuture(Collections.emptyList()));
-        when(mockPodOps.readiness(any(), any(), any(), anyLong(), anyLong())).thenReturn(Future.succeededFuture());
+        when(mockPodOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(Collections.emptyList()));
+        when(mockPodOps.listAsync(any(), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(Collections.emptyList()));
+        when(mockPodOps.readiness(any(), any(), any(), anyLong(), anyLong())).thenReturn(CompletableFuture.completedFuture(null));
 
         CrdOperator<KubernetesClient, Kafka, KafkaList> mockKafkaOps = supplier.kafkaOperator;
-        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq(CLUSTER_NAME))).thenReturn(Future.succeededFuture(KAFKA));
-        when(mockKafkaOps.updateStatusAsync(any(), any())).thenReturn(Future.succeededFuture());
+        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq(CLUSTER_NAME))).thenReturn(CompletableFuture.completedFuture(KAFKA));
+        when(mockKafkaOps.updateStatusAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         CrdOperator<KubernetesClient, KafkaNodePool, KafkaNodePoolList> mockKafkaNodePoolOps = supplier.kafkaNodePoolOperator;
-        when(mockKafkaNodePoolOps.updateStatusAsync(any(), any())).thenReturn(Future.succeededFuture());
+        when(mockKafkaNodePoolOps.updateStatusAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         MockKafkaReconciler kr = new MockKafkaReconciler(
                 new Reconciliation("test-trigger", Kafka.RESOURCE_KIND, NAMESPACE, CLUSTER_NAME),
@@ -438,7 +443,7 @@ public class KafkaAssemblyOperatorWithKRaftTest {
 
         MockKafkaAssemblyOperator kao = new MockKafkaAssemblyOperator(
                 vertx, new PlatformFeaturesAvailability(false, KUBERNETES_VERSION),
-                CERT_MANAGER,
+                CERT_ISSUER,
                 PASSWORD_GENERATOR,
                 supplier,
                 CONFIG,
@@ -480,27 +485,27 @@ public class KafkaAssemblyOperatorWithKRaftTest {
                 .endSpec()
                 .build();
 
-        KafkaCluster oldKafkaCluster = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, oldKafka, POOLS, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster oldKafkaCluster = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, oldKafka, POOLS, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
         List<StrimziPodSet> oldKafkaPodSets = oldKafkaCluster.generatePodSets(null, null, node -> null);
 
         ResourceOperatorSupplier supplier = ResourceUtils.supplierWithMocks(false);
 
         SecretOperator secretOps = supplier.secretOperations;
-        when(secretOps.reconcile(any(), any(), any(), any())).thenReturn(Future.succeededFuture());
-        when(secretOps.listAsync(any(), any(Labels.class))).thenReturn(Future.succeededFuture(List.of()));
-        when(secretOps.getAsync(any(), any())).thenReturn(Future.succeededFuture());
+        when(secretOps.reconcile(any(), any(), any(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(secretOps.listAsync(any(), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(List.of()));
+        when(secretOps.getAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         ConfigMapOperator mockCmOps = supplier.configMapOperations;
-        when(mockCmOps.listAsync(any(), eq(oldKafkaCluster.getSelectorLabels()))).thenReturn(Future.succeededFuture(oldKafkaCluster.generatePerBrokerConfigurationConfigMaps(new MetricsAndLogging(null, null), ADVERTISED_HOSTNAMES, ADVERTISED_PORTS)));
-        when(mockCmOps.reconcile(any(), any(), startsWith("my-cluster-"), any())).thenReturn(Future.succeededFuture());
-        when(mockCmOps.deleteAsync(any(), any(), eq("my-cluster-kafka-config"), anyBoolean())).thenReturn(Future.succeededFuture());
+        when(mockCmOps.listAsync(any(), eq(oldKafkaCluster.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(oldKafkaCluster.generatePerBrokerConfigurationConfigMaps(new MetricsAndLogging(null, null), ADVERTISED_HOSTNAMES, ADVERTISED_PORTS, Set.of())));
+        when(mockCmOps.reconcile(any(), any(), startsWith("my-cluster-"), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(mockCmOps.deleteAsync(any(), any(), eq("my-cluster-kafka-config"), anyBoolean())).thenReturn(CompletableFuture.completedFuture(null));
 
         PvcOperator mockPvcOps = supplier.pvcOperations;
-        when(mockPvcOps.getAsync(any(), any())).thenReturn(Future.succeededFuture());
-        when(mockPvcOps.reconcile(any(), any(), any(), any())).thenReturn(Future.succeededFuture());
+        when(mockPvcOps.getAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(mockPvcOps.reconcile(any(), any(), any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         StrimziPodSetOperator mockPodSetOps = supplier.strimziPodSetOperator;
-        when(mockPodSetOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(Future.succeededFuture(oldKafkaPodSets));
+        when(mockPodSetOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(oldKafkaPodSets));
         when(mockPodSetOps.batchReconcile(any(), any(), any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenAnswer(i -> {
             List<StrimziPodSet> podSets = i.getArgument(2);
             HashMap<String, ReconcileResult<StrimziPodSet>> result = new HashMap<>();
@@ -509,21 +514,21 @@ public class KafkaAssemblyOperatorWithKRaftTest {
                 result.put(podSet.getMetadata().getName(), ReconcileResult.noop(podSet));
             }
 
-            return Future.succeededFuture(result);
+            return CompletableFuture.completedFuture(result);
         });
 
         PodOperator mockPodOps = supplier.podOperations;
-        when(mockPodOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(Future.succeededFuture(Collections.emptyList()));
-        when(mockPodOps.listAsync(any(), any(Labels.class))).thenReturn(Future.succeededFuture(Collections.emptyList()));
-        when(mockPodOps.readiness(any(), any(), any(), anyLong(), anyLong())).thenReturn(Future.succeededFuture());
+        when(mockPodOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(Collections.emptyList()));
+        when(mockPodOps.listAsync(any(), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(Collections.emptyList()));
+        when(mockPodOps.readiness(any(), any(), any(), anyLong(), anyLong())).thenReturn(CompletableFuture.completedFuture(null));
 
         CrdOperator<KubernetesClient, Kafka, KafkaList> mockKafkaOps = supplier.kafkaOperator;
-        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq(CLUSTER_NAME))).thenReturn(Future.succeededFuture(KAFKA));
+        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq(CLUSTER_NAME))).thenReturn(CompletableFuture.completedFuture(KAFKA));
         when(mockKafkaOps.get(eq(NAMESPACE), eq(CLUSTER_NAME))).thenReturn(KAFKA);
-        when(mockKafkaOps.updateStatusAsync(any(), any())).thenReturn(Future.succeededFuture());
+        when(mockKafkaOps.updateStatusAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         CrdOperator<KubernetesClient, KafkaNodePool, KafkaNodePoolList> mockKafkaNodePoolOps = supplier.kafkaNodePoolOperator;
-        when(mockKafkaNodePoolOps.updateStatusAsync(any(), any())).thenReturn(Future.succeededFuture());
+        when(mockKafkaNodePoolOps.updateStatusAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         MockKafkaReconciler kr = new MockKafkaReconciler(
                 new Reconciliation("test-trigger", Kafka.RESOURCE_KIND, NAMESPACE, CLUSTER_NAME),
@@ -539,7 +544,7 @@ public class KafkaAssemblyOperatorWithKRaftTest {
 
         MockKafkaAssemblyOperator kao = new MockKafkaAssemblyOperator(
                 vertx, new PlatformFeaturesAvailability(false, KUBERNETES_VERSION),
-                CERT_MANAGER,
+                CERT_ISSUER,
                 PASSWORD_GENERATOR,
                 supplier,
                 CONFIG,
@@ -575,30 +580,30 @@ public class KafkaAssemblyOperatorWithKRaftTest {
                 .build();
 
         List<KafkaPool> oldPools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, KAFKA, List.of(CONTROLLERS, oldBrokersPool), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster oldKafkaCluster = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, KAFKA, oldPools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster oldKafkaCluster = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, KAFKA, oldPools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
         List<StrimziPodSet> oldKafkaPodSets = oldKafkaCluster.generatePodSets(null, null, node -> null);
 
         ResourceOperatorSupplier supplier = ResourceUtils.supplierWithMocks(false);
 
         SecretOperator secretOps = supplier.secretOperations;
-        when(secretOps.reconcile(any(), any(), any(), any())).thenReturn(Future.succeededFuture());
-        when(secretOps.getAsync(any(), any())).thenReturn(Future.succeededFuture(mockOperatorSecret()));
-        when(secretOps.listAsync(any(), any(Labels.class))).thenReturn(Future.succeededFuture(List.of()));
+        when(secretOps.reconcile(any(), any(), any(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(secretOps.getAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(mockOperatorSecret()));
+        when(secretOps.listAsync(any(), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(List.of()));
 
         ConfigMapOperator mockCmOps = supplier.configMapOperations;
-        when(mockCmOps.listAsync(any(), eq(oldKafkaCluster.getSelectorLabels()))).thenReturn(Future.succeededFuture(oldKafkaCluster.generatePerBrokerConfigurationConfigMaps(new MetricsAndLogging(null, null), ADVERTISED_HOSTNAMES, ADVERTISED_PORTS)));
+        when(mockCmOps.listAsync(any(), eq(oldKafkaCluster.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(oldKafkaCluster.generatePerBrokerConfigurationConfigMaps(new MetricsAndLogging(null, null), ADVERTISED_HOSTNAMES, ADVERTISED_PORTS, Set.of())));
         ArgumentCaptor<String> cmReconciliationCaptor = ArgumentCaptor.forClass(String.class);
-        when(mockCmOps.reconcile(any(), any(), cmReconciliationCaptor.capture(), any())).thenReturn(Future.succeededFuture());
+        when(mockCmOps.reconcile(any(), any(), cmReconciliationCaptor.capture(), any())).thenReturn(CompletableFuture.completedFuture(null));
         ArgumentCaptor<String> cmDeletionCaptor = ArgumentCaptor.forClass(String.class);
-        when(mockCmOps.deleteAsync(any(), any(), cmDeletionCaptor.capture(), anyBoolean())).thenReturn(Future.succeededFuture());
+        when(mockCmOps.deleteAsync(any(), any(), cmDeletionCaptor.capture(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(null));
 
         PvcOperator mockPvcOps = supplier.pvcOperations;
-        when(mockPvcOps.getAsync(any(), any())).thenReturn(Future.succeededFuture());
-        when(mockPvcOps.reconcile(any(), any(), any(), any())).thenReturn(Future.succeededFuture());
+        when(mockPvcOps.getAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(mockPvcOps.reconcile(any(), any(), any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         StrimziPodSetOperator mockPodSetOps = supplier.strimziPodSetOperator;
         // Kafka
-        when(mockPodSetOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(Future.succeededFuture(oldKafkaPodSets));
+        when(mockPodSetOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(oldKafkaPodSets));
         @SuppressWarnings({ "unchecked" })
         ArgumentCaptor<List<StrimziPodSet>> kafkaPodSetBatchCaptor =  ArgumentCaptor.forClass(List.class);
         when(mockPodSetOps.batchReconcile(any(), any(), kafkaPodSetBatchCaptor.capture(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenAnswer(i -> {
@@ -609,21 +614,21 @@ public class KafkaAssemblyOperatorWithKRaftTest {
                 result.put(podSet.getMetadata().getName(), ReconcileResult.noop(podSet));
             }
 
-            return Future.succeededFuture(result);
+            return CompletableFuture.completedFuture(result);
         });
 
         PodOperator mockPodOps = supplier.podOperations;
-        when(mockPodOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(Future.succeededFuture(Collections.emptyList()));
-        when(mockPodOps.listAsync(any(), any(Labels.class))).thenReturn(Future.succeededFuture(Collections.emptyList()));
-        when(mockPodOps.readiness(any(), any(), any(), anyLong(), anyLong())).thenReturn(Future.succeededFuture());
+        when(mockPodOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(Collections.emptyList()));
+        when(mockPodOps.listAsync(any(), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(Collections.emptyList()));
+        when(mockPodOps.readiness(any(), any(), any(), anyLong(), anyLong())).thenReturn(CompletableFuture.completedFuture(null));
 
         CrdOperator<KubernetesClient, Kafka, KafkaList> mockKafkaOps = supplier.kafkaOperator;
-        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq(CLUSTER_NAME))).thenReturn(Future.succeededFuture(KAFKA));
-        when(mockKafkaOps.updateStatusAsync(any(), any())).thenReturn(Future.succeededFuture());
+        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq(CLUSTER_NAME))).thenReturn(CompletableFuture.completedFuture(KAFKA));
+        when(mockKafkaOps.updateStatusAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         CrdOperator<KubernetesClient, KafkaNodePool, KafkaNodePoolList> mockKafkaNodePoolOps = supplier.kafkaNodePoolOperator;
         ArgumentCaptor<KafkaNodePool> kafkaNodePoolStatusCaptor = ArgumentCaptor.forClass(KafkaNodePool.class);
-        when(mockKafkaNodePoolOps.updateStatusAsync(any(), kafkaNodePoolStatusCaptor.capture())).thenReturn(Future.succeededFuture());
+        when(mockKafkaNodePoolOps.updateStatusAsync(any(), kafkaNodePoolStatusCaptor.capture())).thenReturn(CompletableFuture.completedFuture(null));
 
         // Used for the check that there were no interactions
         Admin mockAdmin = supplier.adminClientProvider.createAdminClient(null, null, null, null);
@@ -642,7 +647,7 @@ public class KafkaAssemblyOperatorWithKRaftTest {
 
         MockKafkaAssemblyOperator kao = new MockKafkaAssemblyOperator(
                 vertx, new PlatformFeaturesAvailability(false, KUBERNETES_VERSION),
-                CERT_MANAGER,
+                CERT_ISSUER,
                 PASSWORD_GENERATOR,
                 supplier,
                 CONFIG,
@@ -703,30 +708,30 @@ public class KafkaAssemblyOperatorWithKRaftTest {
                 .build();
 
         List<KafkaPool> oldPools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, KAFKA, List.of(CONTROLLERS, oldBrokersPool), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster oldKafkaCluster = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, KAFKA, oldPools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster oldKafkaCluster = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, KAFKA, oldPools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
         List<StrimziPodSet> oldKafkaPodSets = oldKafkaCluster.generatePodSets(null, null, node -> null);
 
         ResourceOperatorSupplier supplier = ResourceUtils.supplierWithMocks(false);
 
         SecretOperator secretOps = supplier.secretOperations;
-        when(secretOps.reconcile(any(), any(), any(), any())).thenReturn(Future.succeededFuture());
-        when(secretOps.getAsync(any(), any())).thenReturn(Future.succeededFuture(mockOperatorSecret()));
-        when(secretOps.listAsync(any(), any(Labels.class))).thenReturn(Future.succeededFuture(List.of()));
+        when(secretOps.reconcile(any(), any(), any(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(secretOps.getAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(mockOperatorSecret()));
+        when(secretOps.listAsync(any(), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(List.of()));
 
         ConfigMapOperator mockCmOps = supplier.configMapOperations;
-        when(mockCmOps.listAsync(any(), eq(oldKafkaCluster.getSelectorLabels()))).thenReturn(Future.succeededFuture(oldKafkaCluster.generatePerBrokerConfigurationConfigMaps(new MetricsAndLogging(null, null), ADVERTISED_HOSTNAMES, ADVERTISED_PORTS)));
+        when(mockCmOps.listAsync(any(), eq(oldKafkaCluster.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(oldKafkaCluster.generatePerBrokerConfigurationConfigMaps(new MetricsAndLogging(null, null), ADVERTISED_HOSTNAMES, ADVERTISED_PORTS, Set.of())));
         ArgumentCaptor<String> cmReconciliationCaptor = ArgumentCaptor.forClass(String.class);
-        when(mockCmOps.reconcile(any(), any(), cmReconciliationCaptor.capture(), any())).thenReturn(Future.succeededFuture());
+        when(mockCmOps.reconcile(any(), any(), cmReconciliationCaptor.capture(), any())).thenReturn(CompletableFuture.completedFuture(null));
         ArgumentCaptor<String> cmDeletionCaptor = ArgumentCaptor.forClass(String.class);
-        when(mockCmOps.deleteAsync(any(), any(), cmDeletionCaptor.capture(), anyBoolean())).thenReturn(Future.succeededFuture());
+        when(mockCmOps.deleteAsync(any(), any(), cmDeletionCaptor.capture(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(null));
 
         PvcOperator mockPvcOps = supplier.pvcOperations;
-        when(mockPvcOps.getAsync(any(), any())).thenReturn(Future.succeededFuture());
-        when(mockPvcOps.reconcile(any(), any(), any(), any())).thenReturn(Future.succeededFuture());
+        when(mockPvcOps.getAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(mockPvcOps.reconcile(any(), any(), any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         StrimziPodSetOperator mockPodSetOps = supplier.strimziPodSetOperator;
         // Kafka
-        when(mockPodSetOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(Future.succeededFuture(oldKafkaPodSets));
+        when(mockPodSetOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(oldKafkaPodSets));
         @SuppressWarnings({ "unchecked" })
         ArgumentCaptor<List<StrimziPodSet>> kafkaPodSetBatchCaptor =  ArgumentCaptor.forClass(List.class);
         when(mockPodSetOps.batchReconcile(any(), any(), kafkaPodSetBatchCaptor.capture(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenAnswer(i -> {
@@ -737,24 +742,24 @@ public class KafkaAssemblyOperatorWithKRaftTest {
                 result.put(podSet.getMetadata().getName(), ReconcileResult.noop(podSet));
             }
 
-            return Future.succeededFuture(result);
+            return CompletableFuture.completedFuture(result);
         });
         ArgumentCaptor<StrimziPodSet> kafkaPodSetCaptor =  ArgumentCaptor.forClass(StrimziPodSet.class);
-        when(mockPodSetOps.reconcile(any(), any(), startsWith("my-cluster-brokers"), kafkaPodSetCaptor.capture())).thenAnswer(i -> Future.succeededFuture(ReconcileResult.noop(i.getArgument(3))));
+        when(mockPodSetOps.reconcile(any(), any(), startsWith("my-cluster-brokers"), kafkaPodSetCaptor.capture())).thenAnswer(i -> CompletableFuture.completedFuture(ReconcileResult.noop(i.getArgument(3))));
 
         PodOperator mockPodOps = supplier.podOperations;
-        when(mockPodOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(Future.succeededFuture(Collections.emptyList()));
-        when(mockPodOps.listAsync(any(), any(Labels.class))).thenReturn(Future.succeededFuture(Collections.emptyList()));
-        when(mockPodOps.readiness(any(), any(), any(), anyLong(), anyLong())).thenReturn(Future.succeededFuture());
-        when(mockPodOps.waitFor(any(), any(), any(), any(), anyLong(), anyLong(), any())).thenReturn(Future.succeededFuture());
+        when(mockPodOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(Collections.emptyList()));
+        when(mockPodOps.listAsync(any(), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(Collections.emptyList()));
+        when(mockPodOps.readiness(any(), any(), any(), anyLong(), anyLong())).thenReturn(CompletableFuture.completedFuture(null));
+        when(mockPodOps.waitFor(any(), any(), any(), any(), anyLong(), anyLong(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         CrdOperator<KubernetesClient, Kafka, KafkaList> mockKafkaOps = supplier.kafkaOperator;
-        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq(CLUSTER_NAME))).thenReturn(Future.succeededFuture(KAFKA));
-        when(mockKafkaOps.updateStatusAsync(any(), any())).thenReturn(Future.succeededFuture());
+        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq(CLUSTER_NAME))).thenReturn(CompletableFuture.completedFuture(KAFKA));
+        when(mockKafkaOps.updateStatusAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         CrdOperator<KubernetesClient, KafkaNodePool, KafkaNodePoolList> mockKafkaNodePoolOps = supplier.kafkaNodePoolOperator;
         ArgumentCaptor<KafkaNodePool> kafkaNodePoolStatusCaptor = ArgumentCaptor.forClass(KafkaNodePool.class);
-        when(mockKafkaNodePoolOps.updateStatusAsync(any(), kafkaNodePoolStatusCaptor.capture())).thenReturn(Future.succeededFuture());
+        when(mockKafkaNodePoolOps.updateStatusAsync(any(), kafkaNodePoolStatusCaptor.capture())).thenReturn(CompletableFuture.completedFuture(null));
 
         Admin mockAdmin = supplier.adminClientProvider.createAdminClient(null, null, null, null);
         UnregisterBrokerResult ubr = mock(UnregisterBrokerResult.class);
@@ -789,7 +794,7 @@ public class KafkaAssemblyOperatorWithKRaftTest {
 
         MockKafkaAssemblyOperator kao = new MockKafkaAssemblyOperator(
                 vertx, new PlatformFeaturesAvailability(false, KUBERNETES_VERSION),
-                CERT_MANAGER,
+                CERT_ISSUER,
                 PASSWORD_GENERATOR,
                 supplier,
                 CONFIG,
@@ -857,30 +862,30 @@ public class KafkaAssemblyOperatorWithKRaftTest {
                 .build();
 
         List<KafkaPool> oldPools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, KAFKA, List.of(CONTROLLERS, oldBrokersPool), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster oldKafkaCluster = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, KAFKA, oldPools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster oldKafkaCluster = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, KAFKA, oldPools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
         List<StrimziPodSet> oldKafkaPodSets = oldKafkaCluster.generatePodSets(null, null, node -> null);
 
         ResourceOperatorSupplier supplier = ResourceUtils.supplierWithMocks(false);
 
         SecretOperator secretOps = supplier.secretOperations;
-        when(secretOps.reconcile(any(), any(), any(), any())).thenReturn(Future.succeededFuture());
-        when(secretOps.getAsync(any(), any())).thenReturn(Future.succeededFuture(mockOperatorSecret()));
-        when(secretOps.listAsync(any(), any(Labels.class))).thenReturn(Future.succeededFuture(List.of()));
+        when(secretOps.reconcile(any(), any(), any(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(secretOps.getAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(mockOperatorSecret()));
+        when(secretOps.listAsync(any(), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(List.of()));
 
         ConfigMapOperator mockCmOps = supplier.configMapOperations;
-        when(mockCmOps.listAsync(any(), eq(oldKafkaCluster.getSelectorLabels()))).thenReturn(Future.succeededFuture(oldKafkaCluster.generatePerBrokerConfigurationConfigMaps(new MetricsAndLogging(null, null), ADVERTISED_HOSTNAMES, ADVERTISED_PORTS)));
+        when(mockCmOps.listAsync(any(), eq(oldKafkaCluster.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(oldKafkaCluster.generatePerBrokerConfigurationConfigMaps(new MetricsAndLogging(null, null), ADVERTISED_HOSTNAMES, ADVERTISED_PORTS, Set.of())));
         ArgumentCaptor<String> cmReconciliationCaptor = ArgumentCaptor.forClass(String.class);
-        when(mockCmOps.reconcile(any(), any(), cmReconciliationCaptor.capture(), any())).thenReturn(Future.succeededFuture());
+        when(mockCmOps.reconcile(any(), any(), cmReconciliationCaptor.capture(), any())).thenReturn(CompletableFuture.completedFuture(null));
         ArgumentCaptor<String> cmDeletionCaptor = ArgumentCaptor.forClass(String.class);
-        when(mockCmOps.deleteAsync(any(), any(), cmDeletionCaptor.capture(), anyBoolean())).thenReturn(Future.succeededFuture());
+        when(mockCmOps.deleteAsync(any(), any(), cmDeletionCaptor.capture(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(null));
 
         PvcOperator mockPvcOps = supplier.pvcOperations;
-        when(mockPvcOps.getAsync(any(), any())).thenReturn(Future.succeededFuture());
-        when(mockPvcOps.reconcile(any(), any(), any(), any())).thenReturn(Future.succeededFuture());
+        when(mockPvcOps.getAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(mockPvcOps.reconcile(any(), any(), any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         StrimziPodSetOperator mockPodSetOps = supplier.strimziPodSetOperator;
         // Kafka
-        when(mockPodSetOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(Future.succeededFuture(oldKafkaPodSets));
+        when(mockPodSetOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(oldKafkaPodSets));
         @SuppressWarnings({ "unchecked" })
         ArgumentCaptor<List<StrimziPodSet>> kafkaPodSetBatchCaptor =  ArgumentCaptor.forClass(List.class);
         when(mockPodSetOps.batchReconcile(any(), any(), kafkaPodSetBatchCaptor.capture(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenAnswer(i -> {
@@ -891,24 +896,24 @@ public class KafkaAssemblyOperatorWithKRaftTest {
                 result.put(podSet.getMetadata().getName(), ReconcileResult.noop(podSet));
             }
 
-            return Future.succeededFuture(result);
+            return CompletableFuture.completedFuture(result);
         });
         ArgumentCaptor<StrimziPodSet> kafkaPodSetCaptor =  ArgumentCaptor.forClass(StrimziPodSet.class);
-        when(mockPodSetOps.reconcile(any(), any(), startsWith("my-cluster-brokers"), kafkaPodSetCaptor.capture())).thenAnswer(i -> Future.succeededFuture(ReconcileResult.noop(i.getArgument(3))));
+        when(mockPodSetOps.reconcile(any(), any(), startsWith("my-cluster-brokers"), kafkaPodSetCaptor.capture())).thenAnswer(i -> CompletableFuture.completedFuture(ReconcileResult.noop(i.getArgument(3))));
 
         PodOperator mockPodOps = supplier.podOperations;
-        when(mockPodOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(Future.succeededFuture(Collections.emptyList()));
-        when(mockPodOps.listAsync(any(), any(Labels.class))).thenReturn(Future.succeededFuture(Collections.emptyList()));
-        when(mockPodOps.readiness(any(), any(), any(), anyLong(), anyLong())).thenReturn(Future.succeededFuture());
-        when(mockPodOps.waitFor(any(), any(), any(), any(), anyLong(), anyLong(), any())).thenReturn(Future.succeededFuture());
+        when(mockPodOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(Collections.emptyList()));
+        when(mockPodOps.listAsync(any(), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(Collections.emptyList()));
+        when(mockPodOps.readiness(any(), any(), any(), anyLong(), anyLong())).thenReturn(CompletableFuture.completedFuture(null));
+        when(mockPodOps.waitFor(any(), any(), any(), any(), anyLong(), anyLong(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         CrdOperator<KubernetesClient, Kafka, KafkaList> mockKafkaOps = supplier.kafkaOperator;
-        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq(CLUSTER_NAME))).thenReturn(Future.succeededFuture(KAFKA));
-        when(mockKafkaOps.updateStatusAsync(any(), any())).thenReturn(Future.succeededFuture());
+        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq(CLUSTER_NAME))).thenReturn(CompletableFuture.completedFuture(KAFKA));
+        when(mockKafkaOps.updateStatusAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         CrdOperator<KubernetesClient, KafkaNodePool, KafkaNodePoolList> mockKafkaNodePoolOps = supplier.kafkaNodePoolOperator;
         ArgumentCaptor<KafkaNodePool> kafkaNodePoolStatusCaptor = ArgumentCaptor.forClass(KafkaNodePool.class);
-        when(mockKafkaNodePoolOps.updateStatusAsync(any(), kafkaNodePoolStatusCaptor.capture())).thenReturn(Future.succeededFuture());
+        when(mockKafkaNodePoolOps.updateStatusAsync(any(), kafkaNodePoolStatusCaptor.capture())).thenReturn(CompletableFuture.completedFuture(null));
 
         Admin mockAdmin = supplier.adminClientProvider.createAdminClient(null, null, null, null);
         ArgumentCaptor<Integer> unregisteredNodeIdCaptor = ArgumentCaptor.forClass(Integer.class);
@@ -953,7 +958,7 @@ public class KafkaAssemblyOperatorWithKRaftTest {
 
         MockKafkaAssemblyOperator kao = new MockKafkaAssemblyOperator(
                 vertx, new PlatformFeaturesAvailability(false, KUBERNETES_VERSION),
-                CERT_MANAGER,
+                CERT_ISSUER,
                 PASSWORD_GENERATOR,
                 supplier,
                 CONFIG,
@@ -1020,30 +1025,30 @@ public class KafkaAssemblyOperatorWithKRaftTest {
                 .build();
 
         List<KafkaPool> oldPools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, KAFKA, List.of(CONTROLLERS, oldBrokersPool), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster oldKafkaCluster = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, KAFKA, oldPools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster oldKafkaCluster = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, KAFKA, oldPools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
         List<StrimziPodSet> oldKafkaPodSets = oldKafkaCluster.generatePodSets(null, null, node -> null);
 
         ResourceOperatorSupplier supplier = ResourceUtils.supplierWithMocks(false);
 
         SecretOperator secretOps = supplier.secretOperations;
-        when(secretOps.reconcile(any(), any(), any(), any())).thenReturn(Future.succeededFuture());
-        when(secretOps.getAsync(any(), any())).thenReturn(Future.succeededFuture(mockOperatorSecret()));
-        when(secretOps.listAsync(any(), any(Labels.class))).thenReturn(Future.succeededFuture(List.of()));
+        when(secretOps.reconcile(any(), any(), any(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(secretOps.getAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(mockOperatorSecret()));
+        when(secretOps.listAsync(any(), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(List.of()));
 
         ConfigMapOperator mockCmOps = supplier.configMapOperations;
-        when(mockCmOps.listAsync(any(), eq(oldKafkaCluster.getSelectorLabels()))).thenReturn(Future.succeededFuture(oldKafkaCluster.generatePerBrokerConfigurationConfigMaps(new MetricsAndLogging(null, null), ADVERTISED_HOSTNAMES, ADVERTISED_PORTS)));
+        when(mockCmOps.listAsync(any(), eq(oldKafkaCluster.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(oldKafkaCluster.generatePerBrokerConfigurationConfigMaps(new MetricsAndLogging(null, null), ADVERTISED_HOSTNAMES, ADVERTISED_PORTS, Set.of())));
         ArgumentCaptor<String> cmReconciliationCaptor = ArgumentCaptor.forClass(String.class);
-        when(mockCmOps.reconcile(any(), any(), cmReconciliationCaptor.capture(), any())).thenReturn(Future.succeededFuture());
+        when(mockCmOps.reconcile(any(), any(), cmReconciliationCaptor.capture(), any())).thenReturn(CompletableFuture.completedFuture(null));
         ArgumentCaptor<String> cmDeletionCaptor = ArgumentCaptor.forClass(String.class);
-        when(mockCmOps.deleteAsync(any(), any(), cmDeletionCaptor.capture(), anyBoolean())).thenReturn(Future.succeededFuture());
+        when(mockCmOps.deleteAsync(any(), any(), cmDeletionCaptor.capture(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(null));
 
         PvcOperator mockPvcOps = supplier.pvcOperations;
-        when(mockPvcOps.getAsync(any(), any())).thenReturn(Future.succeededFuture());
-        when(mockPvcOps.reconcile(any(), any(), any(), any())).thenReturn(Future.succeededFuture());
+        when(mockPvcOps.getAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(mockPvcOps.reconcile(any(), any(), any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         StrimziPodSetOperator mockPodSetOps = supplier.strimziPodSetOperator;
         // Kafka
-        when(mockPodSetOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(Future.succeededFuture(oldKafkaPodSets));
+        when(mockPodSetOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(oldKafkaPodSets));
         @SuppressWarnings({ "unchecked" })
         ArgumentCaptor<List<StrimziPodSet>> kafkaPodSetBatchCaptor =  ArgumentCaptor.forClass(List.class);
         when(mockPodSetOps.batchReconcile(any(), any(), kafkaPodSetBatchCaptor.capture(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenAnswer(i -> {
@@ -1054,24 +1059,24 @@ public class KafkaAssemblyOperatorWithKRaftTest {
                 result.put(podSet.getMetadata().getName(), ReconcileResult.noop(podSet));
             }
 
-            return Future.succeededFuture(result);
+            return CompletableFuture.completedFuture(result);
         });
         ArgumentCaptor<StrimziPodSet> kafkaPodSetCaptor =  ArgumentCaptor.forClass(StrimziPodSet.class);
-        when(mockPodSetOps.reconcile(any(), any(), startsWith("my-cluster-brokers"), kafkaPodSetCaptor.capture())).thenAnswer(i -> Future.succeededFuture(ReconcileResult.noop(i.getArgument(3))));
+        when(mockPodSetOps.reconcile(any(), any(), startsWith("my-cluster-brokers"), kafkaPodSetCaptor.capture())).thenAnswer(i -> CompletableFuture.completedFuture(ReconcileResult.noop(i.getArgument(3))));
 
         PodOperator mockPodOps = supplier.podOperations;
-        when(mockPodOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(Future.succeededFuture(Collections.emptyList()));
-        when(mockPodOps.listAsync(any(), any(Labels.class))).thenReturn(Future.succeededFuture(Collections.emptyList()));
-        when(mockPodOps.readiness(any(), any(), any(), anyLong(), anyLong())).thenReturn(Future.succeededFuture());
-        when(mockPodOps.waitFor(any(), any(), any(), any(), anyLong(), anyLong(), any())).thenReturn(Future.succeededFuture());
+        when(mockPodOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(Collections.emptyList()));
+        when(mockPodOps.listAsync(any(), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(Collections.emptyList()));
+        when(mockPodOps.readiness(any(), any(), any(), anyLong(), anyLong())).thenReturn(CompletableFuture.completedFuture(null));
+        when(mockPodOps.waitFor(any(), any(), any(), any(), anyLong(), anyLong(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         CrdOperator<KubernetesClient, Kafka, KafkaList> mockKafkaOps = supplier.kafkaOperator;
-        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq(CLUSTER_NAME))).thenReturn(Future.succeededFuture(KAFKA));
-        when(mockKafkaOps.updateStatusAsync(any(), any())).thenReturn(Future.succeededFuture());
+        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq(CLUSTER_NAME))).thenReturn(CompletableFuture.completedFuture(KAFKA));
+        when(mockKafkaOps.updateStatusAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         CrdOperator<KubernetesClient, KafkaNodePool, KafkaNodePoolList> mockKafkaNodePoolOps = supplier.kafkaNodePoolOperator;
         ArgumentCaptor<KafkaNodePool> kafkaNodePoolStatusCaptor = ArgumentCaptor.forClass(KafkaNodePool.class);
-        when(mockKafkaNodePoolOps.updateStatusAsync(any(), kafkaNodePoolStatusCaptor.capture())).thenReturn(Future.succeededFuture());
+        when(mockKafkaNodePoolOps.updateStatusAsync(any(), kafkaNodePoolStatusCaptor.capture())).thenReturn(CompletableFuture.completedFuture(null));
 
         Admin mockAdmin = supplier.adminClientProvider.createAdminClient(null, null, null, null);
         ArgumentCaptor<Integer> unregisteredNodeIdCaptor = ArgumentCaptor.forClass(Integer.class);
@@ -1115,7 +1120,7 @@ public class KafkaAssemblyOperatorWithKRaftTest {
 
         MockKafkaAssemblyOperator kao = new MockKafkaAssemblyOperator(
                 vertx, new PlatformFeaturesAvailability(false, KUBERNETES_VERSION),
-                CERT_MANAGER,
+                CERT_ISSUER,
                 PASSWORD_GENERATOR,
                 supplier,
                 CONFIG,
@@ -1192,24 +1197,24 @@ public class KafkaAssemblyOperatorWithKRaftTest {
         ResourceOperatorSupplier supplier = ResourceUtils.supplierWithMocks(false);
 
         SecretOperator secretOps = supplier.secretOperations;
-        when(secretOps.reconcile(any(), any(), any(), any())).thenReturn(Future.succeededFuture());
-        when(secretOps.getAsync(any(), any())).thenReturn(Future.succeededFuture(mockOperatorSecret()));
-        when(secretOps.listAsync(any(), any(Labels.class))).thenReturn(Future.succeededFuture(List.of()));
+        when(secretOps.reconcile(any(), any(), any(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(secretOps.getAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(mockOperatorSecret()));
+        when(secretOps.listAsync(any(), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(List.of()));
 
         ConfigMapOperator mockCmOps = supplier.configMapOperations;
-        when(mockCmOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(Future.succeededFuture(KAFKA_CLUSTER.generatePerBrokerConfigurationConfigMaps(new MetricsAndLogging(null, null), ADVERTISED_HOSTNAMES, ADVERTISED_PORTS)));
+        when(mockCmOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(KAFKA_CLUSTER.generatePerBrokerConfigurationConfigMaps(new MetricsAndLogging(null, null), ADVERTISED_HOSTNAMES, ADVERTISED_PORTS, Set.of())));
         ArgumentCaptor<String> cmReconciliationCaptor = ArgumentCaptor.forClass(String.class);
-        when(mockCmOps.reconcile(any(), any(), cmReconciliationCaptor.capture(), any())).thenReturn(Future.succeededFuture());
+        when(mockCmOps.reconcile(any(), any(), cmReconciliationCaptor.capture(), any())).thenReturn(CompletableFuture.completedFuture(null));
         ArgumentCaptor<String> cmDeletionCaptor = ArgumentCaptor.forClass(String.class);
-        when(mockCmOps.deleteAsync(any(), any(), cmDeletionCaptor.capture(), anyBoolean())).thenReturn(Future.succeededFuture());
+        when(mockCmOps.deleteAsync(any(), any(), cmDeletionCaptor.capture(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(null));
 
         PvcOperator mockPvcOps = supplier.pvcOperations;
-        when(mockPvcOps.getAsync(any(), any())).thenReturn(Future.succeededFuture());
-        when(mockPvcOps.reconcile(any(), any(), any(), any())).thenReturn(Future.succeededFuture());
+        when(mockPvcOps.getAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(mockPvcOps.reconcile(any(), any(), any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         StrimziPodSetOperator mockPodSetOps = supplier.strimziPodSetOperator;
         // Kafka
-        when(mockPodSetOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(Future.succeededFuture(kafkaPodSets));
+        when(mockPodSetOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(kafkaPodSets));
         @SuppressWarnings({ "unchecked" })
         ArgumentCaptor<List<StrimziPodSet>> kafkaPodSetBatchCaptor =  ArgumentCaptor.forClass(List.class);
         when(mockPodSetOps.batchReconcile(any(), any(), kafkaPodSetBatchCaptor.capture(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenAnswer(i -> {
@@ -1221,21 +1226,21 @@ public class KafkaAssemblyOperatorWithKRaftTest {
                 result.put(podSet.getMetadata().getName(), patched == null ? ReconcileResult.created(podSet) : ReconcileResult.noop(patched));
             }
 
-            return Future.succeededFuture(result);
+            return CompletableFuture.completedFuture(result);
         });
 
         PodOperator mockPodOps = supplier.podOperations;
-        when(mockPodOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(Future.succeededFuture(Collections.emptyList()));
-        when(mockPodOps.listAsync(any(), any(Labels.class))).thenReturn(Future.succeededFuture(Collections.emptyList()));
-        when(mockPodOps.readiness(any(), any(), any(), anyLong(), anyLong())).thenReturn(Future.succeededFuture());
+        when(mockPodOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(Collections.emptyList()));
+        when(mockPodOps.listAsync(any(), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(Collections.emptyList()));
+        when(mockPodOps.readiness(any(), any(), any(), anyLong(), anyLong())).thenReturn(CompletableFuture.completedFuture(null));
 
         CrdOperator<KubernetesClient, Kafka, KafkaList> mockKafkaOps = supplier.kafkaOperator;
-        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq(CLUSTER_NAME))).thenReturn(Future.succeededFuture(KAFKA));
-        when(mockKafkaOps.updateStatusAsync(any(), any())).thenReturn(Future.succeededFuture());
+        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq(CLUSTER_NAME))).thenReturn(CompletableFuture.completedFuture(KAFKA));
+        when(mockKafkaOps.updateStatusAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         CrdOperator<KubernetesClient, KafkaNodePool, KafkaNodePoolList> mockKafkaNodePoolOps = supplier.kafkaNodePoolOperator;
         ArgumentCaptor<KafkaNodePool> kafkaNodePoolStatusCaptor = ArgumentCaptor.forClass(KafkaNodePool.class);
-        when(mockKafkaNodePoolOps.updateStatusAsync(any(), kafkaNodePoolStatusCaptor.capture())).thenReturn(Future.succeededFuture());
+        when(mockKafkaNodePoolOps.updateStatusAsync(any(), kafkaNodePoolStatusCaptor.capture())).thenReturn(CompletableFuture.completedFuture(null));
 
         KafkaCluster kafkaCluster = KafkaClusterCreator.createKafkaCluster(
                 new Reconciliation("test-trigger", Kafka.RESOURCE_KIND, NAMESPACE, CLUSTER_NAME),
@@ -1244,7 +1249,7 @@ public class KafkaAssemblyOperatorWithKRaftTest {
                 Map.of(),
                 KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE,
                 VERSIONS,
-                supplier.sharedEnvironmentProvider);
+                supplier.sharedEnvironmentProvider, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
         MockKafkaReconciler kr = new MockKafkaReconciler(
                 new Reconciliation("test-trigger", Kafka.RESOURCE_KIND, NAMESPACE, CLUSTER_NAME),
                 vertx,
@@ -1259,7 +1264,7 @@ public class KafkaAssemblyOperatorWithKRaftTest {
 
         MockKafkaAssemblyOperator kao = new MockKafkaAssemblyOperator(
                 vertx, new PlatformFeaturesAvailability(false, KUBERNETES_VERSION),
-                CERT_MANAGER,
+                CERT_ISSUER,
                 PASSWORD_GENERATOR,
                 supplier,
                 CONFIG,
@@ -1327,30 +1332,30 @@ public class KafkaAssemblyOperatorWithKRaftTest {
             .build();
 
         List<KafkaPool> oldPools = NodePoolUtils.createKafkaPools(Reconciliation.DUMMY_RECONCILIATION, KAFKA, List.of(CONTROLLERS, BROKERS, newPool), Map.of(), KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, SHARED_ENV_PROVIDER);
-        KafkaCluster oldKafkaCluster = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, KAFKA, oldPools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER);
+        KafkaCluster oldKafkaCluster = KafkaCluster.fromCrd(Reconciliation.DUMMY_RECONCILIATION, KAFKA, oldPools, VERSIONS, KafkaVersionTestUtils.DEFAULT_KRAFT_VERSION_CHANGE, null, SHARED_ENV_PROVIDER, KafkaClusterSecurityContext.DEFAULT_KAFKA_CLUSTER_SECURITY_CONTEXT);
         List<StrimziPodSet> oldKafkaPodSets = oldKafkaCluster.generatePodSets(null, null, node -> null);
 
         ResourceOperatorSupplier supplier = ResourceUtils.supplierWithMocks(false);
 
         SecretOperator secretOps = supplier.secretOperations;
-        when(secretOps.reconcile(any(), any(), any(), any())).thenReturn(Future.succeededFuture());
-        when(secretOps.getAsync(any(), any())).thenReturn(Future.succeededFuture(mockOperatorSecret()));
-        when(secretOps.listAsync(any(), any(Labels.class))).thenReturn(Future.succeededFuture(List.of()));
+        when(secretOps.reconcile(any(), any(), any(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(secretOps.getAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(mockOperatorSecret()));
+        when(secretOps.listAsync(any(), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(List.of()));
 
         ConfigMapOperator mockCmOps = supplier.configMapOperations;
-        when(mockCmOps.listAsync(any(), eq(oldKafkaCluster.getSelectorLabels()))).thenReturn(Future.succeededFuture(oldKafkaCluster.generatePerBrokerConfigurationConfigMaps(new MetricsAndLogging(null, null), ADVERTISED_HOSTNAMES, ADVERTISED_PORTS)));
+        when(mockCmOps.listAsync(any(), eq(oldKafkaCluster.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(oldKafkaCluster.generatePerBrokerConfigurationConfigMaps(new MetricsAndLogging(null, null), ADVERTISED_HOSTNAMES, ADVERTISED_PORTS, Set.of())));
         ArgumentCaptor<String> cmReconciliationCaptor = ArgumentCaptor.forClass(String.class);
-        when(mockCmOps.reconcile(any(), any(), cmReconciliationCaptor.capture(), any())).thenReturn(Future.succeededFuture());
+        when(mockCmOps.reconcile(any(), any(), cmReconciliationCaptor.capture(), any())).thenReturn(CompletableFuture.completedFuture(null));
         ArgumentCaptor<String> cmDeletionCaptor = ArgumentCaptor.forClass(String.class);
-        when(mockCmOps.deleteAsync(any(), any(), cmDeletionCaptor.capture(), anyBoolean())).thenReturn(Future.succeededFuture());
+        when(mockCmOps.deleteAsync(any(), any(), cmDeletionCaptor.capture(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(null));
 
         PvcOperator mockPvcOps = supplier.pvcOperations;
-        when(mockPvcOps.getAsync(any(), any())).thenReturn(Future.succeededFuture());
-        when(mockPvcOps.reconcile(any(), any(), any(), any())).thenReturn(Future.succeededFuture());
+        when(mockPvcOps.getAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(mockPvcOps.reconcile(any(), any(), any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         StrimziPodSetOperator mockPodSetOps = supplier.strimziPodSetOperator;
         // Kafka
-        when(mockPodSetOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(Future.succeededFuture(oldKafkaPodSets));
+        when(mockPodSetOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(oldKafkaPodSets));
         @SuppressWarnings({ "unchecked" })
         ArgumentCaptor<List<StrimziPodSet>> kafkaPodSetBatchCaptor =  ArgumentCaptor.forClass(List.class);
         when(mockPodSetOps.batchReconcile(any(), any(), kafkaPodSetBatchCaptor.capture(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenAnswer(i -> {
@@ -1361,24 +1366,24 @@ public class KafkaAssemblyOperatorWithKRaftTest {
                 result.put(podSet.getMetadata().getName(), ReconcileResult.noop(podSet));
             }
 
-            return Future.succeededFuture(result);
+            return CompletableFuture.completedFuture(result);
         });
         ArgumentCaptor<StrimziPodSet> kafkaPodSetCaptor =  ArgumentCaptor.forClass(StrimziPodSet.class);
-        when(mockPodSetOps.reconcile(any(), any(), startsWith("my-cluster-new"), kafkaPodSetCaptor.capture())).thenAnswer(i -> Future.succeededFuture(ReconcileResult.noop(i.getArgument(3))));
+        when(mockPodSetOps.reconcile(any(), any(), startsWith("my-cluster-new"), kafkaPodSetCaptor.capture())).thenAnswer(i -> CompletableFuture.completedFuture(ReconcileResult.noop(i.getArgument(3))));
 
         PodOperator mockPodOps = supplier.podOperations;
-        when(mockPodOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(Future.succeededFuture(Collections.emptyList()));
-        when(mockPodOps.listAsync(any(), any(Labels.class))).thenReturn(Future.succeededFuture(Collections.emptyList()));
-        when(mockPodOps.readiness(any(), any(), any(), anyLong(), anyLong())).thenReturn(Future.succeededFuture());
-        when(mockPodOps.waitFor(any(), any(), any(), any(), anyLong(), anyLong(), any())).thenReturn(Future.succeededFuture());
+        when(mockPodOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(Collections.emptyList()));
+        when(mockPodOps.listAsync(any(), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(Collections.emptyList()));
+        when(mockPodOps.readiness(any(), any(), any(), anyLong(), anyLong())).thenReturn(CompletableFuture.completedFuture(null));
+        when(mockPodOps.waitFor(any(), any(), any(), any(), anyLong(), anyLong(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         CrdOperator<KubernetesClient, Kafka, KafkaList> mockKafkaOps = supplier.kafkaOperator;
-        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq(CLUSTER_NAME))).thenReturn(Future.succeededFuture(KAFKA));
-        when(mockKafkaOps.updateStatusAsync(any(), any())).thenReturn(Future.succeededFuture());
+        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq(CLUSTER_NAME))).thenReturn(CompletableFuture.completedFuture(KAFKA));
+        when(mockKafkaOps.updateStatusAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         CrdOperator<KubernetesClient, KafkaNodePool, KafkaNodePoolList> mockKafkaNodePoolOps = supplier.kafkaNodePoolOperator;
         ArgumentCaptor<KafkaNodePool> kafkaNodePoolStatusCaptor = ArgumentCaptor.forClass(KafkaNodePool.class);
-        when(mockKafkaNodePoolOps.updateStatusAsync(any(), kafkaNodePoolStatusCaptor.capture())).thenReturn(Future.succeededFuture());
+        when(mockKafkaNodePoolOps.updateStatusAsync(any(), kafkaNodePoolStatusCaptor.capture())).thenReturn(CompletableFuture.completedFuture(null));
 
         Admin mockAdmin = supplier.adminClientProvider.createAdminClient(null, null, null, null);
         UnregisterBrokerResult ubr = mock(UnregisterBrokerResult.class);
@@ -1413,7 +1418,7 @@ public class KafkaAssemblyOperatorWithKRaftTest {
 
         MockKafkaAssemblyOperator kao = new MockKafkaAssemblyOperator(
                 vertx, new PlatformFeaturesAvailability(false, KUBERNETES_VERSION),
-                CERT_MANAGER,
+                CERT_ISSUER,
                 PASSWORD_GENERATOR,
                 supplier,
                 CONFIG,
@@ -1473,29 +1478,29 @@ public class KafkaAssemblyOperatorWithKRaftTest {
         ResourceOperatorSupplier supplier = ResourceUtils.supplierWithMocks(false);
 
         SecretOperator secretOps = supplier.secretOperations;
-        when(secretOps.reconcile(any(), any(), any(), any())).thenReturn(Future.succeededFuture());
-        when(secretOps.listAsync(any(), any(Labels.class))).thenReturn(Future.succeededFuture(List.of()));
-        when(secretOps.getAsync(eq(NAMESPACE), eq(KafkaResources.clusterOperatorCertsSecretName(CLUSTER_NAME)))).thenReturn(Future.succeededFuture(mockOperatorSecret()));
+        when(secretOps.reconcile(any(), any(), any(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(secretOps.listAsync(any(), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(List.of()));
+        when(secretOps.getAsync(eq(NAMESPACE), eq(KafkaResources.clusterOperatorCertsSecretName(CLUSTER_NAME)))).thenReturn(CompletableFuture.completedFuture(mockOperatorSecret()));
 
         PodOperator mockPodOps = supplier.podOperations;
-        when(mockPodOps.listAsync(any(), any(Labels.class))).thenReturn(Future.succeededFuture(Collections.emptyList()));
+        when(mockPodOps.listAsync(any(), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(Collections.emptyList()));
 
         CrdOperator<KubernetesClient, Kafka, KafkaList> mockKafkaOps = supplier.kafkaOperator;
-        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq(CLUSTER_NAME))).thenReturn(Future.succeededFuture(KAFKA));
-        when(mockKafkaOps.updateStatusAsync(any(), any())).thenReturn(Future.succeededFuture());
+        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq(CLUSTER_NAME))).thenReturn(CompletableFuture.completedFuture(KAFKA));
+        when(mockKafkaOps.updateStatusAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         StrimziPodSetOperator mockPodSetOps = supplier.strimziPodSetOperator;
-        when(mockPodSetOps.listAsync(eq(NAMESPACE), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(Future.succeededFuture(null));
-        when(mockPodSetOps.getAsync(any(), eq(KAFKA_CLUSTER.getComponentName()))).thenReturn(Future.succeededFuture(null));
+        when(mockPodSetOps.listAsync(eq(NAMESPACE), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(null));
+        when(mockPodSetOps.getAsync(any(), eq(KAFKA_CLUSTER.getComponentName()))).thenReturn(CompletableFuture.completedFuture(null));
 
         CrdOperator<KubernetesClient, KafkaNodePool, KafkaNodePoolList> mockKafkaNodePoolOps = supplier.kafkaNodePoolOperator;
-        when(mockKafkaNodePoolOps.listAsync(any(), any(Labels.class))).thenReturn(Future.succeededFuture(List.of()));
+        when(mockKafkaNodePoolOps.listAsync(any(), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(List.of()));
 
         ClusterOperatorConfig config = ResourceUtils.dummyClusterOperatorConfig(VERSIONS);
 
         KafkaAssemblyOperator kao = new KafkaAssemblyOperator(
                 vertx, new PlatformFeaturesAvailability(false, KUBERNETES_VERSION),
-                CERT_MANAGER,
+                CERT_ISSUER,
                 PASSWORD_GENERATOR,
                 supplier,
                 config);
@@ -1540,16 +1545,16 @@ public class KafkaAssemblyOperatorWithKRaftTest {
         ClusterOperatorConfig config = ResourceUtils.dummyClusterOperatorConfig(VERSIONS);
 
         CrdOperator<KubernetesClient, Kafka, KafkaList> mockKafkaOps = supplier.kafkaOperator;
-        when(mockKafkaOps.listAsync(eq(NAMESPACE), isNull(LabelSelector.class))).thenReturn(Future.succeededFuture(List.of(foo, bar)));
+        when(mockKafkaOps.listAsync(eq(NAMESPACE), isNull(LabelSelector.class))).thenReturn(CompletableFuture.completedFuture(List.of(foo, bar)));
         when(mockKafkaOps.get(eq(NAMESPACE), eq("foo"))).thenReturn(foo);
         when(mockKafkaOps.get(eq(NAMESPACE), eq("bar"))).thenReturn(bar);
-        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq("foo"))).thenReturn(Future.succeededFuture(foo));
-        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq("bar"))).thenReturn(Future.succeededFuture(bar));
-        when(mockKafkaOps.updateStatusAsync(any(), any(Kafka.class))).thenReturn(Future.succeededFuture());
+        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq("foo"))).thenReturn(CompletableFuture.completedFuture(foo));
+        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq("bar"))).thenReturn(CompletableFuture.completedFuture(bar));
+        when(mockKafkaOps.updateStatusAsync(any(), any(Kafka.class))).thenReturn(CompletableFuture.completedFuture(null));
 
         CrdOperator<KubernetesClient, KafkaNodePool, KafkaNodePoolList> mockKafkaNodePoolOps = supplier.kafkaNodePoolOperator;
-        when(mockKafkaNodePoolOps.listAsync(eq(NAMESPACE), any(Labels.class))).thenReturn(Future.succeededFuture(List.of()));
-        when(mockKafkaNodePoolOps.listAsync(eq(NAMESPACE), isNull(LabelSelector.class))).thenReturn(Future.succeededFuture(List.of()));
+        when(mockKafkaNodePoolOps.listAsync(eq(NAMESPACE), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(List.of()));
+        when(mockKafkaNodePoolOps.listAsync(eq(NAMESPACE), isNull(LabelSelector.class))).thenReturn(CompletableFuture.completedFuture(List.of()));
 
         AtomicBoolean fooReconciled = new AtomicBoolean(false);
         AtomicBoolean barReconciled = new AtomicBoolean(false);
@@ -1557,7 +1562,7 @@ public class KafkaAssemblyOperatorWithKRaftTest {
         KafkaAssemblyOperator ops = new KafkaAssemblyOperator(
                 vertx,
                 new PlatformFeaturesAvailability(false, KUBERNETES_VERSION),
-                CERT_MANAGER,
+                CERT_ISSUER,
                 PASSWORD_GENERATOR,
                 supplier,
                 config
@@ -1616,16 +1621,16 @@ public class KafkaAssemblyOperatorWithKRaftTest {
         ClusterOperatorConfig config = ResourceUtils.dummyClusterOperatorConfig(VERSIONS);
         CrdOperator<KubernetesClient, Kafka, KafkaList> mockKafkaOps = supplier.kafkaOperator;
 
-        when(mockKafkaOps.listAsync(eq("*"), isNull(LabelSelector.class))).thenReturn(Future.succeededFuture(List.of(foo, bar)));
+        when(mockKafkaOps.listAsync(eq("*"), isNull(LabelSelector.class))).thenReturn(CompletableFuture.completedFuture(List.of(foo, bar)));
         when(mockKafkaOps.get(eq("namespace1"), eq("foo"))).thenReturn(foo);
         when(mockKafkaOps.get(eq("namespace2"), eq("bar"))).thenReturn(bar);
-        when(mockKafkaOps.getAsync(eq("namespace1"), eq("foo"))).thenReturn(Future.succeededFuture(foo));
-        when(mockKafkaOps.getAsync(eq("namespace2"), eq("bar"))).thenReturn(Future.succeededFuture(bar));
-        when(mockKafkaOps.updateStatusAsync(any(), any(Kafka.class))).thenReturn(Future.succeededFuture());
+        when(mockKafkaOps.getAsync(eq("namespace1"), eq("foo"))).thenReturn(CompletableFuture.completedFuture(foo));
+        when(mockKafkaOps.getAsync(eq("namespace2"), eq("bar"))).thenReturn(CompletableFuture.completedFuture(bar));
+        when(mockKafkaOps.updateStatusAsync(any(), any(Kafka.class))).thenReturn(CompletableFuture.completedFuture(null));
 
         CrdOperator<KubernetesClient, KafkaNodePool, KafkaNodePoolList> mockKafkaNodePoolOps = supplier.kafkaNodePoolOperator;
-        when(mockKafkaNodePoolOps.listAsync(eq("*"), any(Labels.class))).thenReturn(Future.succeededFuture(List.of()));
-        when(mockKafkaNodePoolOps.listAsync(eq("*"), isNull(LabelSelector.class))).thenReturn(Future.succeededFuture(List.of()));
+        when(mockKafkaNodePoolOps.listAsync(eq("*"), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(List.of()));
+        when(mockKafkaNodePoolOps.listAsync(eq("*"), isNull(LabelSelector.class))).thenReturn(CompletableFuture.completedFuture(List.of()));
 
         AtomicBoolean fooReconciled = new AtomicBoolean(false);
         AtomicBoolean barReconciled = new AtomicBoolean(false);
@@ -1633,7 +1638,7 @@ public class KafkaAssemblyOperatorWithKRaftTest {
         KafkaAssemblyOperator ops = new KafkaAssemblyOperator(
                 vertx,
                 new PlatformFeaturesAvailability(false, KUBERNETES_VERSION),
-                CERT_MANAGER,
+                CERT_ISSUER,
                 PASSWORD_GENERATOR,
                 supplier,
                 config
@@ -1674,20 +1679,20 @@ public class KafkaAssemblyOperatorWithKRaftTest {
         ResourceOperatorSupplier supplier = ResourceUtils.supplierWithMocks(false);
 
         SecretOperator secretOps = supplier.secretOperations;
-        when(secretOps.reconcile(any(), any(), any(), any())).thenReturn(Future.succeededFuture());
-        when(secretOps.listAsync(any(), any(Labels.class))).thenReturn(Future.succeededFuture(List.of()));
-        when(secretOps.getAsync(any(), any())).thenReturn(Future.succeededFuture());
+        when(secretOps.reconcile(any(), any(), any(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(secretOps.listAsync(any(), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(List.of()));
+        when(secretOps.getAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         ConfigMapOperator mockCmOps = supplier.configMapOperations;
-        when(mockCmOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(Future.succeededFuture(List.of()));
+        when(mockCmOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(List.of()));
         ArgumentCaptor<String> cmReconciliationCaptor = ArgumentCaptor.forClass(String.class);
-        when(mockCmOps.reconcile(any(), any(), cmReconciliationCaptor.capture(), any())).thenReturn(Future.succeededFuture());
+        when(mockCmOps.reconcile(any(), any(), cmReconciliationCaptor.capture(), any())).thenReturn(CompletableFuture.completedFuture(null));
         ArgumentCaptor<String> cmDeletionCaptor = ArgumentCaptor.forClass(String.class);
-        when(mockCmOps.deleteAsync(any(), any(), cmDeletionCaptor.capture(), anyBoolean())).thenReturn(Future.succeededFuture());
+        when(mockCmOps.deleteAsync(any(), any(), cmDeletionCaptor.capture(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(null));
 
         PvcOperator mockPvcOps = supplier.pvcOperations;
-        when(mockPvcOps.getAsync(any(), any())).thenReturn(Future.succeededFuture());
-        when(mockPvcOps.getAsync(any(), eq("data-0-my-cluster-brokers-4"))).thenReturn(Future.succeededFuture(
+        when(mockPvcOps.getAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(mockPvcOps.getAsync(any(), eq("data-0-my-cluster-brokers-4"))).thenReturn(CompletableFuture.completedFuture(
                 new PersistentVolumeClaimBuilder()
                         .withNewMetadata()
                             .withNamespace(NAMESPACE)
@@ -1701,11 +1706,11 @@ public class KafkaAssemblyOperatorWithKRaftTest {
                         .endStatus()
                         .build()
         ));
-        when(mockPvcOps.reconcile(any(), any(), any(), any())).thenReturn(Future.succeededFuture());
+        when(mockPvcOps.reconcile(any(), any(), any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         StrimziPodSetOperator mockPodSetOps = supplier.strimziPodSetOperator;
         // Kafka
-        when(mockPodSetOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(Future.succeededFuture(kafkaPodSets));
+        when(mockPodSetOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(kafkaPodSets));
         when(mockPodSetOps.batchReconcile(any(), any(), any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenAnswer(i -> {
             List<StrimziPodSet> podSets = i.getArgument(2);
             HashMap<String, ReconcileResult<StrimziPodSet>> result = new HashMap<>();
@@ -1715,21 +1720,21 @@ public class KafkaAssemblyOperatorWithKRaftTest {
                 result.put(podSet.getMetadata().getName(), patched == null ? ReconcileResult.created(podSet) : ReconcileResult.noop(patched));
             }
 
-            return Future.succeededFuture(result);
+            return CompletableFuture.completedFuture(result);
         });
 
         PodOperator mockPodOps = supplier.podOperations;
-        when(mockPodOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(Future.succeededFuture(Collections.emptyList()));
-        when(mockPodOps.listAsync(any(), any(Labels.class))).thenReturn(Future.succeededFuture(Collections.emptyList()));
-        when(mockPodOps.readiness(any(), any(), any(), anyLong(), anyLong())).thenReturn(Future.succeededFuture());
+        when(mockPodOps.listAsync(any(), eq(KAFKA_CLUSTER.getSelectorLabels()))).thenReturn(CompletableFuture.completedFuture(Collections.emptyList()));
+        when(mockPodOps.listAsync(any(), any(Labels.class))).thenReturn(CompletableFuture.completedFuture(Collections.emptyList()));
+        when(mockPodOps.readiness(any(), any(), any(), anyLong(), anyLong())).thenReturn(CompletableFuture.completedFuture(null));
 
         CrdOperator<KubernetesClient, Kafka, KafkaList> mockKafkaOps = supplier.kafkaOperator;
-        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq(CLUSTER_NAME))).thenReturn(Future.succeededFuture(KAFKA));
-        when(mockKafkaOps.updateStatusAsync(any(), any())).thenReturn(Future.succeededFuture());
+        when(mockKafkaOps.getAsync(eq(NAMESPACE), eq(CLUSTER_NAME))).thenReturn(CompletableFuture.completedFuture(KAFKA));
+        when(mockKafkaOps.updateStatusAsync(any(), any())).thenReturn(CompletableFuture.completedFuture(null));
 
         CrdOperator<KubernetesClient, KafkaNodePool, KafkaNodePoolList> mockKafkaNodePoolOps = supplier.kafkaNodePoolOperator;
         ArgumentCaptor<KafkaNodePool> kafkaNodePoolStatusCaptor = ArgumentCaptor.forClass(KafkaNodePool.class);
-        when(mockKafkaNodePoolOps.updateStatusAsync(any(), kafkaNodePoolStatusCaptor.capture())).thenReturn(Future.succeededFuture());
+        when(mockKafkaNodePoolOps.updateStatusAsync(any(), kafkaNodePoolStatusCaptor.capture())).thenReturn(CompletableFuture.completedFuture(null));
 
         MockKafkaReconciler kr = new MockKafkaReconciler(
                 new Reconciliation("test-trigger", Kafka.RESOURCE_KIND, NAMESPACE, CLUSTER_NAME),
@@ -1745,7 +1750,7 @@ public class KafkaAssemblyOperatorWithKRaftTest {
 
         MockKafkaAssemblyOperator kao = new MockKafkaAssemblyOperator(
                 vertx, new PlatformFeaturesAvailability(false, KUBERNETES_VERSION),
-                CERT_MANAGER,
+                CERT_ISSUER,
                 PASSWORD_GENERATOR,
                 supplier,
                 CONFIG,
@@ -1776,8 +1781,8 @@ public class KafkaAssemblyOperatorWithKRaftTest {
         KafkaReconciler mockKafkaReconciler;
         ReconciliationState state;
 
-        public MockKafkaAssemblyOperator(Vertx vertx, PlatformFeaturesAvailability pfa, CertManager certManager, PasswordGenerator passwordGenerator, ResourceOperatorSupplier supplier, ClusterOperatorConfig config, KafkaReconciler mockKafkaReconciler) {
-            super(vertx, pfa, certManager, passwordGenerator, supplier, config);
+        public MockKafkaAssemblyOperator(Vertx vertx, PlatformFeaturesAvailability pfa, CertIssuer certIssuer, PasswordGenerator passwordGenerator, ResourceOperatorSupplier supplier, ClusterOperatorConfig config, KafkaReconciler mockKafkaReconciler) {
+            super(vertx, pfa, certIssuer, passwordGenerator, supplier, config);
             this.mockKafkaReconciler = mockKafkaReconciler;
         }
 
@@ -1817,10 +1822,10 @@ public class KafkaAssemblyOperatorWithKRaftTest {
         int maybeRollKafkaInvocations = 0;
         Function<Pod, RestartReasons> kafkaPodNeedsRestart = null;
 
-        public MockKafkaReconciler(Reconciliation reconciliation, Vertx vertx, ClusterOperatorConfig config, ResourceOperatorSupplier supplier, PlatformFeaturesAvailability pfa, Kafka kafkaAssembly, List<KafkaNodePool> nodePools, KafkaCluster kafkaCluster, ClusterCa clusterCa, ClientsCa clientsCa) {
-            super(reconciliation, kafkaAssembly, nodePools, kafkaCluster, clusterCa, clientsCa, config, supplier, pfa, vertx);
+        public MockKafkaReconciler(Reconciliation reconciliation, Vertx vertx, ClusterOperatorConfig config, ResourceOperatorSupplier supplier, PlatformFeaturesAvailability pfa, Kafka kafkaAssembly, List<KafkaNodePool> nodePools, KafkaCluster kafkaCluster, Ca clusterCa, Ca clientsCa) {
+            super(reconciliation, kafkaAssembly, nodePools, kafkaCluster, clusterCa, clientsCa, config, supplier, pfa, vertx, Set.of());
 
-            this.coTlsPemIdentity = new TlsPemIdentity(null, null);
+            this.coIdentity = new Identity(null, null);
         }
 
         @Override

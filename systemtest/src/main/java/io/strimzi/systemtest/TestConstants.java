@@ -135,7 +135,12 @@ public interface TestConstants {
     String OPERATOR_GROUP = "OperatorGroup";
     String INSTALL_PLAN = "InstallPlan";
     String CLUSTER_SERVICE_VERSION = "ClusterServiceVersion";
+
+    /**
+     * CertManager related constants
+     */
     String CERTIFICATE = "Certificate";
+    String CERT_MANAGER_API_VERSION = "cert-manager.io/v1";
 
     /**
      * KafkaBridge JSON encoding with JSON embedded format
@@ -305,9 +310,4 @@ public interface TestConstants {
      * Label for Kubernetes worker nodes
      */
     String WORKER_NODE_LABEL = "node-role.kubernetes.io/worker";
-
-    /**
-     * API version
-     */
-    String V1_BETA_2_API_VERSION = "kafka.strimzi.io/v1beta2";
 }

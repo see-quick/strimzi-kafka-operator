@@ -24,6 +24,8 @@ import io.fabric8.kubernetes.api.model.apps.RollingUpdateDeploymentBuilder;
 import io.strimzi.api.kafka.model.common.template.DeploymentTemplate;
 import io.strimzi.api.kafka.model.common.template.PodTemplate;
 import io.strimzi.api.kafka.model.common.template.ResourceTemplate;
+import io.strimzi.api.kafka.model.common.template.StatefulPodTemplate;
+import io.strimzi.api.kafka.model.common.template.StrimziDeploymentStrategy;
 import io.strimzi.api.kafka.model.podset.StrimziPodSet;
 import io.strimzi.api.kafka.model.podset.StrimziPodSetBuilder;
 import io.strimzi.operator.common.Reconciliation;
@@ -248,7 +250,7 @@ public class WorkloadUtils {
             Labels labels,
             String strimziPodSetName,
             String serviceAccountName,
-            PodTemplate template,
+            StatefulPodTemplate template,
             Map<String, String> defaultPodLabels,
             Map<String, String> podAnnotations,
             String headlessServiceName,
@@ -271,6 +273,7 @@ public class WorkloadUtils {
                     .withHostname(name)
                     .withSubdomain(headlessServiceName)
                     .withServiceAccountName(serviceAccountName)
+                    .withAutomountServiceAccountToken(false)
                     .withEnableServiceLinks(template != null ? template.getEnableServiceLinks() : null)
                     .withAffinity(affinity)
                     .withInitContainers(initContainers)
@@ -336,6 +339,7 @@ public class WorkloadUtils {
                 .endMetadata()
                 .withNewSpec()
                     .withServiceAccountName(workloadName)
+                    .withAutomountServiceAccountToken(false)
                     .withEnableServiceLinks(template != null ? template.getEnableServiceLinks() : null)
                     .withAffinity(affinity)
                     .withInitContainers(initContainers)
@@ -404,6 +408,7 @@ public class WorkloadUtils {
                 .withNewSpec()
                     .withRestartPolicy("Never")
                     .withServiceAccountName(name)
+                    .withAutomountServiceAccountToken(false)
                     .withEnableServiceLinks(template != null ? template.getEnableServiceLinks() : null)
                     .withAffinity(affinity)
                     .withInitContainers(initContainers)
@@ -431,7 +436,7 @@ public class WorkloadUtils {
      *
      * @return  Created deployment strategy
      */
-    public static DeploymentStrategy deploymentStrategy(io.strimzi.api.kafka.model.common.template.DeploymentStrategy strategy) {
+    public static DeploymentStrategy deploymentStrategy(StrimziDeploymentStrategy strategy) {
         return switch (strategy) {
             case ROLLING_UPDATE -> rollingUpdateStrategy();
             case RECREATE -> recreateStrategy();

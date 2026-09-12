@@ -17,7 +17,25 @@ spec:
         strimzi.io/kind: cluster-operator
     spec:
       serviceAccountName: strimzi-cluster-operator
+      automountServiceAccountToken: false
       volumes:
+        - name: kube-api-access
+          projected:
+            defaultMode: 420
+            sources:
+              - serviceAccountToken:
+                  path: token
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef:
+                        apiVersion: v1
+                        fieldPath: metadata.namespace
         - name: strimzi-tmp
           emptyDir:
             medium: Memory
@@ -34,6 +52,9 @@ spec:
           args:
             - /opt/strimzi/bin/cluster_operator_run.sh
           volumeMounts:
+            - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              name: kube-api-access
+              readOnly: true
             - name: strimzi-tmp
               mountPath: /tmp
             - name: co-config-volume
@@ -48,24 +69,27 @@ spec:
             - name: STRIMZI_OPERATION_TIMEOUT_MS
               value: "300000"
             - name: STRIMZI_DEFAULT_KAFKA_EXPORTER_IMAGE
-              value: quay.io/strimzi/kafka:latest-kafka-4.3.0
+              value: quay.io/strimzi/kafka:latest-kafka-4.3.1
             - name: STRIMZI_DEFAULT_CRUISE_CONTROL_IMAGE
-              value: quay.io/strimzi/kafka:latest-kafka-4.3.0
+              value: quay.io/strimzi/kafka:latest-kafka-4.3.1
             - name: STRIMZI_KAFKA_IMAGES
               value: |
                 4.2.0=quay.io/strimzi/kafka:latest-kafka-4.2.0
                 4.2.1=quay.io/strimzi/kafka:latest-kafka-4.2.1
                 4.3.0=quay.io/strimzi/kafka:latest-kafka-4.3.0
+                4.3.1=quay.io/strimzi/kafka:latest-kafka-4.3.1
             - name: STRIMZI_KAFKA_CONNECT_IMAGES
               value: |
                 4.2.0=quay.io/strimzi/kafka:latest-kafka-4.2.0
                 4.2.1=quay.io/strimzi/kafka:latest-kafka-4.2.1
                 4.3.0=quay.io/strimzi/kafka:latest-kafka-4.3.0
+                4.3.1=quay.io/strimzi/kafka:latest-kafka-4.3.1
             - name: STRIMZI_KAFKA_MIRROR_MAKER_2_IMAGES
               value: |
                 4.2.0=quay.io/strimzi/kafka:latest-kafka-4.2.0
                 4.2.1=quay.io/strimzi/kafka:latest-kafka-4.2.1
                 4.3.0=quay.io/strimzi/kafka:latest-kafka-4.3.0
+                4.3.1=quay.io/strimzi/kafka:latest-kafka-4.3.1
             - name: STRIMZI_DEFAULT_TOPIC_OPERATOR_IMAGE
               value: quay.io/strimzi/operator:latest
             - name: STRIMZI_DEFAULT_USER_OPERATOR_IMAGE
@@ -73,7 +97,7 @@ spec:
             - name: STRIMZI_DEFAULT_KAFKA_INIT_IMAGE
               value: quay.io/strimzi/operator:latest
             - name: STRIMZI_DEFAULT_KAFKA_BRIDGE_IMAGE
-              value: quay.io/strimzi/kafka-bridge:1.0.0
+              value: quay.io/strimzi/kafka-bridge:1.1.0
             - name: STRIMZI_DEFAULT_KANIKO_EXECUTOR_IMAGE
               value: quay.io/strimzi/kaniko-executor:latest
             - name: STRIMZI_DEFAULT_BUILDAH_IMAGE
@@ -110,6 +134,15 @@ spec:
               port: http
             initialDelaySeconds: 10
             periodSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
           resources:
             limits:
               cpu: 1000m

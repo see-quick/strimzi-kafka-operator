@@ -14,26 +14,26 @@
 :toclevels: 2
 
 //Latest Strimzi version
-:ProductVersion: 1.1.0
-:ProductVersionPrevious: 1.0.0
+:ProductVersion: 1.3.0
+:ProductVersionPrevious: 1.2.0
 
 // Kubernetes versions
-:KubernetesVersion: 1.30 and later
+:KubernetesVersion: 1.32 and later
 
 // Kafka upgrade attributes used in kafka upgrades section
-:DefaultKafkaVersion: 4.3.0
+:DefaultKafkaVersion: 4.3.1
 :DefaultKafkaMetadataVersion: 4.3
 :KafkaMetadataVersionLower: 4.2-IV1
 :KafkaMetadataVersionHigher: 4.3-IV0
 :KafkaVersionLower: 4.2.0
-:KafkaVersionHigher: 4.3.0
+:KafkaVersionHigher: 4.3.1
 :ExampleImageTagUpgrades: quay.io/strimzi/kafka:{ProductVersion}-kafka-{KafkaVersionHigher}
 
 // Bridge version
-:BridgeVersion: 1.0.0
+:BridgeVersion: 1.1.0
 
 // Drain Cleaner Version
-:DrainCleanerVersion: 1.6.0
+:DrainCleanerVersion: 1.6.1
 
 // Source and download links
 :ReleaseDownload: https://github.com/strimzi/strimzi-kafka-operator/releases[GitHub releases page^]
@@ -112,7 +112,7 @@
 :K8sLivenessReadinessProbes: link:https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-probes/[Configure Liveness and Readiness Probes^]
 
 // Kubernetes networking and security
-:K8sNetworkPolicyPeerAPI: link:https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#networkpolicypeer-v1-networking-k8s-io[NetworkPolicyPeer API reference^]
+:K8sNetworkPolicyPeerAPI: link:https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.32/#networkpolicypeer-v1-networking-k8s-io[NetworkPolicyPeer API reference^]
 :K8sServiceDiscovery: link:https://kubernetes.io/docs/concepts/services-networking/service/#discovering-services[Discovering services^]
 :K8sSecurityContext: link:https://kubernetes.io/docs/tasks/configure-pod-container/security-context/[Security context^]
 :K8sSecurityStandards: link:https://kubernetes.io/docs/concepts/security/pod-security-standards/[Pod security standards^]
@@ -146,12 +146,11 @@
 // -----------------------------------------------------------------------------
 
 //distributed tracing versions and links
-:OpenTelemetryAlphaVersion: 1.34.1-alpha
-:OpenTelemetryVersion: 1.34.1
+:OpenTelemetryVersion: 1.63.0
 :OpenTelemetryInstrumentationVersion: 1.32.0-alpha
 :OpenTelemetrySemConvVersion: 1.21.0-alpha
 :OpenTelemetryKafkaClientVersion: 2.6
-:GRPCVersion: 1.75.0
+:GRPCVersion: 1.79.0
 
 :OpenTelemetry: link:https://opentelemetry.io[OpenTelemetry^]
 :OpenTelemetryDocs: link:https://opentelemetry.io/docs/[OpenTelemetry documentation^]

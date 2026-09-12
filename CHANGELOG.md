@@ -1,5 +1,37 @@
 # CHANGELOG
 
+## 1.3.0
+
+* (Early Access) Configurable internal cluster security allows users to configure encryption and authentication on the internal connections within the Apache Kafka cluster.
+* Update Kafka Exporter to [1.10.0](https://github.com/danielqsj/kafka_exporter/releases/tag/v1.10.0)
+* Support for mounting projected service account tokens into Strimzi-managed Pods
+
+### Major changes, deprecations, and removals
+
+* **From Strimzi 1.3.0 on, we support only Kubernetes 1.32 and newer.**
+  Kubernetes 1.30 and 1.31 are not supported anymore.
+* PKCS12 format certificates are deprecated.
+  The `STRIMZI_PKCS12_KEYSTORE_GENERATION` env var will be set to false by default in a future release and then eventually removed completely.
+  Once removed, the CA certificate Secrets and User Secrets will only contain certificates in the PEM format.
+
+## 1.2.0
+
+* Add support for Apache Kafka 4.3.1
+* Support templated (per-pod) additional volumes for Kafka, Kafka Connect and Kafka MirrorMaker 2 operands
+* Stop auto-mounting Service Account tokens into Pods and mount them through a volume instead
+* The `ServerSideApplyPhase1` feature gate moves to GA stage and is permanently enabled without the possibility to disable it.
+* Support for configuring Maven mirrors for Kafka Connect Build
+* Connectors that request the `stopped` or `paused` state via `spec.state` are now created directly in that state instead of being started first and then stopped or paused.
+* Added support for broker cordoning [KIP-1066](https://cwiki.apache.org/confluence/spaces/KAFKA/pages/311627566/KIP-1066+Mechanism+to+cordon+brokers+and+log+directories) during auto-rebalancing on scale down for Kafka 4.3+.
+* Removed deprecated resource state metrics - the KSM (kube-state-metrics) should be used instead.
+* Update Strimzi metrics-reporter to 0.4.0
+* Update strimzi-kafka-oauth to 0.18.0
+
+### Major changes, deprecations, and removals
+
+* The Cluster, Topic, and User Operator YAML installation files and the Cluster Operator Helm Chart now use the default container security context that matches the [Restricted Kubernetes Pod Security Standard](https://kubernetes.io/docs/concepts/security/pod-security-standards/).
+  If needed, you can override the default security context by updating the `securityContext` property in the YAML installation files or use the `securityContext` property in the Cluster Operator Helm Chart values.
+
 ## 1.1.0
 
 * Allow failed `KafkaConnectors` to be stopped and reject pausing of failed connectors since this operation is not supported by Kafka Connect
@@ -10,6 +42,7 @@
 * Support for Gateway API-based `type: tlsroute` listener
 * Support for dependency scope configuration of Maven artifacts in Kafka Connect Build
 * Support for configuring per-broker listener annotation and label templates.
+* Improved support for custom Apache Kafka versions
 * Add `UseBackgroundPodDeletion` feature gate (alpha, disabled by default) to use background deletion propagation when deleting pods during rolling updates. 
 * Strimzi Drain Cleaner updated to 1.6.0 (included in the Strimzi installation files)
 * Strimzi Access Operator updated to 0.3.0 - included in Strimzi installation files, examples, and documentation
@@ -19,6 +52,19 @@
 ### Major changes, deprecations, and removals
 
 * The entity-operator healthcheck port names have been renamed from `healthcheck` to `healthcheck-to` (topic-operator) and `healthcheck-uo` (user-operator) to avoid duplicate port name warnings in Kubernetes. If you reference these port names in custom `PodMonitor`, `ServiceMonitor`, `NetworkPolicy`, or similar resources, you will need to update them.
+
+## 1.0.1
+
+* **Entity Operator cross-namespace watching is now controlled by the `STRIMZI_ENTITY_OPERATOR_WATCHED_NAMESPACE_ENABLED` environment variable in the Cluster Operator.**
+  **This feature is now disabled by default.**
+  If you have `watchedNamespace` configured in your Kafka CR's Entity Operator sections and it differs from the cluster namespace, you must set `STRIMZI_ENTITY_OPERATOR_WATCHED_NAMESPACE_ENABLED=true` in the Cluster Operator deployment:
+  ```yaml
+  env:
+    - name: STRIMZI_ENTITY_OPERATOR_WATCHED_NAMESPACE_ENABLED
+      value: "true"
+  ```
+* **Fixes [CVE-2026-55225](https://github.com/strimzi/strimzi-kafka-operator/security/advisories/GHSA-mw9r-p8xp-wx96)**
+* **Fixes [CVE-2026-55226](https://github.com/strimzi/strimzi-kafka-operator/security/advisories/GHSA-r427-j2h7-wv3m)**
 
 ## 1.0.0
 

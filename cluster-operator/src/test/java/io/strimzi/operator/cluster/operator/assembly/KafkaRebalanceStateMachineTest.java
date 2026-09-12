@@ -17,7 +17,7 @@ import io.strimzi.api.kafka.model.rebalance.KafkaRebalanceSpec;
 import io.strimzi.api.kafka.model.rebalance.KafkaRebalanceSpecBuilder;
 import io.strimzi.api.kafka.model.rebalance.KafkaRebalanceState;
 import io.strimzi.api.kafka.model.rebalance.KafkaRebalanceStatus;
-import io.strimzi.certs.Subject;
+import io.strimzi.certs.StrimziSubject;
 import io.strimzi.operator.cluster.ResourceUtils;
 import io.strimzi.operator.cluster.model.AbstractModel;
 import io.strimzi.operator.cluster.operator.resource.ResourceOperatorSupplier;
@@ -26,12 +26,12 @@ import io.strimzi.operator.cluster.operator.resource.cruisecontrol.CruiseControl
 import io.strimzi.operator.cluster.operator.resource.cruisecontrol.CruiseControlApiImpl;
 import io.strimzi.operator.cluster.operator.resource.cruisecontrol.MockCruiseControl;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.ConfigMapOperator;
-import io.strimzi.operator.cluster.operator.resource.kubernetes.CrdOperator;
 import io.strimzi.operator.common.Annotations;
 import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.model.cruisecontrol.CruiseControlEndpoints;
-import io.strimzi.operator.common.operator.MockCertManager;
+import io.strimzi.operator.common.operator.MockCertIssuer;
+import io.strimzi.operator.common.operator.resource.kubernetes.CrdOperator;
 import io.strimzi.test.ReadWriteUtils;
 import io.strimzi.test.TestUtils;
 import io.vertx.core.AsyncResult;
@@ -53,6 +53,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 import static io.strimzi.operator.cluster.operator.resource.cruisecontrol.CruiseControlApiImpl.HTTP_DEFAULT_IDLE_TIMEOUT_SECONDS;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -99,8 +100,8 @@ public class KafkaRebalanceStateMachineTest {
         File tlsKeyFile = ReadWriteUtils.tempFile(KafkaRebalanceStateMachineTest.class.getSimpleName(), ".key");
         File tlsCrtFile = ReadWriteUtils.tempFile(KafkaRebalanceStateMachineTest.class.getSimpleName(), ".crt");
 
-        new MockCertManager().generateSelfSignedCert(tlsKeyFile, tlsCrtFile,
-            new Subject.Builder().withCommonName("Trusted Test CA").build(), 365);
+        new MockCertIssuer().generateSelfSignedCert(tlsKeyFile, tlsCrtFile,
+            new StrimziSubject.Builder().withCommonName("Trusted Test CA").build(), 365);
 
         cruiseControlPort = TestUtils.getFreePort();
         cruiseControlServer = new MockCruiseControl(cruiseControlPort, tlsKeyFile, tlsCrtFile);
@@ -186,7 +187,7 @@ public class KafkaRebalanceStateMachineTest {
                                                          KafkaRebalanceState nextState,
                                                          KafkaRebalance kcRebalance) {
 
-        CruiseControlApi client = new CruiseControlApiImpl(HTTP_DEFAULT_IDLE_TIMEOUT_SECONDS, MockCruiseControl.CC_SECRET, MockCruiseControl.CC_API_SECRET, true, true);
+        CruiseControlApi client = new CruiseControlApiImpl(HTTP_DEFAULT_IDLE_TIMEOUT_SECONDS, MockCruiseControl.CLUSTER_CA_CERT_SECRET, MockCruiseControl.CC_API_SECRET, true, true);
         ResourceOperatorSupplier supplier = ResourceUtils.supplierWithMocks(true);
         ConfigMapOperator mockCmOps = supplier.configMapOperations;
         KafkaRebalanceAssemblyOperator kcrao = new KafkaRebalanceAssemblyOperator(vertx, supplier, ResourceUtils.dummyClusterOperatorConfig(), cruiseControlPort) {
@@ -201,12 +202,12 @@ public class KafkaRebalanceStateMachineTest {
         AbstractRebalanceOptions.AbstractRebalanceOptionsBuilder<?, ?> rbOptions = kcrao.convertRebalanceSpecToRebalanceOptions(kcRebalance.getSpec());
 
         CrdOperator<KubernetesClient,
-                        KafkaRebalance,
-                        KafkaRebalanceList> mockRebalanceOps = supplier.kafkaRebalanceOperator;
+                                KafkaRebalance,
+                                KafkaRebalanceList> mockRebalanceOps = supplier.kafkaRebalanceOperator;
 
-        when(mockCmOps.getAsync(CLUSTER_NAMESPACE, RESOURCE_NAME)).thenReturn(Future.succeededFuture(new ConfigMap()));
+        when(mockCmOps.getAsync(CLUSTER_NAMESPACE, RESOURCE_NAME)).thenReturn(CompletableFuture.completedFuture(new ConfigMap()));
         when(mockRebalanceOps.get(CLUSTER_NAMESPACE, RESOURCE_NAME)).thenReturn(kcRebalance);
-        when(mockRebalanceOps.getAsync(CLUSTER_NAMESPACE, RESOURCE_NAME)).thenReturn(Future.succeededFuture(kcRebalance));
+        when(mockRebalanceOps.getAsync(CLUSTER_NAMESPACE, RESOURCE_NAME)).thenReturn(CompletableFuture.completedFuture(kcRebalance));
 
         KafkaRebalanceAnnotation initialAnnotation = kcrao.rebalanceAnnotation(kcRebalance);
         return kcrao.computeNextStatus(recon, HOST, client, kcRebalance, currentState, rbOptions)
@@ -1318,7 +1319,7 @@ public class KafkaRebalanceStateMachineTest {
         KafkaRebalance kcRebalance = createKafkaRebalance(KafkaRebalanceState.Rebalancing, MockCruiseControl.REBALANCE_NO_GOALS_RESPONSE_UTID, null, REMOVE_BROKER_KAFKA_REBALANCE_SPEC, null, false);
         cruiseControlServer.setupCCUserTasksToReturnError(500, "Some error");
 
-        CruiseControlApi client = new CruiseControlApiImpl(HTTP_DEFAULT_IDLE_TIMEOUT_SECONDS, MockCruiseControl.CC_SECRET, MockCruiseControl.CC_API_SECRET, true, true);
+        CruiseControlApi client = new CruiseControlApiImpl(HTTP_DEFAULT_IDLE_TIMEOUT_SECONDS, MockCruiseControl.CLUSTER_CA_CERT_SECRET, MockCruiseControl.CC_API_SECRET, true, true);
         KafkaRebalanceAssemblyOperator kcrao = new KafkaRebalanceAssemblyOperator(vertx,  ResourceUtils.supplierWithMocks(true), ResourceUtils.dummyClusterOperatorConfig(), cruiseControlPort) {
             @Override
             public String cruiseControlHost(String clusterName, String clusterNamespace) {

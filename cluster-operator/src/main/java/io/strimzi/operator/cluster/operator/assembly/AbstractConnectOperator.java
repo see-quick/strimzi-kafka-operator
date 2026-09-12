@@ -42,16 +42,15 @@ import io.strimzi.operator.cluster.model.PodSetUtils;
 import io.strimzi.operator.cluster.model.RestartReason;
 import io.strimzi.operator.cluster.model.RestartReasons;
 import io.strimzi.operator.cluster.model.SharedEnvironmentProvider;
+import io.strimzi.operator.cluster.operator.VertxUtil;
 import io.strimzi.operator.cluster.operator.resource.ResourceOperatorSupplier;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.ClusterRoleBindingOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.ConfigMapOperator;
-import io.strimzi.operator.cluster.operator.resource.kubernetes.CrdOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.NetworkPolicyOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.PodDisruptionBudgetOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.PodOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.RoleBindingOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.RoleOperator;
-import io.strimzi.operator.cluster.operator.resource.kubernetes.SecretOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.ServiceAccountOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.ServiceOperator;
 import io.strimzi.operator.cluster.operator.resource.kubernetes.StrimziPodSetOperator;
@@ -65,6 +64,8 @@ import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.model.StatusDiff;
 import io.strimzi.operator.common.model.StatusUtils;
 import io.strimzi.operator.common.operator.resource.ReconcileResult;
+import io.strimzi.operator.common.operator.resource.kubernetes.CrdOperator;
+import io.strimzi.operator.common.operator.resource.kubernetes.SecretOperator;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
@@ -73,6 +74,7 @@ import io.vertx.core.json.JsonObject;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -198,7 +200,7 @@ public abstract class AbstractConnectOperator<C extends KubernetesClient, T exte
      * @return                     Future for tracking the asynchronous result of reconciling the ServiceAccount
      */
     protected Future<ReconcileResult<ServiceAccount>> connectServiceAccount(Reconciliation reconciliation, String namespace, String name, KafkaConnectCluster connect) {
-        return serviceAccountOperations.reconcile(reconciliation, namespace, name, connect.generateServiceAccount());
+        return VertxUtil.toFuture(serviceAccountOperations.reconcile(reconciliation, namespace, name, connect.generateServiceAccount()));
     }
 
     /**
@@ -213,7 +215,7 @@ public abstract class AbstractConnectOperator<C extends KubernetesClient, T exte
      * @return Future for tracking the asynchronous result of the ClusterRoleBinding reconciliation
      */
     protected Future<ReconcileResult<ClusterRoleBinding>> connectInitClusterRoleBinding(Reconciliation reconciliation, String crbName, ClusterRoleBinding crb) {
-        return ReconcilerUtils.withIgnoreRbacError(reconciliation, clusterRoleBindingOperations.reconcile(reconciliation, crbName, crb), crb);
+        return ReconcilerUtils.withIgnoreRbacError(reconciliation, VertxUtil.toFuture(clusterRoleBindingOperations.reconcile(reconciliation, crbName, crb)), crb);
     }
 
 
@@ -229,13 +231,13 @@ public abstract class AbstractConnectOperator<C extends KubernetesClient, T exte
      * @return  Future which completes when the reconciliation is done
      */
     protected Future<Void> connectRole(Reconciliation reconciliation, String namespace, KafkaConnectCluster connect) {
-        return roleOperations
+        return VertxUtil.toFuture(roleOperations
                 .reconcile(
                         reconciliation,
                         namespace,
                         connect.getComponentName(),
                         connect.generateRole()
-                ).mapEmpty();
+                )).mapEmpty();
     }
 
     /**
@@ -245,12 +247,12 @@ public abstract class AbstractConnectOperator<C extends KubernetesClient, T exte
      * @return  Future which completes when the reconciliation is done
      */
     protected Future<Void> connectRoleBinding(Reconciliation reconciliation, String namespace, KafkaConnectCluster connect) {
-        return roleBindingOperations
+        return VertxUtil.toFuture(roleBindingOperations
                 .reconcile(
                         reconciliation,
                         namespace,
                         connect.getRoleBindingName(),
-                        connect.generateRoleBindingForRole())
+                        connect.generateRoleBindingForRole()))
                 .mapEmpty();
     }
 
@@ -264,7 +266,7 @@ public abstract class AbstractConnectOperator<C extends KubernetesClient, T exte
      */
     protected Future<ReconcileResult<NetworkPolicy>> connectNetworkPolicy(Reconciliation reconciliation, String namespace, KafkaConnectCluster connect, boolean connectorOperatorEnabled) {
         if (isNetworkPolicyGeneration) {
-            return networkPolicyOperator.reconcile(reconciliation, namespace, connect.getComponentName(), connect.generateNetworkPolicy(connectorOperatorEnabled, operatorNamespace, operatorNamespaceLabels));
+            return VertxUtil.toFuture(networkPolicyOperator.reconcile(reconciliation, namespace, connect.getComponentName(), connect.generateNetworkPolicy(connectorOperatorEnabled, operatorNamespace, operatorNamespaceLabels)));
         } else {
             return Future.succeededFuture();
         }
@@ -274,19 +276,24 @@ public abstract class AbstractConnectOperator<C extends KubernetesClient, T exte
      * Generates or reconciles the secret that combines secrets and certificates
      * provided for Kafka Connect truststore if TLS is enabled.
      *
-     * @return  Future which completes when the reconciliation is done
+     * @param reconciliation The reconcilation.
+     * @param namespace Namespace of the Connect cluster.
+     * @param connect KafkaConnectCluster object.
+     * @return Future which completes when the reconciliation is done.
      */
-    protected Future<Void> tlsTrustedCertsSecret(Reconciliation reconciliation, String namespace, KafkaConnectCluster connect) {
+    protected Future<Collection<String>> tlsTrustedCertsSecret(Reconciliation reconciliation, String namespace, KafkaConnectCluster connect) {
         if (connect.getTls() != null) {
             return ReconcilerUtils.trustedCertificates(reconciliation, secretOperations, connect.getTls().getTrustedCertificates())
                     .compose(certificates -> {
                         if (certificates != null) {
-                            return secretOperations.reconcile(
+                            return VertxUtil.toFuture(secretOperations.reconcile(
                                             reconciliation,
                                             namespace,
                                             KafkaConnectResources.internalTlsTrustedCertsSecretName(connect.getCluster()),
-                                            connect.generateTlsTrustedCertsSecret(Map.of(KafkaConnectCluster.KAFKA_CONNECT_CERTIFICATES_KEY, Util.encodeToBase64(certificates)), KafkaConnectResources.internalTlsTrustedCertsSecretName(connect.getCluster())))
-                                    .mapEmpty();
+                                            connect.generateTlsTrustedCertsSecret(
+                                                Map.of(KafkaConnectCluster.KAFKA_CONNECT_CERTIFICATES_KEY, Util.encodeToBase64(String.join("\n", certificates))),
+                                                KafkaConnectResources.internalTlsTrustedCertsSecretName(connect.getCluster()))))
+                                    .map(certificates);
                         } else {
                             return Future.succeededFuture();
                         }
@@ -307,7 +314,7 @@ public abstract class AbstractConnectOperator<C extends KubernetesClient, T exte
      *          annotation were rolled or when there is nothing to roll.
      */
     protected Future<Void> manualRollingUpdate(Reconciliation reconciliation, KafkaConnectCluster connect)  {
-        return podSetOperations.getAsync(reconciliation.namespace(), connect.getComponentName())
+        return VertxUtil.toFuture(podSetOperations.getAsync(reconciliation.namespace(), connect.getComponentName()))
                 .compose(podSet -> {
                     if (podSet != null
                             && Annotations.booleanAnnotation(podSet, Annotations.ANNO_STRIMZI_IO_MANUAL_ROLLING_UPDATE, false)) {
@@ -315,7 +322,7 @@ public abstract class AbstractConnectOperator<C extends KubernetesClient, T exte
                         return Future.succeededFuture(PodSetUtils.podNames(podSet));
                     } else {
                         // The PodSet is not annotated for rolling - but the Pods might be
-                        return podOperations.listAsync(reconciliation.namespace(), connect.getSelectorLabels())
+                        return VertxUtil.toFuture(podOperations.listAsync(reconciliation.namespace(), connect.getSelectorLabels()))
                                 .compose(pods -> Future.succeededFuture(pods.stream().filter(pod -> Annotations.booleanAnnotation(pod, Annotations.ANNO_STRIMZI_IO_MANUAL_ROLLING_UPDATE, false)).map(pod -> pod.getMetadata().getName()).collect(Collectors.toList())));
                     }
                 })
@@ -343,7 +350,7 @@ public abstract class AbstractConnectOperator<C extends KubernetesClient, T exte
      * @return Future for tracking the asynchronous result of getting the metrics and logging config map
      */
     protected Future<ConfigMap> generateMetricsAndLoggingConfigMap(Reconciliation reconciliation, KafkaConnectCluster kafkaConnectCluster) {
-        return MetricsAndLoggingUtils.metricsAndLogging(reconciliation, configMapOperations, kafkaConnectCluster.logging(), kafkaConnectCluster.metrics())
+        return VertxUtil.toFuture(MetricsAndLoggingUtils.metricsAndLogging(reconciliation, configMapOperations, kafkaConnectCluster.logging(), kafkaConnectCluster.metrics()))
                 .compose(metricsAndLoggingCm -> Future.succeededFuture(kafkaConnectCluster.generateConnectConfigMap(metricsAndLoggingCm)));
     }
 
@@ -363,12 +370,12 @@ public abstract class AbstractConnectOperator<C extends KubernetesClient, T exte
                                          Map<String, String> podAnnotations,
                                          Map<String, String> podSetAnnotations,
                                          String customContainerImage) {
-        return podSetOperations.reconcile(reconciliation, reconciliation.namespace(), connect.getComponentName(), connect.generatePodSet(connect.getReplicas(), podSetAnnotations, podAnnotations, pfa.isOpenshift(), imagePullPolicy, imagePullSecrets, customContainerImage))
+        return VertxUtil.toFuture(podSetOperations.reconcile(reconciliation, reconciliation.namespace(), connect.getComponentName(), connect.generatePodSet(connect.getReplicas(), podSetAnnotations, podAnnotations, imagePullPolicy, imagePullSecrets, customContainerImage)))
                 .compose(reconciliationResult -> {
                     KafkaConnectRoller roller = new KafkaConnectRoller(reconciliation, connect, operationTimeoutMs, podOperations);
                     return roller.maybeRoll(PodSetUtils.podNames(reconciliationResult.resource()), pod -> KafkaConnectRoller.needsRollingRestart(reconciliation, reconciliationResult.resource(), pod));
                 })
-                .compose(i -> podSetOperations.readiness(reconciliation, reconciliation.namespace(), connect.getComponentName(), 1_000, operationTimeoutMs));
+                .compose(i -> VertxUtil.toFuture(podSetOperations.readiness(reconciliation, reconciliation.namespace(), connect.getComponentName(), 1_000, operationTimeoutMs)));
     }
 
     /**
@@ -382,7 +389,7 @@ public abstract class AbstractConnectOperator<C extends KubernetesClient, T exte
      */
     protected Future<Void> connectPodDisruptionBudget(Reconciliation reconciliation, String namespace, KafkaConnectCluster connect) {
         if (isPodDisruptionBudgetGeneration) {
-            return podDisruptionBudgetOperator.reconcile(reconciliation, namespace, connect.getComponentName(), connect.generatePodDisruptionBudget())
+            return VertxUtil.toFuture(podDisruptionBudgetOperator.reconcile(reconciliation, namespace, connect.getComponentName(), connect.generatePodDisruptionBudget()))
                     .mapEmpty();
         } else {
             return Future.succeededFuture();
@@ -390,9 +397,10 @@ public abstract class AbstractConnectOperator<C extends KubernetesClient, T exte
     }
 
     /**
-     * Try to get the current connector config. If the connector does not exist, or its config differs from the
-     * {@code connectorSpec}'s, then call
-     * {@link #createOrUpdateConnector(Reconciliation, String, KafkaConnectApi, String, KafkaConnectorSpec, KafkaConnectorConfiguration)}
+     * Try to get the current connector config. If the connector does not exist, call
+     * {@link #createConnector(Reconciliation, String, KafkaConnectApi, String, KafkaConnectorSpec, KafkaConnectorConfiguration)};
+     * if it exists but its config differs from the {@code connectorSpec}'s, call
+     * {@link #updateConnector(Reconciliation, String, KafkaConnectApi, String, KafkaConnectorSpec, KafkaConnectorConfiguration)};
      * otherwise, just return the connectors current state.
      * @param reconciliation The reconciliation.
      * @param host The REST API host.
@@ -422,7 +430,7 @@ public abstract class AbstractConnectOperator<C extends KubernetesClient, T exte
                         .compose(status -> updateConnectorTopics(reconciliation, host, apiClient, connectorName, status));
                 } else {
                     LOGGER.debugCr(reconciliation, "Connector {} exists but does not have desired config, {}!={}", connectorName, desiredConfig.asOrderedProperties().asMap(), currentConfig);
-                    return createOrUpdateConnector(reconciliation, host, apiClient, connectorName, connectorSpec, desiredConfig)
+                    return updateConnector(reconciliation, host, apiClient, connectorName, connectorSpec, desiredConfig)
                         .compose(createConnectorStatusAndConditions())
                         .compose(status -> updateConnectorTopics(reconciliation, host, apiClient, connectorName, status));
                 }
@@ -431,7 +439,7 @@ public abstract class AbstractConnectOperator<C extends KubernetesClient, T exte
                 if (error instanceof ConnectRestException connectRestException
                         && connectRestException.getStatusCode() == 404) {
                     LOGGER.debugCr(reconciliation, "Connector {} does not exist", connectorName);
-                    return createOrUpdateConnector(reconciliation, host, apiClient, connectorName, connectorSpec, desiredConfig)
+                    return createConnector(reconciliation, host, apiClient, connectorName, connectorSpec, desiredConfig)
                         .compose(createConnectorStatusAndConditions())
                         .compose(status -> autoRestartFailedConnectorAndTasks(reconciliation, host, apiClient, connectorName, connectorSpec, status, resource))
                         .compose(status -> updateConnectorTopics(reconciliation, host, apiClient, connectorName, status));
@@ -464,13 +472,46 @@ public abstract class AbstractConnectOperator<C extends KubernetesClient, T exte
         return !desiredConfig.equals(actualConfig);
     }
 
-    private Future<Map<String, Object>> createOrUpdateConnector(Reconciliation reconciliation, String host, KafkaConnectApi apiClient,
-                                                                  String connectorName, KafkaConnectorSpec connectorSpec, KafkaConnectorConfiguration desiredConfig) {
+    /**
+     * Updates an existing connector's config via PUT, then reconciles its running/paused/stopped state to
+     * match {@code spec.state}. Used only when the connector already exists and its config has changed.
+     *
+     * @param reconciliation    Reconciliation marker
+     * @param host              Kafka Connect host
+     * @param apiClient         Kafka Connect REST API client
+     * @param connectorName     Name of the connector
+     * @param connectorSpec     Spec of the connector
+     * @param desiredConfig     Desired connector configuration
+     *
+     * @return  Future with the connector status which completes when the connector is updated
+     */
+    private Future<Map<String, Object>> updateConnector(Reconciliation reconciliation, String host, KafkaConnectApi apiClient,
+                                                         String connectorName, KafkaConnectorSpec connectorSpec, KafkaConnectorConfiguration desiredConfig) {
         return Future.fromCompletionStage(apiClient.createOrUpdatePutRequest(reconciliation, host, port, connectorName, asJson(connectorSpec, desiredConfig)))
             .compose(ignored -> Future.fromCompletionStage(apiClient.statusWithBackOff(reconciliation, new BackOff(200L, 2, 10), host, port,
                     connectorName)))
             .compose(status -> updateState(reconciliation, host, apiClient, connectorName, connectorSpec, status, new ArrayList<>()))
             .compose(ignored ->  Future.fromCompletionStage(apiClient.status(reconciliation, host, port, connectorName)));
+    }
+
+    /**
+     * Creates a brand-new connector via POST, in the state requested by {@code spec.state} (KIP-980),
+     * so a paused or stopped connector is never started first. Used only when the connector does not
+     * exist yet.
+     *
+     * @param reconciliation    Reconciliation marker
+     * @param host              Kafka Connect host
+     * @param apiClient         Kafka Connect REST API client
+     * @param connectorName     Name of the connector
+     * @param connectorSpec     Spec of the connector
+     * @param desiredConfig     Desired connector configuration
+     *
+     * @return  Future with the connector status which completes when the connector is created
+     */
+    private Future<Map<String, Object>> createConnector(Reconciliation reconciliation, String host, KafkaConnectApi apiClient,
+                                                         String connectorName, KafkaConnectorSpec connectorSpec, KafkaConnectorConfiguration desiredConfig) {
+        return Future.fromCompletionStage(apiClient.createConnector(reconciliation, host, port, connectorName, asJson(connectorSpec, desiredConfig), connectorSpec.getState()))
+            .compose(ignored -> Future.fromCompletionStage(apiClient.statusWithBackOff(reconciliation, new BackOff(200L, 2, 10), host, port, connectorName)));
     }
 
     private Future<List<Condition>> updateState(Reconciliation reconciliation, String host, KafkaConnectApi apiClient, String connectorName, KafkaConnectorSpec connectorSpec, Map<String, Object> status, List<Condition> conditions) {
@@ -799,7 +840,7 @@ public abstract class AbstractConnectOperator<C extends KubernetesClient, T exte
         String configMapName = listOffsetsConfig.get().getToConfigMap().getName();
         return Future.fromCompletionStage(apiClient.getConnectorOffsets(reconciliation, host, port, connectorName))
                 .compose(offsets -> generateListOffsetsConfigMap(configMapName, connectorName, resource, offsets))
-                .compose(configMap -> configMapOperations.reconcile(reconciliation, resource.getMetadata().getNamespace(), configMapName, configMap))
+                .compose(configMap -> VertxUtil.toFuture(configMapOperations.reconcile(reconciliation, resource.getMetadata().getNamespace(), configMapName, configMap)))
                 .compose(v -> removeConnectorOffsetsAnnotations(reconciliation, resource))
                 .map(v -> conditions)
                 .otherwise(throwable -> {
@@ -828,7 +869,7 @@ public abstract class AbstractConnectOperator<C extends KubernetesClient, T exte
         Map<String, String> offsetsData = new HashMap<>(1);
         offsetsData.put(getConnectorOffsetsConfigMapEntryKey(connectorName), offsets);
         String configMapNamespace = resource.getMetadata().getNamespace();
-        return configMapOperations.getAsync(configMapNamespace, configMapName)
+        return VertxUtil.toFuture(configMapOperations.getAsync(configMapNamespace, configMapName))
                 .compose(existingConfigMap -> {
                     List<OwnerReference> ownerReferences = existingConfigMap != null
                         ? new ArrayList<>(existingConfigMap.getMetadata().getOwnerReferences())
@@ -920,7 +961,7 @@ public abstract class AbstractConnectOperator<C extends KubernetesClient, T exte
      * @return Future with a String representation of the new offsets to use in the alter Connect API call.
      */
     private Future<String> getOffsetsForAlterRequest(String configMapNamespace, String configMapName, String configMapKeyName) {
-        return configMapOperations.getAsync(configMapNamespace, configMapName)
+        return VertxUtil.toFuture(configMapOperations.getAsync(configMapNamespace, configMapName))
                 .compose(configMap -> {
                     if (configMap == null) {
                         return Future.failedFuture(String.format("Encountered error fetching offsets to use in alter operation. ConfigMap %s/%s does not exist.", configMapNamespace, configMapName));
@@ -1189,7 +1230,7 @@ public abstract class AbstractConnectOperator<C extends KubernetesClient, T exte
                                 BiFunction<U, V, U> copyWithStatus) {
         Promise<Void> updateStatusPromise = Promise.promise();
 
-        resourceOperator.getAsync(resource.getMetadata().getNamespace(), resource.getMetadata().getName()).onComplete(getRes -> {
+        VertxUtil.toFuture(resourceOperator.getAsync(resource.getMetadata().getNamespace(), resource.getMetadata().getName())).onComplete(getRes -> {
             if (getRes.succeeded()) {
                 U fetchedResource = getRes.result();
 
@@ -1202,12 +1243,12 @@ public abstract class AbstractConnectOperator<C extends KubernetesClient, T exte
                     } else {
                         V currentStatus = fetchedResource.getStatus();
 
-                        StatusDiff ksDiff = new StatusDiff(currentStatus, desiredStatus);
+                        StatusDiff ksDiff = new StatusDiff(reconciliation, currentStatus, desiredStatus);
 
                         if (!ksDiff.isEmpty()) {
                             U resourceWithNewStatus = copyWithStatus.apply(fetchedResource, desiredStatus);
 
-                            resourceOperator.updateStatusAsync(reconciliation, resourceWithNewStatus).onComplete(updateRes -> {
+                            VertxUtil.toFuture(resourceOperator.updateStatusAsync(reconciliation, resourceWithNewStatus)).onComplete(updateRes -> {
                                 if (updateRes.succeeded()) {
                                     LOGGER.debugCr(reconciliation, "Completed status update");
                                     updateStatusPromise.complete();

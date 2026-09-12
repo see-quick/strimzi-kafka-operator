@@ -27,16 +27,17 @@ import io.strimzi.operator.cluster.ClusterOperatorConfig;
 import io.strimzi.operator.cluster.KafkaVersionTestUtils;
 import io.strimzi.operator.cluster.PlatformFeaturesAvailability;
 import io.strimzi.operator.cluster.ResourceUtils;
-import io.strimzi.operator.cluster.model.CertUtils;
+import io.strimzi.operator.cluster.model.CertSecretUtils;
 import io.strimzi.operator.cluster.model.KafkaVersion;
 import io.strimzi.operator.cluster.model.PodSetUtils;
+import io.strimzi.operator.cluster.operator.VertxUtil;
 import io.strimzi.operator.cluster.operator.resource.ResourceOperatorSupplier;
 import io.strimzi.operator.common.Annotations;
 import io.strimzi.operator.common.Reconciliation;
-import io.strimzi.operator.common.model.Ca;
+import io.strimzi.operator.common.ca.Ca;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.model.PasswordGenerator;
-import io.strimzi.operator.common.operator.MockCertManager;
+import io.strimzi.operator.common.operator.MockCertIssuer;
 import io.strimzi.platform.KubernetesVersion;
 import io.strimzi.test.mockkube3.MockKube3;
 import io.vertx.core.Vertx;
@@ -72,7 +73,7 @@ import static org.hamcrest.Matchers.hasEntry;
 public class KafkaAssemblyOperatorKRaftMockTest {
     private static final String CLUSTER_NAME = "my-cluster";
     private static final KafkaVersion.Lookup VERSIONS = KafkaVersionTestUtils.getKafkaVersionLookup();
-    private static final MockCertManager CERT_MANAGER = new MockCertManager();
+    private static final MockCertIssuer CERT_ISSUER = new MockCertIssuer();
     private static final PasswordGenerator PASSWORD_GENERATOR = new PasswordGenerator(10, "a", "a");
 
     private static KubernetesClient client;
@@ -188,12 +189,12 @@ public class KafkaAssemblyOperatorKRaftMockTest {
         ClusterOperatorConfig config = new ClusterOperatorConfig.ClusterOperatorConfigBuilder(ResourceUtils.dummyClusterOperatorConfig(), VERSIONS)
                 .with(ClusterOperatorConfig.OPERATION_TIMEOUT_MS.key(), "10000")
                 .build();
-        operator = new KafkaAssemblyOperator(vertx, pfa, CERT_MANAGER, PASSWORD_GENERATOR, supplier, config);
+        operator = new KafkaAssemblyOperator(vertx, pfa, CERT_ISSUER, PASSWORD_GENERATOR, supplier, config);
     }
 
     private ResourceOperatorSupplier supplierWithMocks() {
-        return new ResourceOperatorSupplier(vertx, client, ResourceUtils.adminClientProvider(),
-                ResourceUtils.kafkaAgentClientProvider(), ResourceUtils.metricsProvider(),
+        return new ResourceOperatorSupplier(VertxUtil.asExecutor(vertx.createSharedWorkerExecutor("kubernetes-ops-pool")),
+                client, ResourceUtils.adminClientProvider(), ResourceUtils.kafkaAgentClientProvider(), ResourceUtils.metricsProvider(),
                 new PlatformFeaturesAvailability(false, KubernetesVersion.MINIMAL_SUPPORTED_VERSION));
     }
 
@@ -223,8 +224,8 @@ public class KafkaAssemblyOperatorKRaftMockTest {
             assertThat(actualPod.getMetadata().getAnnotations(), hasEntry(Ca.ANNO_STRIMZI_IO_CLUSTER_CA_CERT_GENERATION, "0"));
 
             Secret certSecret = client.secrets().inNamespace(namespace).withName(desiredPod.getMetadata().getName()).get();
-            assertThat(desiredPod.getMetadata().getAnnotations(), hasEntry(Annotations.ANNO_STRIMZI_SERVER_CERT_HASH, CertUtils.getCertificateThumbprint(certSecret, Ca.SecretEntry.CRT.asKey(desiredPod.getMetadata().getName()))));
-            assertThat(actualPod.getMetadata().getAnnotations(), hasEntry(Annotations.ANNO_STRIMZI_SERVER_CERT_HASH, CertUtils.getCertificateThumbprint(certSecret, Ca.SecretEntry.CRT.asKey(desiredPod.getMetadata().getName()))));
+            assertThat(desiredPod.getMetadata().getAnnotations(), hasEntry(Annotations.ANNO_STRIMZI_SERVER_CERT_HASH, CertSecretUtils.getCertificateThumbprint(certSecret, Ca.SecretEntry.CRT.asKey(desiredPod.getMetadata().getName()))));
+            assertThat(actualPod.getMetadata().getAnnotations(), hasEntry(Annotations.ANNO_STRIMZI_SERVER_CERT_HASH, CertSecretUtils.getCertificateThumbprint(certSecret, Ca.SecretEntry.CRT.asKey(desiredPod.getMetadata().getName()))));
 
             assertThat(client.configMaps().inNamespace(namespace).withName(desiredPod.getMetadata().getName()).get(), is(notNullValue()));
         });
@@ -241,8 +242,8 @@ public class KafkaAssemblyOperatorKRaftMockTest {
             assertThat(actualPod.getMetadata().getAnnotations(), hasEntry(Ca.ANNO_STRIMZI_IO_CLUSTER_CA_CERT_GENERATION, "0"));
 
             Secret certSecret = client.secrets().inNamespace(namespace).withName(desiredPod.getMetadata().getName()).get();
-            assertThat(desiredPod.getMetadata().getAnnotations(), hasEntry(Annotations.ANNO_STRIMZI_SERVER_CERT_HASH, CertUtils.getCertificateThumbprint(certSecret, Ca.SecretEntry.CRT.asKey(desiredPod.getMetadata().getName()))));
-            assertThat(actualPod.getMetadata().getAnnotations(), hasEntry(Annotations.ANNO_STRIMZI_SERVER_CERT_HASH, CertUtils.getCertificateThumbprint(certSecret, Ca.SecretEntry.CRT.asKey(desiredPod.getMetadata().getName()))));
+            assertThat(desiredPod.getMetadata().getAnnotations(), hasEntry(Annotations.ANNO_STRIMZI_SERVER_CERT_HASH, CertSecretUtils.getCertificateThumbprint(certSecret, Ca.SecretEntry.CRT.asKey(desiredPod.getMetadata().getName()))));
+            assertThat(actualPod.getMetadata().getAnnotations(), hasEntry(Annotations.ANNO_STRIMZI_SERVER_CERT_HASH, CertSecretUtils.getCertificateThumbprint(certSecret, Ca.SecretEntry.CRT.asKey(desiredPod.getMetadata().getName()))));
 
             assertThat(client.configMaps().inNamespace(namespace).withName(desiredPod.getMetadata().getName()).get(), is(notNullValue()));
         });

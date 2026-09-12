@@ -11,10 +11,10 @@ import io.strimzi.api.kafka.model.topic.KafkaTopicBuilder;
 import io.strimzi.api.kafka.model.topic.KafkaTopicStatusBuilder;
 import io.strimzi.api.kafka.model.topic.ReplicasChangeState;
 import io.strimzi.api.kafka.model.topic.ReplicasChangeStatusBuilder;
-import io.strimzi.certs.Subject;
+import io.strimzi.certs.StrimziSubject;
 import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.model.StatusUtils;
-import io.strimzi.operator.common.operator.MockCertManager;
+import io.strimzi.operator.common.operator.MockCertIssuer;
 import io.strimzi.operator.topic.TestUtil;
 import io.strimzi.operator.topic.TopicOperatorConfig;
 import io.strimzi.operator.topic.TopicOperatorUtil;
@@ -65,8 +65,8 @@ public class CruiseControlHandlerTest {
         httpsPort = serverPort + 1;
         File tlsKeyFile = ReadWriteUtils.tempFile(CruiseControlHandlerTest.class.getSimpleName(), ".key");
         tlsCrtFile = ReadWriteUtils.tempFile(CruiseControlHandlerTest.class.getSimpleName(), ".crt");
-        new MockCertManager().generateSelfSignedCert(tlsKeyFile, tlsCrtFile,
-            new Subject.Builder().withCommonName("Trusted Test CA").build(), 365);
+        new MockCertIssuer().generateSelfSignedCert(tlsKeyFile, tlsCrtFile,
+            new StrimziSubject.Builder().withCommonName("Trusted Test CA").build(), 365);
         apiUserFile = ReadWriteUtils.tempFile(CruiseControlHandlerTest.class.getSimpleName(), ".username");
         try (PrintWriter out = new PrintWriter(apiUserFile.getAbsolutePath())) {
             out.print("topic-operator-admin");

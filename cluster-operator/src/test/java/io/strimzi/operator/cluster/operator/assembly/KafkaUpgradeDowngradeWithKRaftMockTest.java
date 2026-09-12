@@ -27,11 +27,12 @@ import io.strimzi.operator.cluster.model.KafkaCluster;
 import io.strimzi.operator.cluster.model.KafkaUpgradeException;
 import io.strimzi.operator.cluster.model.KafkaVersion;
 import io.strimzi.operator.cluster.model.PodSetUtils;
+import io.strimzi.operator.cluster.operator.VertxUtil;
 import io.strimzi.operator.cluster.operator.resource.ResourceOperatorSupplier;
 import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.model.PasswordGenerator;
-import io.strimzi.operator.common.operator.MockCertManager;
+import io.strimzi.operator.common.operator.MockCertIssuer;
 import io.strimzi.platform.KubernetesVersion;
 import io.strimzi.test.mockkube3.MockKube3;
 import io.vertx.core.Future;
@@ -63,6 +64,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.hamcrest.CoreMatchers.instanceOf;
@@ -177,8 +179,8 @@ public class KafkaUpgradeDowngradeWithKRaftMockTest {
         Admin mockAdmin = ResourceUtils.adminClient();
         metadataLevel = new AtomicInteger(metadataVersionToLevel(initialMetadataVersion));
         mockAdminClient(mockAdmin);
-        supplier =  new ResourceOperatorSupplier(vertx, client, ResourceUtils.adminClientProvider(mockAdmin),
-                ResourceUtils.kafkaAgentClientProvider(), ResourceUtils.metricsProvider(), PFA);
+        supplier =  new ResourceOperatorSupplier(VertxUtil.asExecutor(vertx.createSharedWorkerExecutor("kubernetes-ops-pool")),
+                client, ResourceUtils.adminClientProvider(mockAdmin), ResourceUtils.kafkaAgentClientProvider(), ResourceUtils.metricsProvider(), PFA);
 
         podSetController = new StrimziPodSetController(namespace, Labels.EMPTY, supplier.kafkaOperator, supplier.connectOperator, supplier.mirrorMaker2Operator, supplier.strimziPodSetOperator, supplier.podOperations, supplier.metricsProvider, Integer.parseInt(ClusterOperatorConfig.POD_SET_CONTROLLER_WORK_QUEUE_SIZE.defaultValue()));
         podSetController.start();
@@ -187,7 +189,7 @@ public class KafkaUpgradeDowngradeWithKRaftMockTest {
                 .with(ClusterOperatorConfig.OPERATION_TIMEOUT_MS.key(), "10000")
                 .build();
 
-        operator = new KafkaAssemblyOperator(vertx, PFA, new MockCertManager(),
+        operator = new KafkaAssemblyOperator(vertx, PFA, new MockCertIssuer(),
                 new PasswordGenerator(10, "a", "a"), supplier, config);
 
         LOGGER.info("Reconciling initially -> create");
@@ -488,15 +490,15 @@ public class KafkaUpgradeDowngradeWithKRaftMockTest {
                 })
                 .compose(v -> operator.reconcile(new Reconciliation("test-trigger", Kafka.RESOURCE_KIND, namespace, CLUSTER_NAME)))
                 .onComplete(context.succeeding(i -> context.verify(() -> {
-                    assertVersionsInKafkaStatus(KafkaAssemblyOperator.OPERATOR_VERSION, KafkaVersionTestUtils.LATEST_KAFKA_VERSION, KafkaVersionTestUtils.PREVIOUS_METADATA_VERSION);
-                    assertVersionsInStrimziPodSet(KafkaVersionTestUtils.LATEST_KAFKA_VERSION, KafkaVersionTestUtils.LATEST_KAFKA_IMAGE);
+                    assertVersionsInKafkaStatus(KafkaAssemblyOperator.OPERATOR_VERSION, KafkaVersionTestUtils.DEFAULT_KAFKA_VERSION, KafkaVersionTestUtils.PREVIOUS_METADATA_VERSION);
+                    assertVersionsInStrimziPodSet(KafkaVersionTestUtils.DEFAULT_KAFKA_VERSION, KafkaVersionTestUtils.DEFAULT_KAFKA_IMAGE);
                     assertMetadataVersion(KafkaVersionTestUtils.PREVIOUS_METADATA_VERSION);
                 })))
                 .compose(v -> operator.reconcile(new Reconciliation("test-trigger2", Kafka.RESOURCE_KIND, namespace, CLUSTER_NAME)))
                 .onComplete(context.succeeding(i -> context.verify(() -> {
-                    assertVersionsInKafkaStatus(KafkaAssemblyOperator.OPERATOR_VERSION, KafkaVersionTestUtils.LATEST_KAFKA_VERSION, KafkaVersionTestUtils.LATEST_METADATA_VERSION);
-                    assertVersionsInStrimziPodSet(KafkaVersionTestUtils.LATEST_KAFKA_VERSION, KafkaVersionTestUtils.LATEST_KAFKA_IMAGE);
-                    assertMetadataVersion(KafkaVersionTestUtils.LATEST_METADATA_VERSION);
+                    assertVersionsInKafkaStatus(KafkaAssemblyOperator.OPERATOR_VERSION, KafkaVersionTestUtils.DEFAULT_KAFKA_VERSION, KafkaVersionTestUtils.DEFAULT_METADATA_VERSION);
+                    assertVersionsInStrimziPodSet(KafkaVersionTestUtils.DEFAULT_KAFKA_VERSION, KafkaVersionTestUtils.DEFAULT_KAFKA_IMAGE);
+                    assertMetadataVersion(KafkaVersionTestUtils.DEFAULT_METADATA_VERSION);
 
                     reconciliation.flag();
                 })));
@@ -565,8 +567,9 @@ public class KafkaUpgradeDowngradeWithKRaftMockTest {
                 })
                 .compose(v -> operator.reconcile(new Reconciliation("test-trigger", Kafka.RESOURCE_KIND, namespace, CLUSTER_NAME)))
                 .onComplete(context.failing(v -> context.verify(() -> {
-                    assertThat(v, is(instanceOf(KafkaUpgradeException.class)));
-                    assertThat(v.getMessage(), is("The current metadata version (" + KafkaVersionTestUtils.LATEST_METADATA_VERSION + ") has to be lower or equal to the Kafka broker version we are downgrading to (" + KafkaVersionTestUtils.PREVIOUS_KAFKA_VERSION + ")"));
+                    assertThat(v, instanceOf(CompletionException.class));
+                    assertThat(v.getCause(), is(instanceOf(KafkaUpgradeException.class)));
+                    assertThat(v.getCause().getMessage(), is("The current metadata version (" + KafkaVersionTestUtils.LATEST_METADATA_VERSION + ") has to be lower or equal to the Kafka broker version we are downgrading to (" + KafkaVersionTestUtils.PREVIOUS_KAFKA_VERSION + ")"));
 
                     assertVersionsInKafkaStatus(KafkaAssemblyOperator.OPERATOR_VERSION, KafkaVersionTestUtils.LATEST_KAFKA_VERSION, KafkaVersionTestUtils.LATEST_METADATA_VERSION);
                     assertVersionsInStrimziPodSet(KafkaVersionTestUtils.LATEST_KAFKA_VERSION, KafkaVersionTestUtils.LATEST_KAFKA_IMAGE);

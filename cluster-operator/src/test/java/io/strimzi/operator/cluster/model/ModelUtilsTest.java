@@ -58,23 +58,6 @@ public class ModelUtilsTest {
     }
 
     @Test
-    public void testAnnotationsOrLabelsImageMap() {
-        Map<String, String> m = parseMap(" discovery.3scale.net=true");
-        assertThat(m.size(), is(1));
-        assertThat(m.get("discovery.3scale.net"), is("true"));
-
-        m = parseMap(" discovery.3scale.net/scheme=http\n" +
-                "        discovery.3scale.net/port=8080\n" +
-                "        discovery.3scale.net/path=path/\n" +
-                "        discovery.3scale.net/description-path=oapi/");
-        assertThat(m.size(), is(4));
-        assertThat(m.get("discovery.3scale.net/scheme"), is("http"));
-        assertThat(m.get("discovery.3scale.net/port"), is("8080"));
-        assertThat(m.get("discovery.3scale.net/path"), is("path/"));
-        assertThat(m.get("discovery.3scale.net/description-path"), is("oapi/"));
-    }
-
-    @Test
     public void testStorageSerializationAndDeserialization()    {
         Storage jbod = new JbodStorageBuilder().withVolumes(
                 new PersistentClaimStorageBuilder().withStorageClass("gp2-ssd").withDeleteClaim(false).withId(0).withSize("100Gi").build(),
@@ -285,5 +268,18 @@ public class ModelUtilsTest {
                 .build();
 
         assertThat(ModelUtils.affinityWithRackLabelSelector(new PodTemplateBuilder().withAffinity(userAffinity).build(), new TopologyLabelRackBuilder().withTopologyKey("topology.key/my").build()), is(expectedAffinity));
+    }
+
+    @Test
+    public void testHostTemplateRendering() {
+        NodeRef node = new NodeRef("my-cluster-kafka-1", 1, "kafka", false, true);
+
+        assertThat(ModelUtils.renderTemplate("my-host", node), is("my-host"));
+        assertThat(ModelUtils.renderTemplate("my-host-{nodeId}", node), is("my-host-1"));
+        assertThat(ModelUtils.renderTemplate("{nodePodName}", node), is("my-cluster-kafka-1"));
+        assertThat(ModelUtils.renderTemplate("my-host-{nodePodName}-{nodeId}", node), is("my-host-my-cluster-kafka-1-1"));
+        assertThat(ModelUtils.renderTemplate("my-{nodeId}-host-{nodeId}", node), is("my-1-host-1"));
+        assertThat(ModelUtils.renderTemplate("my-{nodeId}-host-{nodeID}", node), is("my-1-host-{nodeID}"));
+        assertThat(ModelUtils.renderTemplate("my-{nodeId}-host-nodeId", node), is("my-1-host-nodeId"));
     }
 }

@@ -14,9 +14,7 @@ import io.fabric8.kubernetes.client.KubernetesClient;
 import io.fabric8.kubernetes.client.Watcher;
 import io.micrometer.core.instrument.Timer;
 import io.netty.channel.ConnectTimeoutException;
-import io.strimzi.api.kafka.model.common.CertSecretSource;
 import io.strimzi.api.kafka.model.common.Condition;
-import io.strimzi.api.kafka.model.common.authentication.KafkaClientAuthentication;
 import io.strimzi.api.kafka.model.connect.KafkaConnect;
 import io.strimzi.api.kafka.model.connect.KafkaConnectList;
 import io.strimzi.api.kafka.model.connect.KafkaConnectResources;
@@ -35,7 +33,6 @@ import io.strimzi.operator.cluster.model.KafkaConnectorOffsetsAnnotation;
 import io.strimzi.operator.cluster.model.NoSuchResourceException;
 import io.strimzi.operator.cluster.operator.VertxUtil;
 import io.strimzi.operator.cluster.operator.resource.ResourceOperatorSupplier;
-import io.strimzi.operator.cluster.operator.resource.kubernetes.CrdOperator;
 import io.strimzi.operator.common.Annotations;
 import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.ReconciliationException;
@@ -46,6 +43,7 @@ import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.model.NamespaceAndName;
 import io.strimzi.operator.common.model.StatusDiff;
 import io.strimzi.operator.common.model.StatusUtils;
+import io.strimzi.operator.common.operator.resource.kubernetes.CrdOperator;
 import io.vertx.core.AsyncResult;
 import io.vertx.core.Future;
 import io.vertx.core.Handler;
@@ -170,7 +168,7 @@ public class KafkaConnectAssemblyOperator extends AbstractConnectOperator<Kubern
                 .compose(i -> connectRoleBinding(reconciliation, namespace, connect))
                 .compose(i -> connectNetworkPolicy(reconciliation, namespace, connect, isUseResources(kafkaConnect)))
                 .compose(i -> manualRollingUpdate(reconciliation, connect))
-                .compose(i -> podSetOperations.getAsync(reconciliation.namespace(), connect.getComponentName()))
+                .compose(i -> VertxUtil.toFuture(podSetOperations.getAsync(reconciliation.namespace(), connect.getComponentName())))
                 .compose(podSet -> connectBuildOperator.reconcile(reconciliation, namespace, podSet, build))
                 .compose(buildInfo -> {
                     if (buildInfo != null) {
@@ -181,21 +179,21 @@ public class KafkaConnectAssemblyOperator extends AbstractConnectOperator<Kubern
                     }
                     return Future.succeededFuture();
                 })
-                .compose(i -> serviceOperations.reconcile(reconciliation, namespace, connect.getServiceName(), connect.generateService()))
-                .compose(i -> serviceOperations.reconcile(reconciliation, namespace, connect.getComponentName(), connect.generateHeadlessService()))
+                .compose(i -> VertxUtil.toFuture(serviceOperations.reconcile(reconciliation, namespace, connect.getServiceName(), connect.generateService())))
+                .compose(i -> VertxUtil.toFuture(serviceOperations.reconcile(reconciliation, namespace, connect.getComponentName(), connect.generateHeadlessService())))
                 .compose(i -> tlsTrustedCertsSecret(reconciliation, namespace, connect))
-                .compose(i -> generateMetricsAndLoggingConfigMap(reconciliation, connect))
-                .compose(logAndMetricsConfigMap -> {
-                    podAnnotations.put(Annotations.ANNO_STRIMZI_IO_CONFIGURATION_HASH, Util.hashStub(logAndMetricsConfigMap.getData().get(KafkaConnectCluster.KAFKA_CONNECT_CONFIGURATION_FILENAME)));
-                    return configMapOperations.reconcile(reconciliation, namespace, logAndMetricsConfigMap.getMetadata().getName(), logAndMetricsConfigMap);
-                })
-                .compose(i -> ReconcilerUtils.reconcileJmxSecret(reconciliation, secretOperations, connect))
-                .compose(i -> connectPodDisruptionBudget(reconciliation, namespace, connect))
-                .compose(i -> generateAuthHash(namespace, kafkaConnect.getSpec()))
+                .compose(certs -> ReconcilerUtils.authTlsHash(secretOperations, namespace, kafkaConnect.getSpec().getAuthentication(), certs))
                 .compose(hash -> {
                     podAnnotations.put(Annotations.ANNO_STRIMZI_AUTH_HASH, Integer.toString(hash));
                     return Future.succeededFuture();
                 })
+                .compose(i -> generateMetricsAndLoggingConfigMap(reconciliation, connect))
+                .compose(logAndMetricsConfigMap -> {
+                    podAnnotations.put(Annotations.ANNO_STRIMZI_IO_CONFIGURATION_HASH, Util.hashStub(logAndMetricsConfigMap.getData().get(KafkaConnectCluster.KAFKA_CONNECT_CONFIGURATION_FILENAME)));
+                    return VertxUtil.toFuture(configMapOperations.reconcile(reconciliation, namespace, logAndMetricsConfigMap.getMetadata().getName(), logAndMetricsConfigMap));
+                })
+                .compose(i -> ReconcilerUtils.reconcileJmxSecret(reconciliation, secretOperations, connect))
+                .compose(i -> connectPodDisruptionBudget(reconciliation, namespace, connect))
                 .compose(i -> reconcilePodSet(reconciliation, connect, podAnnotations, controllerAnnotations, image.get()))
                 .compose(i -> useConnectorResources && !hasZeroReplicas ? reconcileAvailableConnectorPlugins(reconciliation, KafkaConnectResources.qualifiedServiceName(reconciliation.name(), namespace), kafkaConnectStatus) : Future.succeededFuture())
                 .compose(i -> useConnectorResources ? reconcileConnectors(reconciliation, kafkaConnect, hasZeroReplicas) : Future.succeededFuture())
@@ -230,7 +228,7 @@ public class KafkaConnectAssemblyOperator extends AbstractConnectOperator<Kubern
             List<String> connects = desiredNames.stream().map(NamespaceAndName::getName).collect(Collectors.toList());
             LabelSelectorRequirement requirement = new LabelSelectorRequirement(Labels.STRIMZI_CLUSTER_LABEL, "In", connects);
             LabelSelector connectorsSelector = new LabelSelector(List.of(requirement), null);
-            connectorOperator.listAsync(namespace, connectorsSelector)
+            VertxUtil.toFuture(connectorOperator.listAsync(namespace, connectorsSelector))
                     .onComplete(ar -> {
                         if (ar.succeeded()) {
                             metrics().resetConnectorsCounters(namespace);
@@ -260,7 +258,7 @@ public class KafkaConnectAssemblyOperator extends AbstractConnectOperator<Kubern
     @Override
     protected Future<Boolean> delete(Reconciliation reconciliation) {
         return updateConnectorsThatConnectClusterWasDeleted(reconciliation)
-                .compose(i -> ReconcilerUtils.withIgnoreRbacError(reconciliation, clusterRoleBindingOperations.reconcile(reconciliation, KafkaConnectResources.initContainerClusterRoleBindingName(reconciliation.name(), reconciliation.namespace()), null), null))
+                .compose(i -> ReconcilerUtils.withIgnoreRbacError(reconciliation, VertxUtil.toFuture(clusterRoleBindingOperations.reconcile(reconciliation, KafkaConnectResources.initContainerClusterRoleBindingName(reconciliation.name(), reconciliation.namespace()), null)), null))
                 .map(Boolean.FALSE); // Return FALSE since other resources are still deleted by garbage collection
     }
 
@@ -274,7 +272,7 @@ public class KafkaConnectAssemblyOperator extends AbstractConnectOperator<Kubern
      */
     private Future<Void> updateConnectorsThatConnectClusterWasDeleted(Reconciliation reconciliation) {
         // When deleting KafkaConnect we need to update the status of all its KafkaConnector
-        return connectorOperator.listAsync(reconciliation.namespace(), Labels.forStrimziCluster(reconciliation.name())).compose(connectors -> {
+        return VertxUtil.toFuture(connectorOperator.listAsync(reconciliation.namespace(), Labels.forStrimziCluster(reconciliation.name()))).compose(connectors -> {
             List<Future<Void>> connectorFutures = new ArrayList<>();
             for (KafkaConnector connector : connectors) {
                 connectorFutures.add(maybeUpdateConnectorStatus(reconciliation, connector, null,
@@ -282,19 +280,6 @@ public class KafkaConnectAssemblyOperator extends AbstractConnectOperator<Kubern
             }
             return Future.join(connectorFutures);
         }).mapEmpty();
-    }
-
-    /**
-     * Generates a hash from the trusted TLS certificates that can be used to spot if it has changed.
-     *
-     * @param namespace          Namespace of the Connect cluster
-     * @param kafkaConnectSpec   KafkaConnectSpec object
-     * @return                   Future for tracking the asynchronous result of generating the TLS auth hash
-     */
-    private Future<Integer> generateAuthHash(String namespace, KafkaConnectSpec kafkaConnectSpec) {
-        KafkaClientAuthentication auth = kafkaConnectSpec.getAuthentication();
-        List<CertSecretSource> trustedCertificates = kafkaConnectSpec.getTls() == null ? Collections.emptyList() : kafkaConnectSpec.getTls().getTrustedCertificates();
-        return ReconcilerUtils.authTlsHash(secretOperations, namespace, auth, trustedCertificates);
     }
 
     /**
@@ -330,7 +315,7 @@ public class KafkaConnectAssemblyOperator extends AbstractConnectOperator<Kubern
         String namespace = connect.getMetadata().getNamespace();
 
         if (scaledToZero)   {
-            return connectorOperator.listAsync(namespace, new LabelSelectorBuilder().addToMatchLabels(Labels.STRIMZI_CLUSTER_LABEL, connectName).build())
+            return VertxUtil.toFuture(connectorOperator.listAsync(namespace, new LabelSelectorBuilder().addToMatchLabels(Labels.STRIMZI_CLUSTER_LABEL, connectName).build()))
                 .compose(connectors -> Future.join(
                     connectors.stream().map(connector -> Annotations.isReconciliationPausedWithAnnotation(connector)
                             ? maybeUpdateConnectorStatus(reconciliation, connector, null, null)
@@ -343,7 +328,7 @@ public class KafkaConnectAssemblyOperator extends AbstractConnectOperator<Kubern
 
             return Future.join(
                     Future.fromCompletionStage(apiClient.list(reconciliation, host, port)),
-                    connectorOperator.listAsync(namespace, new LabelSelectorBuilder().addToMatchLabels(Labels.STRIMZI_CLUSTER_LABEL, connectName).build())
+                    VertxUtil.toFuture(connectorOperator.listAsync(namespace, new LabelSelectorBuilder().addToMatchLabels(Labels.STRIMZI_CLUSTER_LABEL, connectName).build()))
             ).compose(cf -> {
                 List<String> runningConnectorNames = cf.resultAt(0);
                 List<KafkaConnector> desiredConnectors = cf.resultAt(1);
@@ -360,7 +345,7 @@ public class KafkaConnectAssemblyOperator extends AbstractConnectOperator<Kubern
                     Promise<Void> connectorStatuses = Promise.promise();
                     LOGGER.warnCr(reconciliation, "Failed to connect to the REST API => trying to update the connector status");
 
-                    connectorOperator.listAsync(namespace, new LabelSelectorBuilder().addToMatchLabels(Labels.STRIMZI_CLUSTER_LABEL, connectName).build())
+                    VertxUtil.toFuture(connectorOperator.listAsync(namespace, new LabelSelectorBuilder().addToMatchLabels(Labels.STRIMZI_CLUSTER_LABEL, connectName).build()))
                             .compose(connectors -> Future.join(
                                     connectors.stream().map(connector -> maybeUpdateConnectorStatus(reconciliation, connector, null, error))
                                             .collect(Collectors.toList())
@@ -458,10 +443,6 @@ public class KafkaConnectAssemblyOperator extends AbstractConnectOperator<Kubern
         } else {
             LOGGER.infoCr(reconciliation, "creating/updating connector: {}", connectorName);
 
-            if (connector.getSpec() == null) {
-                return Future.failedFuture(new InvalidResourceException("spec property is required"));
-            }
-
             if (!useResources) {
                 return Future.failedFuture(new NoSuchResourceException(reconciliation.kind() + " " + reconciliation.name() + " is not configured with annotation " + Annotations.STRIMZI_IO_USE_CONNECTOR_RESOURCES));
             } else {
@@ -497,7 +478,7 @@ public class KafkaConnectAssemblyOperator extends AbstractConnectOperator<Kubern
             case ADDED, DELETED, MODIFIED -> {
                 if (connectName != null) {
                     // Check whether a KafkaConnect exists
-                    resourceOperator.getAsync(namespace, connectName)
+                    VertxUtil.toFuture(resourceOperator.getAsync(namespace, connectName))
                             .compose(connect -> {
                                 KafkaConnectApi apiClient = connectClientProvider.apply(vertx);
                                 if (connect == null) {
@@ -739,7 +720,7 @@ public class KafkaConnectAssemblyOperator extends AbstractConnectOperator<Kubern
                 .removeFromAnnotations(annotationKey)
                 .endMetadata()
                 .build();
-        return connectorOperator.patchAsync(reconciliation, patchedKafkaConnector)
+        return VertxUtil.toFuture(connectorOperator.patchAsync(reconciliation, patchedKafkaConnector))
                 .mapEmpty();
     }
 
@@ -758,7 +739,7 @@ public class KafkaConnectAssemblyOperator extends AbstractConnectOperator<Kubern
     @SuppressWarnings({ "rawtypes" })
     @Override
     protected Future<AutoRestartStatus> previousAutoRestartStatus(Reconciliation reconciliation, String connectorName, CustomResource resource)  {
-        return connectorOperator.getAsync(resource.getMetadata().getNamespace(), resource.getMetadata().getName())
+        return VertxUtil.toFuture(connectorOperator.getAsync(resource.getMetadata().getNamespace(), resource.getMetadata().getName()))
                 .compose(result -> {
                     if (result != null) {
                         return Future.succeededFuture(result.getStatus() != null ? result.getStatus().getAutoRestart() : null);
@@ -830,7 +811,7 @@ public class KafkaConnectAssemblyOperator extends AbstractConnectOperator<Kubern
     private static void updateStatus(Reconciliation reconciliation, Throwable error, KafkaConnector kafkaConnector2, CrdOperator<KubernetesClient, KafkaConnector, KafkaConnectorList> connectorOperations) {
         KafkaConnectorStatus status = new KafkaConnectorStatus();
         StatusUtils.setStatusConditionAndObservedGeneration(kafkaConnector2, status, error);
-        StatusDiff diff = new StatusDiff(kafkaConnector2.getStatus(), status);
+        StatusDiff diff = new StatusDiff(reconciliation, kafkaConnector2.getStatus(), status);
         if (!diff.isEmpty()) {
             KafkaConnector copy = new KafkaConnectorBuilder(kafkaConnector2).build();
             copy.setStatus(status);

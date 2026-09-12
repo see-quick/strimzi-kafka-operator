@@ -7,6 +7,7 @@ package io.strimzi.operator.cluster.model;
 import io.fabric8.kubernetes.api.model.CSIVolumeSourceBuilder;
 import io.fabric8.kubernetes.api.model.ConfigMapVolumeSourceBuilder;
 import io.fabric8.kubernetes.api.model.ImageVolumeSourceBuilder;
+import io.fabric8.kubernetes.api.model.KeyToPathBuilder;
 import io.fabric8.kubernetes.api.model.PersistentVolumeClaimVolumeSourceBuilder;
 import io.fabric8.kubernetes.api.model.Quantity;
 import io.fabric8.kubernetes.api.model.SecretVolumeSourceBuilder;
@@ -14,6 +15,7 @@ import io.fabric8.kubernetes.api.model.Volume;
 import io.fabric8.kubernetes.api.model.VolumeBuilder;
 import io.fabric8.kubernetes.api.model.VolumeMount;
 import io.fabric8.kubernetes.api.model.VolumeMountBuilder;
+import io.strimzi.api.kafka.model.common.template.AdditionalTemplatedVolumeBuilder;
 import io.strimzi.api.kafka.model.common.template.AdditionalVolume;
 import io.strimzi.api.kafka.model.common.template.AdditionalVolumeBuilder;
 import io.strimzi.api.kafka.model.common.template.ContainerTemplate;
@@ -24,6 +26,8 @@ import io.strimzi.api.kafka.model.common.template.PodTemplate;
 import io.strimzi.api.kafka.model.common.template.PodTemplateBuilder;
 import io.strimzi.api.kafka.model.common.template.ResourceTemplate;
 import io.strimzi.api.kafka.model.common.template.ResourceTemplateBuilder;
+import io.strimzi.api.kafka.model.common.template.StatefulPodTemplate;
+import io.strimzi.api.kafka.model.common.template.StatefulPodTemplateBuilder;
 import io.strimzi.operator.common.model.InvalidResourceException;
 import org.junit.jupiter.api.Test;
 
@@ -82,8 +86,7 @@ public class TemplateUtilsTest {
     @Test
     public void testAddAdditionalVolumes_InvalidNames() {
         List<Volume> existingVolumes = new ArrayList<>();
-        existingVolumes.add(new VolumeBuilder().withName("invalid_name!").build());
-        PodTemplate templatePod = new PodTemplateBuilder().withVolumes(new ArrayList<>()).build();
+        PodTemplate templatePod = new PodTemplateBuilder().withVolumes(new AdditionalVolumeBuilder().withName("invalid_name!").build()).build();
 
         InvalidResourceException exception = assertThrows(InvalidResourceException.class, () -> TemplateUtils.addAdditionalVolumes(templatePod, existingVolumes));
 
@@ -137,12 +140,23 @@ public class TemplateUtilsTest {
                         new AdditionalVolumeBuilder()
                                 .withName("oci-volume")
                                 .withImage(new ImageVolumeSourceBuilder().withReference("my-custom-oci-plugin:latest").withPullPolicy("Never").build())
+                                .build(),
+                        new AdditionalVolumeBuilder()
+                                .withName("projected-volume")
+                                .withNewProjected()
+                                    .addNewSource()
+                                        .withNewServiceAccountToken("my-audience", 600L, "my-token", 1001L)
+                                    .endSource()
+                                    .addNewSource()
+                                        .withNewServiceAccountToken("my-other-audience", null, "my-other-token", null)
+                                    .endSource()
+                                .endProjected()
                                 .build())
                 .build();
 
         TemplateUtils.addAdditionalVolumes(templatePod, existingVolumes);
 
-        assertThat(existingVolumes.size(), is(8));
+        assertThat(existingVolumes.size(), is(9));
 
         assertThat(existingVolumes.get(0).getName(), is("existingVolume1"));
 
@@ -153,6 +167,7 @@ public class TemplateUtilsTest {
         assertThat(existingVolumes.get(1).getPersistentVolumeClaim(), is(nullValue()));
         assertThat(existingVolumes.get(1).getCsi(), is(nullValue()));
         assertThat(existingVolumes.get(1).getImage(), is(nullValue()));
+        assertThat(existingVolumes.get(1).getProjected(), is(nullValue()));
 
         assertThat(existingVolumes.get(2).getName(), is("cm-volume"));
         assertThat(existingVolumes.get(2).getConfigMap().getName(), is("my-cm"));
@@ -161,6 +176,7 @@ public class TemplateUtilsTest {
         assertThat(existingVolumes.get(2).getPersistentVolumeClaim(), is(nullValue()));
         assertThat(existingVolumes.get(2).getCsi(), is(nullValue()));
         assertThat(existingVolumes.get(2).getImage(), is(nullValue()));
+        assertThat(existingVolumes.get(2).getProjected(), is(nullValue()));
 
         assertThat(existingVolumes.get(3).getName(), is("empty-dir-volume"));
         assertThat(existingVolumes.get(3).getEmptyDir().getMedium(), is("Memory"));
@@ -170,6 +186,7 @@ public class TemplateUtilsTest {
         assertThat(existingVolumes.get(3).getPersistentVolumeClaim(), is(nullValue()));
         assertThat(existingVolumes.get(3).getCsi(), is(nullValue()));
         assertThat(existingVolumes.get(3).getImage(), is(nullValue()));
+        assertThat(existingVolumes.get(3).getProjected(), is(nullValue()));
 
         assertThat(existingVolumes.get(4).getName(), is("empty-dir-volume-no-options"));
         assertThat(existingVolumes.get(4).getEmptyDir().getMedium(), is(nullValue()));
@@ -179,6 +196,7 @@ public class TemplateUtilsTest {
         assertThat(existingVolumes.get(4).getPersistentVolumeClaim(), is(nullValue()));
         assertThat(existingVolumes.get(4).getCsi(), is(nullValue()));
         assertThat(existingVolumes.get(4).getImage(), is(nullValue()));
+        assertThat(existingVolumes.get(4).getProjected(), is(nullValue()));
 
         assertThat(existingVolumes.get(5).getName(), is("pvc-volume"));
         assertThat(existingVolumes.get(5).getPersistentVolumeClaim().getClaimName(), is("my-pvc"));
@@ -187,6 +205,7 @@ public class TemplateUtilsTest {
         assertThat(existingVolumes.get(5).getEmptyDir(), is(nullValue()));
         assertThat(existingVolumes.get(5).getCsi(), is(nullValue()));
         assertThat(existingVolumes.get(5).getImage(), is(nullValue()));
+        assertThat(existingVolumes.get(5).getProjected(), is(nullValue()));
 
         assertThat(existingVolumes.get(6).getName(), is("csi-volume"));
         assertThat(existingVolumes.get(6).getCsi().getDriver(), is("csi.cert-manager.io"));
@@ -198,6 +217,7 @@ public class TemplateUtilsTest {
         assertThat(existingVolumes.get(6).getEmptyDir(), is(nullValue()));
         assertThat(existingVolumes.get(6).getPersistentVolumeClaim(), is(nullValue()));
         assertThat(existingVolumes.get(6).getImage(), is(nullValue()));
+        assertThat(existingVolumes.get(6).getProjected(), is(nullValue()));
 
         assertThat(existingVolumes.get(7).getName(), is("oci-volume"));
         assertThat(existingVolumes.get(7).getImage().getReference(), is("my-custom-oci-plugin:latest"));
@@ -207,6 +227,74 @@ public class TemplateUtilsTest {
         assertThat(existingVolumes.get(7).getEmptyDir(), is(nullValue()));
         assertThat(existingVolumes.get(7).getPersistentVolumeClaim(), is(nullValue()));
         assertThat(existingVolumes.get(7).getCsi(), is(nullValue()));
+        assertThat(existingVolumes.get(7).getProjected(), is(nullValue()));
+
+        assertThat(existingVolumes.get(8).getName(), is("projected-volume"));
+        assertThat(existingVolumes.get(8).getProjected().getSources().size(), is(2));
+        assertThat(existingVolumes.get(8).getProjected().getSources().get(0).getServiceAccountToken().getAudience(), is("my-audience"));
+        assertThat(existingVolumes.get(8).getProjected().getSources().get(0).getServiceAccountToken().getExpirationSeconds(), is(600L));
+        assertThat(existingVolumes.get(8).getProjected().getSources().get(0).getServiceAccountToken().getPath(), is("my-token"));
+        assertThat(existingVolumes.get(8).getProjected().getSources().get(0).getServiceAccountToken().getUser(), is(1001L));
+        assertThat(existingVolumes.get(8).getProjected().getSources().get(1).getServiceAccountToken().getAudience(), is("my-other-audience"));
+        assertThat(existingVolumes.get(8).getProjected().getSources().get(1).getServiceAccountToken().getExpirationSeconds(), is(nullValue()));
+        assertThat(existingVolumes.get(8).getProjected().getSources().get(1).getServiceAccountToken().getPath(), is("my-other-token"));
+        assertThat(existingVolumes.get(8).getProjected().getSources().get(1).getServiceAccountToken().getUser(), is(nullValue()));
+        assertThat(existingVolumes.get(8).getSecret(), is(nullValue()));
+        assertThat(existingVolumes.get(8).getConfigMap(), is(nullValue()));
+        assertThat(existingVolumes.get(8).getEmptyDir(), is(nullValue()));
+        assertThat(existingVolumes.get(8).getPersistentVolumeClaim(), is(nullValue()));
+        assertThat(existingVolumes.get(8).getCsi(), is(nullValue()));
+        assertThat(existingVolumes.get(8).getImage(), is(nullValue()));
+    }
+
+    @Test
+    public void testAddAdditionalVolumes_ProjectedVolumeWithoutSources() {
+        List<Volume> existingVolumes = new ArrayList<>();
+
+        PodTemplate templatePod = new PodTemplateBuilder()
+                .withVolumes(
+                        new AdditionalVolumeBuilder()
+                                .withName("projected-volume-null-sources")
+                                .withNewProjected()
+                                .endProjected()
+                                .build(),
+                        new AdditionalVolumeBuilder()
+                                .withName("projected-volume-empty-sources")
+                                .withNewProjected()
+                                    .withSources(List.of())
+                                .endProjected()
+                                .build())
+                .build();
+
+        TemplateUtils.addAdditionalVolumes(templatePod, existingVolumes);
+
+        assertThat(existingVolumes.size(), is(2));
+
+        assertThat(existingVolumes.get(0).getName(), is("projected-volume-null-sources"));
+        assertThat(existingVolumes.get(0).getProjected(), is(nullValue()));
+
+        assertThat(existingVolumes.get(1).getName(), is("projected-volume-empty-sources"));
+        assertThat(existingVolumes.get(1).getProjected(), is(nullValue()));
+    }
+
+    @Test
+    public void testAddAdditionalVolumes_ProjectedVolumeWithUnsupportedSource() {
+        List<Volume> existingVolumes = new ArrayList<>();
+
+        PodTemplate templatePod = new PodTemplateBuilder()
+                .withVolumes(
+                        new AdditionalVolumeBuilder()
+                                .withName("projected-volume")
+                                .withNewProjected()
+                                    .addNewSource()
+                                    .endSource()
+                                .endProjected()
+                                .build())
+                .build();
+
+        InvalidResourceException exception = assertThrows(InvalidResourceException.class, () -> TemplateUtils.addAdditionalVolumes(templatePod, existingVolumes));
+
+        assertThat(exception.getMessage(), is("Only ServiceAccountTokenProjection is supported in projected volumes"));
     }
 
     @Test
@@ -237,5 +325,128 @@ public class TemplateUtilsTest {
         InvalidResourceException exception = assertThrows(InvalidResourceException.class, () -> TemplateUtils.addAdditionalVolumeMounts(volumeMounts, containerTemplate));
 
         assertThat(exception.getMessage(), is(String.format("Forbidden path found in additional volumes. Should start with %s", ALLOWED_MOUNT_PATH)));
+    }
+
+    @Test
+    public void testAddAdditionalTemplatedVolumes() {
+        List<Volume> existingVolumes = new ArrayList<>();
+        existingVolumes.add(new VolumeBuilder().withName("existingVolume1").build());
+        NodeRef node = new NodeRef("my-cluster-brokers-5", 5, "brokers", false, true);
+
+        StatefulPodTemplate templatePod = new StatefulPodTemplateBuilder()
+                .withTemplatedVolumes(
+                        new AdditionalTemplatedVolumeBuilder()
+                                .withName("secret-volume")
+                                .withSecret(new SecretVolumeSourceBuilder().withSecretName("my-secret-{nodeId}").build())
+                                .build(),
+                        new AdditionalTemplatedVolumeBuilder()
+                                .withName("secret-volume2")
+                                .withSecret(new SecretVolumeSourceBuilder().withSecretName("my-secret").withItems(new KeyToPathBuilder().withKey("{nodePodName}.crt").withPath("certificates-{nodeId}/tls.crt").build()).build())
+                                .build(),
+                        new AdditionalTemplatedVolumeBuilder()
+                                .withName("cm-volume")
+                                .withConfigMap(new ConfigMapVolumeSourceBuilder().withName("my-cm-{nodeId}").build())
+                                .build(),
+                        new AdditionalTemplatedVolumeBuilder()
+                                .withName("cm-volume2")
+                                .withConfigMap(new ConfigMapVolumeSourceBuilder().withName("my-cm").withItems(new KeyToPathBuilder().withKey("{nodePodName}.cfg").withPath("my-config/{nodeId}.cfg").build()).build())
+                                .build(),
+                        new AdditionalTemplatedVolumeBuilder()
+                                .withName("pvc-volume")
+                                .withPersistentVolumeClaim(new PersistentVolumeClaimVolumeSourceBuilder().withClaimName("pvc-{nodeId}-{nodePodName}").build())
+                                .build())
+                .build();
+
+        TemplateUtils.addAdditionalTemplatedVolumes(node, templatePod, existingVolumes);
+
+        assertThat(existingVolumes.size(), is(6));
+
+        assertThat(existingVolumes.get(0).getName(), is("existingVolume1"));
+
+        assertThat(existingVolumes.get(1).getName(), is("secret-volume"));
+        assertThat(existingVolumes.get(1).getSecret().getSecretName(), is("my-secret-5"));
+        assertThat(existingVolumes.get(1).getConfigMap(), is(nullValue()));
+        assertThat(existingVolumes.get(1).getEmptyDir(), is(nullValue()));
+        assertThat(existingVolumes.get(1).getPersistentVolumeClaim(), is(nullValue()));
+        assertThat(existingVolumes.get(1).getCsi(), is(nullValue()));
+        assertThat(existingVolumes.get(1).getImage(), is(nullValue()));
+        assertThat(existingVolumes.get(1).getProjected(), is(nullValue()));
+
+        assertThat(existingVolumes.get(2).getName(), is("secret-volume2"));
+        assertThat(existingVolumes.get(2).getSecret().getSecretName(), is("my-secret"));
+        assertThat(existingVolumes.get(2).getSecret().getItems().size(), is(1));
+        assertThat(existingVolumes.get(2).getSecret().getItems().getFirst().getKey(), is("my-cluster-brokers-5.crt"));
+        assertThat(existingVolumes.get(2).getSecret().getItems().getFirst().getPath(), is("certificates-5/tls.crt"));
+        assertThat(existingVolumes.get(2).getConfigMap(), is(nullValue()));
+        assertThat(existingVolumes.get(2).getEmptyDir(), is(nullValue()));
+        assertThat(existingVolumes.get(2).getPersistentVolumeClaim(), is(nullValue()));
+        assertThat(existingVolumes.get(2).getCsi(), is(nullValue()));
+        assertThat(existingVolumes.get(2).getImage(), is(nullValue()));
+        assertThat(existingVolumes.get(2).getProjected(), is(nullValue()));
+
+        assertThat(existingVolumes.get(3).getName(), is("cm-volume"));
+        assertThat(existingVolumes.get(3).getConfigMap().getName(), is("my-cm-5"));
+        assertThat(existingVolumes.get(3).getSecret(), is(nullValue()));
+        assertThat(existingVolumes.get(3).getEmptyDir(), is(nullValue()));
+        assertThat(existingVolumes.get(3).getPersistentVolumeClaim(), is(nullValue()));
+        assertThat(existingVolumes.get(3).getCsi(), is(nullValue()));
+        assertThat(existingVolumes.get(3).getImage(), is(nullValue()));
+        assertThat(existingVolumes.get(3).getProjected(), is(nullValue()));
+
+        assertThat(existingVolumes.get(4).getName(), is("cm-volume2"));
+        assertThat(existingVolumes.get(4).getConfigMap().getName(), is("my-cm"));
+        assertThat(existingVolumes.get(4).getConfigMap().getItems().size(), is(1));
+        assertThat(existingVolumes.get(4).getConfigMap().getItems().getFirst().getKey(), is("my-cluster-brokers-5.cfg"));
+        assertThat(existingVolumes.get(4).getConfigMap().getItems().getFirst().getPath(), is("my-config/5.cfg"));
+        assertThat(existingVolumes.get(4).getSecret(), is(nullValue()));
+        assertThat(existingVolumes.get(4).getEmptyDir(), is(nullValue()));
+        assertThat(existingVolumes.get(4).getPersistentVolumeClaim(), is(nullValue()));
+        assertThat(existingVolumes.get(4).getCsi(), is(nullValue()));
+        assertThat(existingVolumes.get(4).getImage(), is(nullValue()));
+        assertThat(existingVolumes.get(4).getProjected(), is(nullValue()));
+
+        assertThat(existingVolumes.get(5).getName(), is("pvc-volume"));
+        assertThat(existingVolumes.get(5).getPersistentVolumeClaim().getClaimName(), is("pvc-5-my-cluster-brokers-5"));
+        assertThat(existingVolumes.get(5).getSecret(), is(nullValue()));
+        assertThat(existingVolumes.get(5).getConfigMap(), is(nullValue()));
+        assertThat(existingVolumes.get(5).getEmptyDir(), is(nullValue()));
+        assertThat(existingVolumes.get(5).getCsi(), is(nullValue()));
+        assertThat(existingVolumes.get(5).getImage(), is(nullValue()));
+        assertThat(existingVolumes.get(5).getProjected(), is(nullValue()));
+    }
+
+    @Test
+    public void testAddAdditionalTemplatedVolumesWithDuplicateName() {
+        List<Volume> existingVolumes = new ArrayList<>();
+        existingVolumes.add(new VolumeBuilder().withName("duplicate").build());
+        NodeRef node = new NodeRef("my-cluster-brokers-5", 5, "brokers", false, true);
+
+        StatefulPodTemplate templatePod = new StatefulPodTemplateBuilder()
+                .withTemplatedVolumes(
+                        new AdditionalTemplatedVolumeBuilder()
+                                .withName("duplicate")
+                                .withSecret(new SecretVolumeSourceBuilder().withSecretName("my-secret-{nodeId}").build())
+                                .build())
+                .build();
+
+        InvalidResourceException exception = assertThrows(InvalidResourceException.class, () -> TemplateUtils.addAdditionalTemplatedVolumes(node, templatePod, existingVolumes));
+        assertThat(exception.getMessage(), is("Duplicate volume names found in additional volumes: [duplicate]"));
+    }
+
+    @Test
+    public void testAddAdditionalTemplatedVolumesWithInvalidName() {
+        List<Volume> existingVolumes = new ArrayList<>();
+        NodeRef node = new NodeRef("my-cluster-brokers-5", 5, "brokers", false, true);
+
+        StatefulPodTemplate templatePod = new StatefulPodTemplateBuilder()
+                .withTemplatedVolumes(
+                        new AdditionalTemplatedVolumeBuilder()
+                                .withName("invalid_name!")
+                                .withSecret(new SecretVolumeSourceBuilder().withSecretName("my-secret-{nodeId}").build())
+                                .build())
+                .build();
+
+        InvalidResourceException exception = assertThrows(InvalidResourceException.class, () -> TemplateUtils.addAdditionalTemplatedVolumes(node, templatePod, existingVolumes));
+        assertThat(exception.getMessage(), is("Volume names [invalid_name!] are invalid and do not match the pattern " + VOLUME_NAME_REGEX));
     }
 }

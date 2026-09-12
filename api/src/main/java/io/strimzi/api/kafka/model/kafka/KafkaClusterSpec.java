@@ -14,8 +14,8 @@ import io.strimzi.api.kafka.model.common.HasLivenessProbe;
 import io.strimzi.api.kafka.model.common.HasReadinessProbe;
 import io.strimzi.api.kafka.model.common.JvmOptions;
 import io.strimzi.api.kafka.model.common.Logging;
-import io.strimzi.api.kafka.model.common.Probe;
 import io.strimzi.api.kafka.model.common.Rack;
+import io.strimzi.api.kafka.model.common.StrimziProbe;
 import io.strimzi.api.kafka.model.common.UnknownPropertyPreserving;
 import io.strimzi.api.kafka.model.common.jmx.HasJmxOptions;
 import io.strimzi.api.kafka.model.common.jmx.KafkaJmxOptions;
@@ -60,7 +60,7 @@ public class KafkaClusterSpec implements HasConfigurableMetrics, HasConfigurable
             + "node.id, process.roles, controller., metadata.log.dir, zookeeper.metadata.migration.enable, " // KRaft options
             + "client.quota.callback.static.kafka.admin., client.quota.callback.static.produce, client.quota.callback.static.fetch, "
             + "client.quota.callback.static.storage.per.volume.limit.min.available., client.quota.callback.static.excluded.principal.name.list, "
-            + "prometheus.metrics.reporter.";
+            + "prometheus.metrics.reporter., cordoned.log.dirs";
 
     /* When FORBIDDEN_PREFIX_EXCEPTIONS is updated, documentation/api/io.strimzi.api.kafka.model.kafka.KafkaClusterSpec.adoc must be updated accordingly. */
     public static final String FORBIDDEN_PREFIX_EXCEPTIONS = "zookeeper.connection.timeout.ms, sasl.server.max.receive.size, "
@@ -81,8 +81,8 @@ public class KafkaClusterSpec implements HasConfigurableMetrics, HasConfigurable
     private Rack rack;
     private Logging logging;
     private String image;
-    private Probe livenessProbe;
-    private Probe readinessProbe;
+    private StrimziProbe livenessProbe;
+    private StrimziProbe readinessProbe;
     private JvmOptions jvmOptions;
     private KafkaJmxOptions jmxOptions;
     private MetricsConfig metricsConfig;
@@ -173,21 +173,21 @@ public class KafkaClusterSpec implements HasConfigurableMetrics, HasConfigurable
 
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     @Description("Pod liveness checking.")
-    public Probe getLivenessProbe() {
+    public StrimziProbe getLivenessProbe() {
         return livenessProbe;
     }
 
-    public void setLivenessProbe(Probe livenessProbe) {
+    public void setLivenessProbe(StrimziProbe livenessProbe) {
         this.livenessProbe = livenessProbe;
     }
 
     @JsonInclude(JsonInclude.Include.NON_DEFAULT)
     @Description("Pod readiness checking.")
-    public Probe getReadinessProbe() {
+    public StrimziProbe getReadinessProbe() {
         return readinessProbe;
     }
 
-    public void setReadinessProbe(Probe readinessProbe) {
+    public void setReadinessProbe(StrimziProbe readinessProbe) {
         this.readinessProbe = readinessProbe;
     }
 

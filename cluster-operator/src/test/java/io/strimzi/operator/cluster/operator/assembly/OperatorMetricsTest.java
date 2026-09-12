@@ -12,16 +12,15 @@ import io.fabric8.kubernetes.model.annotation.Group;
 import io.fabric8.kubernetes.model.annotation.Version;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tag;
-import io.micrometer.core.instrument.search.MeterNotFoundException;
 import io.strimzi.api.kafka.model.common.Spec;
 import io.strimzi.api.kafka.model.kafka.Status;
-import io.strimzi.operator.cluster.operator.resource.kubernetes.AbstractWatchableStatusedNamespacedResourceOperator;
 import io.strimzi.operator.common.MetricsProvider;
 import io.strimzi.operator.common.MicrometerMetricsProvider;
 import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.metrics.MetricsHolder;
 import io.strimzi.operator.common.model.Labels;
 import io.strimzi.operator.common.model.NamespaceAndName;
+import io.strimzi.operator.common.operator.resource.kubernetes.AbstractWatchableStatusedNamespacedResourceOperator;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
@@ -40,6 +39,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
 
 import static java.util.Collections.emptyMap;
@@ -47,7 +49,6 @@ import static java.util.Collections.singletonMap;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.greaterThan;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @ExtendWith(VertxExtension.class)
 @Group("strimzi")
@@ -107,12 +108,6 @@ public class OperatorMetricsTest {
                     assertThat(registry.get(MetricsHolder.METRICS_RECONCILIATIONS_DURATION).tag("kind", "TestResource").timer().count(), is(1L));
                     assertThat(registry.get(MetricsHolder.METRICS_RECONCILIATIONS_DURATION).tag("kind", "TestResource").timer().totalTime(TimeUnit.MILLISECONDS), greaterThan(0.0));
 
-                    assertThat(registry.get(MetricsHolder.METRICS_RESOURCE_STATE)
-                            .tag("kind", "TestResource")
-                            .tag("name", "my-resource")
-                            .tag("resource-namespace", "my-namespace")
-                            .gauge().value(), is(1.0));
-
                     async.flag();
                 })));
     }
@@ -168,13 +163,6 @@ public class OperatorMetricsTest {
                     assertThat(registry.get(MetricsHolder.METRICS_RECONCILIATIONS_DURATION).meter().getId().getTags().get(2), is(selectorTag));
                     assertThat(registry.get(MetricsHolder.METRICS_RECONCILIATIONS_DURATION).tag("kind", "TestResource").timer().count(), is(1L));
                     assertThat(registry.get(MetricsHolder.METRICS_RECONCILIATIONS_DURATION).tag("kind", "TestResource").timer().totalTime(TimeUnit.MILLISECONDS), greaterThan(0.0));
-
-                    assertThat(registry.get(MetricsHolder.METRICS_RESOURCE_STATE)
-                            .tag("kind", "TestResource")
-                            .tag("name", "my-resource")
-                            .tag("resource-namespace", "my-namespace")
-                            .tag("reason", "Test error")
-                            .gauge().value(), is(0.0));
 
                     async.flag();
                 })));
@@ -235,12 +223,6 @@ public class OperatorMetricsTest {
                     assertThat(registry.get(MetricsHolder.METRICS_RECONCILIATIONS_DURATION).tag("kind", "TestResource").timer().count(), is(1L));
                     assertThat(registry.get(MetricsHolder.METRICS_RECONCILIATIONS_DURATION).tag("kind", "TestResource").timer().totalTime(TimeUnit.MILLISECONDS), greaterThan(0.0));
 
-                    assertThat(registry.get(MetricsHolder.METRICS_RESOURCE_STATE)
-                            .tag("kind", "TestResource")
-                            .tag("name", "my-resource")
-                            .tag("resource-namespace", "my-namespace")
-                            .gauge().value(), is(1.0));
-
                     async.flag();
                 })));
     }
@@ -286,7 +268,7 @@ public class OperatorMetricsTest {
     public void testDeleteCountsReconcile(VertxTestContext context)  {
         MetricsProvider metricsProvider = createCleanMetricsProvider();
 
-        AbstractWatchableStatusedNamespacedResourceOperator resourceOperator = new AbstractWatchableStatusedNamespacedResourceOperator(vertx, null, "TestResource") {
+        AbstractWatchableStatusedNamespacedResourceOperator resourceOperator = new AbstractWatchableStatusedNamespacedResourceOperator(ForkJoinPool.commonPool(), null, "TestResource") {
             @Override
             protected MixedOperation operation() {
                 return null;
@@ -298,12 +280,12 @@ public class OperatorMetricsTest {
             }
 
             @Override
-            public Future getAsync(String namespace, String name) {
-                return Future.succeededFuture();
+            public CompletionStage getAsync(String namespace, String name) {
+                return CompletableFuture.completedFuture(null);
             }
 
             @Override
-            public Future updateStatusAsync(Reconciliation reconciliation, HasMetadata resource) {
+            public CompletionStage updateStatusAsync(Reconciliation reconciliation, HasMetadata resource) {
                 return null;
             }
         };
@@ -339,12 +321,6 @@ public class OperatorMetricsTest {
                     assertThat(registry.get(MetricsHolder.METRICS_RECONCILIATIONS_DURATION).meter().getId().getTags().get(2), is(selectorTag));
                     assertThat(registry.get(MetricsHolder.METRICS_RECONCILIATIONS_DURATION).tag("kind", "TestResource").timer().count(), is(1L));
                     assertThat(registry.get(MetricsHolder.METRICS_RECONCILIATIONS_DURATION).tag("kind", "TestResource").timer().totalTime(TimeUnit.MILLISECONDS), greaterThan(0.0));
-
-                    assertThrows(MeterNotFoundException.class, () -> registry.get(MetricsHolder.METRICS_RESOURCE_STATE)
-                            .tag("kind", "TestResource")
-                            .tag("name", "my-resource")
-                            .tag("resource-namespace", "my-namespace")
-                            .gauge());
 
                     async.flag();
                 })));
@@ -384,14 +360,6 @@ public class OperatorMetricsTest {
 
             assertThat(registry.get(MetricsHolder.METRICS_RESOURCES).meter().getId().getTags().get(2), is(selectorTag));
             assertThat(registry.get(MetricsHolder.METRICS_RESOURCES).tag("kind", "TestResource").tag("namespace", "my-namespace").gauge().value(), is(3.0));
-
-            for (NamespaceAndName resource : resources) {
-                assertThat(registry.get(MetricsHolder.METRICS_RESOURCE_STATE)
-                        .tag("kind", "TestResource")
-                        .tag("name", resource.getName())
-                        .tag("resource-namespace", resource.getNamespace())
-                        .gauge().value(), is(1.0));
-            }
 
             async.flag();
         })));
@@ -436,14 +404,6 @@ public class OperatorMetricsTest {
 
                     assertThat(registry.get(MetricsHolder.METRICS_RESOURCES).tag("kind", "TestResource").tag("namespace", "my-namespace").gauge().value(), is(2.0));
                     assertThat(registry.get(MetricsHolder.METRICS_RESOURCES).tag("kind", "TestResource").tag("namespace", "my-namespace2").gauge().value(), is(1.0));
-
-                    for (NamespaceAndName resource : resources) {
-                        assertThat(registry.get(MetricsHolder.METRICS_RESOURCE_STATE)
-                                .tag("kind", "TestResource")
-                                .tag("name", resource.getName())
-                                .tag("resource-namespace", resource.getNamespace())
-                                .gauge().value(), is(1.0));
-                    }
                 })))
                 .compose(ignore -> {
                     // Reconcile again with resource in my-namespace2 deleted
@@ -470,14 +430,6 @@ public class OperatorMetricsTest {
                     assertThat(registry.get(MetricsHolder.METRICS_RESOURCES).tag("kind", "TestResource").tag("namespace", "my-namespace").gauge().value(), is(2.0));
                     assertThat(registry.get(MetricsHolder.METRICS_RESOURCES).tag("kind", "TestResource").tag("namespace", "my-namespace2").gauge().value(), is(0.0));
 
-                    for (NamespaceAndName resource : updatedResources) {
-                        assertThat(registry.get(MetricsHolder.METRICS_RESOURCE_STATE)
-                                .tag("kind", "TestResource")
-                                .tag("name", resource.getName())
-                                .tag("resource-namespace", resource.getNamespace())
-                                .gauge().value(), is(1.0));
-                    }
-
                     async.flag();
                 })));
     }
@@ -499,9 +451,9 @@ public class OperatorMetricsTest {
     protected abstract static class MyResource extends CustomResource { }
 
     protected AbstractWatchableStatusedNamespacedResourceOperator resourceOperatorWithExistingResource(Labels selectorLabels)    {
-        return new AbstractWatchableStatusedNamespacedResourceOperator(vertx, null, "TestResource") {
+        return new AbstractWatchableStatusedNamespacedResourceOperator(ForkJoinPool.commonPool(), null, "TestResource") {
             @Override
-            public Future updateStatusAsync(Reconciliation reconciliation, HasMetadata resource) {
+            public CompletionStage updateStatusAsync(Reconciliation reconciliation, HasMetadata resource) {
                 return null;
             }
 
@@ -523,8 +475,8 @@ public class OperatorMetricsTest {
             }
 
             @Override
-            public Future getAsync(String namespace, String name) {
-                return Future.succeededFuture(get(namespace, name));
+            public CompletionStage getAsync(String namespace, String name) {
+                return CompletableFuture.completedFuture(get(namespace, name));
             }
         };
     }
@@ -538,10 +490,10 @@ public class OperatorMetricsTest {
     }
 
     private AbstractWatchableStatusedNamespacedResourceOperator resourceOperatorWithExistingPausedResource() {
-        return new AbstractWatchableStatusedNamespacedResourceOperator(vertx, null, "TestResource") {
+        return new AbstractWatchableStatusedNamespacedResourceOperator(ForkJoinPool.commonPool(), null, "TestResource") {
             @Override
-            public Future updateStatusAsync(Reconciliation reconciliation, HasMetadata resource) {
-                return Future.succeededFuture();
+            public CompletionStage updateStatusAsync(Reconciliation reconciliation, HasMetadata resource) {
+                return CompletableFuture.completedFuture(null);
             }
 
             @Override
@@ -560,13 +512,13 @@ public class OperatorMetricsTest {
             }
 
             @Override
-            public Future getAsync(String namespace, String name) {
+            public CompletionStage getAsync(String namespace, String name) {
                 Foo foo = new Foo();
                 ObjectMeta md = new ObjectMeta();
                 md.setAnnotations(singletonMap("strimzi.io/pause-reconciliation", "true"));
                 foo.setMetadata(md);
 
-                return Future.succeededFuture(foo);
+                return CompletableFuture.completedFuture(foo);
             }
         };
     }
