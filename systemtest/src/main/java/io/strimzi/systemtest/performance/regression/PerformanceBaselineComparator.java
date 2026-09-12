@@ -52,10 +52,11 @@ public class PerformanceBaselineComparator {
                 double currentValue = metricEntry.getValue();
 
                 BaselineMetric baseline = testBaseline.get(metricName);
+                boolean passed = true;
 
                 if (baseline != null && !isFirstRun) {
                     double deviations = baseline.getDeviations(currentValue);
-                    boolean passed = !baseline.isRegression(currentValue, threshold);
+                    passed = !baseline.isRegression(currentValue, threshold);
 
                     allResults.add(new RegressionResult(
                         result.getTestName(), metricName, currentValue,
@@ -68,7 +69,13 @@ public class PerformanceBaselineComparator {
                     baseline = new BaselineMetric(windowSize);
                     testBaseline.put(metricName, baseline);
                 }
-                baseline.addValue(currentValue);
+                // Regressed values are kept out of the rolling window: one bad
+                // night would otherwise inflate mean and stddev enough to mask
+                // follow-up regressions until it ages out. A genuine level shift
+                // keeps flagging until the baseline is deliberately reset.
+                if (passed) {
+                    baseline.addValue(currentValue);
+                }
             }
         }
 

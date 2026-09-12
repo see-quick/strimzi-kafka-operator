@@ -47,6 +47,17 @@ done
 
 mkdir -p "${LOG_DIR}"
 
+# ---- Log housekeeping ----
+# Nightly logs older than 14 days are removed; the launchd stdout/stderr logs
+# are append-only and held open by launchd, so truncate them once they exceed
+# 10MB (truncation is safe with O_APPEND writers).
+find "${LOG_DIR}" -name 'nightly-perf-*.log' -mtime +14 -delete 2>/dev/null || true
+for launchd_log in "${LOG_DIR}"/launchd-stdout.log "${LOG_DIR}"/launchd-stderr.log; do
+    if [[ -f "${launchd_log}" ]] && [[ $(stat -f%z "${launchd_log}") -gt 10485760 ]]; then
+        : > "${launchd_log}"
+    fi
+done
+
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "${LOG_FILE}"
 }
@@ -56,14 +67,21 @@ die() {
     exit 1
 }
 
+notify() {
+    # Best-effort macOS notification so failed/regressed overnight runs are
+    # visible in the morning without checking logs.
+    osascript -e "display notification \"$2\" with title \"$1\"" 2>/dev/null || true
+}
+
 cleanup() {
     local exit_code=$?
     if [[ "${KEEP_CLUSTER}" == "false" && "${SKIP_CLUSTER}" == "false" ]]; then
         log "Cleaning up Kind cluster..."
         "${KIND_SCRIPT}" delete 2>>"${LOG_FILE}" || true
     fi
-    if [[ ${exit_code} -ne 0 ]]; then
+    if [[ ${exit_code} -ne 0 && "${REGRESSION_EXIT:-false}" != "true" ]]; then
         log "Script failed with exit code ${exit_code}. Logs: ${LOG_FILE}"
+        notify "Strimzi nightly perf FAILED" "Exit ${exit_code}, see $(basename "${LOG_FILE}")"
     fi
 }
 trap cleanup EXIT
@@ -75,10 +93,17 @@ if [[ -z "${SSH_AUTH_SOCK:-}" ]]; then
 fi
 
 # ---- Step 0: Update worktree to latest perf-fork ----
+# BatchMode + ConnectTimeout prevent a hung ssh (no network, passphrase prompt)
+# from stalling the whole run; a failed fetch falls back to the current checkout.
+export GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=30"
 log "Updating to latest perf-fork..."
 cd "${PROJECT_DIR}"
-git fetch origin perf-fork
-git checkout --detach origin/perf-fork
+if git fetch origin perf-fork 2>>"${LOG_FILE}"; then
+    git checkout --detach origin/perf-fork 2>>"${LOG_FILE}" \
+        || log "WARNING: checkout of origin/perf-fork failed (local changes?), staying on current HEAD"
+else
+    log "WARNING: git fetch failed, running with current checkout"
+fi
 log "Now at: $(git rev-parse --short HEAD)"
 
 # ---- Step 1: Validate prerequisites ----
@@ -103,8 +128,24 @@ log "Commit: ${COMMIT_SHA}"
 if [[ "${DRY_RUN}" == "false" ]]; then
     # ---- Step 2: Create Kind cluster ----
     if [[ "${SKIP_CLUSTER}" == "false" ]]; then
+        # A cold podman machine makes every podman call crawl and Kind creation
+        # flaky, so make sure it is up before touching the cluster.
+        if ! podman machine inspect --format '{{.State}}' 2>/dev/null | grep -q running; then
+            log "Podman machine not running, starting it..."
+            podman machine start >>"${LOG_FILE}" 2>&1 || true
+        fi
+
+        # Kind cluster creation occasionally flakes (CNI apply races); retry once.
+        create_cluster() {
+            "${KIND_SCRIPT}" create --workers 1 --no-cloud-provider --configure-insecure 2>&1 | tee -a "${LOG_FILE}"
+        }
         log "Creating Kind cluster..."
-        "${KIND_SCRIPT}" create --workers 1 --no-cloud-provider --configure-insecure 2>&1 | tee -a "${LOG_FILE}"
+        if ! create_cluster; then
+            log "Cluster creation failed, deleting leftovers and retrying once..."
+            "${KIND_SCRIPT}" delete >>"${LOG_FILE}" 2>&1 || true
+            sleep 30
+            create_cluster || die "Kind cluster creation failed twice"
+        fi
         log "Kind cluster ready."
     fi
 
@@ -120,13 +161,15 @@ if [[ "${DRY_RUN}" == "false" ]]; then
     mvn install -DskipTests -Dcheckstyle.skip=true -pl systemtest -am 2>&1 | tail -5 | tee -a "${LOG_FILE}"
 
     # ---- Step 4: Run performance tests ----
-    log "Running performance tests (non-capacity)..."
+    # Full mvn output goes only to LOG_FILE; teeing it to stdout was growing
+    # launchd-stdout.log without bound (169MB before rotation was added).
+    log "Running performance tests (non-capacity), full output in ${LOG_FILE}..."
     cd "${PROJECT_DIR}"
     mvn verify -pl systemtest -Pperformance -DskipTests=false \
         -Dgroups="performance & !capacity" \
         -Dcheckstyle.skip=true \
         -Dmaven.test.failure.ignore=true \
-        2>&1 | tee -a "${LOG_FILE}"
+        >>"${LOG_FILE}" 2>&1
     log "Performance tests complete."
 fi
 
@@ -142,6 +185,15 @@ java -cp "${CLASSPATH}" \
     --commit "${COMMIT_SHA}" \
     2>&1 | tee -a "${LOG_FILE}" || true
 
+# Write run metadata next to the exported results (the dashboard aggregation
+# reads commitSha from it).
+LATEST_RESULTS_DIR=$(ls -d "${RESULTS_REPO}"/results/*/ 2>/dev/null | sort | tail -1 || true)
+if [[ -n "${LATEST_RESULTS_DIR}" ]]; then
+    printf '{\n  "commitSha" : "%s",\n  "finishedAt" : "%s"\n}\n' \
+        "${COMMIT_SHA}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        > "${LATEST_RESULTS_DIR}/metadata.json"
+fi
+
 # ---- Step 6: Push results ----
 if [[ "${SKIP_PUSH}" == "false" ]]; then
     # Load SSH key from macOS Keychain for non-interactive launchd sessions
@@ -154,6 +206,7 @@ if [[ "${SKIP_PUSH}" == "false" ]]; then
         log "No new results to push."
     else
         git commit -s -m "Nightly results $(date +%Y-%m-%d) (${COMMIT_SHA})"
+        git pull --rebase origin main >>"${LOG_FILE}" 2>&1 || log "WARNING: rebase on origin/main failed, pushing anyway"
         git push -u origin main
         log "Results pushed."
     fi
@@ -167,6 +220,9 @@ if [[ -f "${REGRESSIONS_FILE}" ]] && python3 -c "import json,sys; r=json.load(op
     log "All metrics within baseline. Run complete."
     exit 0
 else
-    log "REGRESSION DETECTED. Check results at: ${RESULTS_REPO}"
+    REGRESSION_COUNT=$(python3 -c "import json,sys; print(len(json.load(open(sys.argv[1])).get('regressions', [])))" "${REGRESSIONS_FILE}" 2>/dev/null || echo "?")
+    log "REGRESSION DETECTED (${REGRESSION_COUNT} metrics). Check results at: ${RESULTS_REPO}"
+    notify "Strimzi nightly perf: REGRESSION" "${REGRESSION_COUNT} metric(s) above baseline (${COMMIT_SHA})"
+    REGRESSION_EXIT=true
     exit 1
 fi
