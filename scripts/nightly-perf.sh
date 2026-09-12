@@ -104,6 +104,29 @@ if git fetch origin perf-fork 2>>"${LOG_FILE}"; then
 else
     log "WARNING: git fetch failed, running with current checkout"
 fi
+
+# ---- Step 0b: Auto-sync perf-fork with upstream main ----
+# The tests deploy quay.io/strimzi/operator:latest (re-pulled each run), so the
+# fork's install files must track upstream or the operator fails startup
+# validation on new Kafka versions. Merge upstream in; on conflict, abort and
+# run on the unsynced fork. The merged branch is pushed back to origin only
+# after the systemtest build succeeds (Step 3), never in a broken state.
+SYNC_MERGED=false
+SYNC_BUILD_OK=false
+if git fetch strimzi-https main 2>>"${LOG_FILE}"; then
+    if git merge --no-edit -m "Sync perf-fork with upstream main" strimzi-https/main >>"${LOG_FILE}" 2>&1; then
+        if [[ $(git rev-parse HEAD) != $(git rev-parse origin/perf-fork 2>/dev/null) ]]; then
+            SYNC_MERGED=true
+            log "Merged upstream main into perf-fork (will push after successful build)."
+        fi
+    else
+        git merge --abort 2>/dev/null || true
+        log "WARNING: merge with upstream main conflicted, running unsynced perf-fork"
+        notify "Strimzi nightly perf" "Upstream merge conflicted, manual perf-fork sync needed"
+    fi
+else
+    log "WARNING: fetch of upstream main failed, skipping sync"
+fi
 log "Now at: $(git rev-parse --short HEAD)"
 
 # ---- Step 1: Validate prerequisites ----
@@ -159,6 +182,8 @@ if [[ "${DRY_RUN}" == "false" ]]; then
     log "Building systemtest module..."
     cd "${PROJECT_DIR}"
     mvn install -DskipTests -Dcheckstyle.skip=true -pl systemtest -am 2>&1 | tail -5 | tee -a "${LOG_FILE}"
+    # The merged tree builds, so the sync is safe to publish in Step 6.
+    SYNC_BUILD_OK=true
 
     # ---- Step 4: Run performance tests ----
     # Full mvn output goes only to LOG_FILE; teeing it to stdout was growing
@@ -198,6 +223,16 @@ fi
 if [[ "${SKIP_PUSH}" == "false" ]]; then
     # Load SSH key from macOS Keychain for non-interactive launchd sessions
     ssh-add --apple-use-keychain 2>>"${LOG_FILE}" || true
+
+    # Publish the upstream sync now that the merged tree has built successfully.
+    if [[ "${SYNC_MERGED}" == "true" && "${SYNC_BUILD_OK}" == "true" ]]; then
+        cd "${PROJECT_DIR}"
+        if git push origin HEAD:perf-fork 2>>"${LOG_FILE}"; then
+            log "Pushed synced perf-fork ($(git rev-parse --short HEAD)) to origin."
+        else
+            log "WARNING: push of synced perf-fork failed, sync will be redone next run"
+        fi
+    fi
 
     log "Pushing results to remote..."
     cd "${RESULTS_REPO}"
