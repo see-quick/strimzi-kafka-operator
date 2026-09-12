@@ -73,14 +73,17 @@ notify() {
     osascript -e "display notification \"$2\" with title \"$1\"" 2>/dev/null || true
 }
 
-# ---- WhatsApp summary (optional) ----
-# Sends run summaries to the user's own number via the CallMeBot gateway.
-# Credentials live OUTSIDE the repo (this branch is public): put
-#   WHATSAPP_PHONE=+4207...      (number registered with CallMeBot)
+# ---- Phone summaries (optional) ----
+# Sends run summaries to the user's phone. Credentials live OUTSIDE the repo
+# (this branch is public), in ~/.config/strimzi-perf/notify.env:
+#   TELEGRAM_BOT_TOKEN=123456:ABC...   (from @BotFather)
+#   TELEGRAM_CHAT_ID=123456789         (your chat with the bot)
+#   WHATSAPP_PHONE=+4207...            (number registered with CallMeBot)
 #   WHATSAPP_APIKEY=123456
-# into ~/.config/strimzi-perf/whatsapp.env. Missing config = silently skipped.
-WHATSAPP_CONFIG="${HOME}/.config/strimzi-perf/whatsapp.env"
-[[ -f "${WHATSAPP_CONFIG}" ]] && source "${WHATSAPP_CONFIG}"
+# Any channel with missing config is silently skipped.
+for notify_env in "${HOME}/.config/strimzi-perf/notify.env" "${HOME}/.config/strimzi-perf/whatsapp.env"; do
+    [[ -f "${notify_env}" ]] && source "${notify_env}"
+done
 
 send_whatsapp() {
     [[ -n "${WHATSAPP_PHONE:-}" && -n "${WHATSAPP_APIKEY:-}" ]] || return 0
@@ -89,6 +92,19 @@ send_whatsapp() {
         --data-urlencode "apikey=${WHATSAPP_APIKEY}" \
         --data-urlencode "text=$1" >>"${LOG_FILE}" 2>&1 \
         || log "WARNING: WhatsApp notification failed"
+}
+
+send_telegram() {
+    [[ -n "${TELEGRAM_BOT_TOKEN:-}" && -n "${TELEGRAM_CHAT_ID:-}" ]] || return 0
+    curl -sf --max-time 20 "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+        --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+        --data-urlencode "text=$1" >>"${LOG_FILE}" 2>&1 \
+        || log "WARNING: Telegram notification failed"
+}
+
+send_summary() {
+    send_telegram "$1"
+    send_whatsapp "$1"
 }
 
 START_TS=$(date +%s)
@@ -106,7 +122,7 @@ cleanup() {
     if [[ ${exit_code} -ne 0 && "${REGRESSION_EXIT:-false}" != "true" ]]; then
         log "Script failed with exit code ${exit_code}. Logs: ${LOG_FILE}"
         notify "Strimzi nightly perf FAILED" "Exit ${exit_code}, see $(basename "${LOG_FILE}")"
-        send_whatsapp "[FAIL] Strimzi nightly perf $(date +%Y-%m-%d): script failed with exit ${exit_code} after $(run_duration). Log: $(basename "${LOG_FILE}")"
+        send_summary "[FAIL] Strimzi nightly perf $(date +%Y-%m-%d): script failed with exit ${exit_code} after $(run_duration). Log: $(basename "${LOG_FILE}")"
     fi
 }
 trap cleanup EXIT
@@ -278,7 +294,7 @@ fi
 REGRESSIONS_FILE="${RESULTS_REPO}/regressions/current.json"
 if [[ -f "${REGRESSIONS_FILE}" ]] && python3 -c "import json,sys; r=json.load(open(sys.argv[1])); sys.exit(0 if not r.get('regressions') else 1)" "${REGRESSIONS_FILE}" 2>/dev/null; then
     log "All metrics within baseline. Run complete."
-    send_whatsapp "[OK] Strimzi nightly perf $(date +%Y-%m-%d): all metrics within baseline. Commit ${COMMIT_SHA}, took $(run_duration). Dashboard: https://see-quick.github.io/perf-dashboard/"
+    send_summary "[OK] Strimzi nightly perf $(date +%Y-%m-%d): all metrics within baseline. Commit ${COMMIT_SHA}, took $(run_duration). Dashboard: https://see-quick.github.io/perf-dashboard/"
     exit 0
 else
     REGRESSION_COUNT=$(python3 -c "import json,sys; print(len(json.load(open(sys.argv[1])).get('regressions', [])))" "${REGRESSIONS_FILE}" 2>/dev/null || echo "?")
@@ -289,7 +305,7 @@ print('; '.join('%s/%s +%.1f sigma' % (r['testName'], r['metricName'], r['deviat
 " "${REGRESSIONS_FILE}" 2>/dev/null || echo "")
     log "REGRESSION DETECTED (${REGRESSION_COUNT} metrics). Check results at: ${RESULTS_REPO}"
     notify "Strimzi nightly perf: REGRESSION" "${REGRESSION_COUNT} metric(s) above baseline (${COMMIT_SHA})"
-    send_whatsapp "[REGRESSION] Strimzi nightly perf $(date +%Y-%m-%d): ${REGRESSION_COUNT} metric(s) above baseline. Commit ${COMMIT_SHA}, took $(run_duration). ${TOP_REGRESSIONS}. Dashboard: https://see-quick.github.io/perf-dashboard/"
+    send_summary "[REGRESSION] Strimzi nightly perf $(date +%Y-%m-%d): ${REGRESSION_COUNT} metric(s) above baseline. Commit ${COMMIT_SHA}, took $(run_duration). ${TOP_REGRESSIONS}. Dashboard: https://see-quick.github.io/perf-dashboard/"
     REGRESSION_EXIT=true
     exit 1
 fi
