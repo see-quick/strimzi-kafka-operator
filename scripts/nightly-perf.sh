@@ -251,13 +251,77 @@ java -cp "${CLASSPATH}" \
     --commit "${COMMIT_SHA}" \
     2>&1 | tee -a "${LOG_FILE}" || true
 
-# Write run metadata next to the exported results (the dashboard aggregation
-# reads commitSha from it).
+# Write run metadata next to the exported results. The dashboard aggregation
+# reads commitSha from it; the rest is environment context for outlier
+# forensics (was a slow night the code, or a loaded machine?).
 LATEST_RESULTS_DIR=$(ls -d "${RESULTS_REPO}"/results/*/ 2>/dev/null | sort | tail -1 || true)
 if [[ -n "${LATEST_RESULTS_DIR}" ]]; then
-    printf '{\n  "commitSha" : "%s",\n  "finishedAt" : "%s"\n}\n' \
-        "${COMMIT_SHA}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        > "${LATEST_RESULTS_DIR}/metadata.json"
+    COMMIT_SHA="${COMMIT_SHA}" START_TS="${START_TS}" OUT_DIR="${LATEST_RESULTS_DIR}" \
+    PROJECT_DIR="${PROJECT_DIR}" SYNC_MERGED="${SYNC_MERGED:-false}" python3 - <<'PYEOF' 2>&1 | tee -a "${LOG_FILE}" || true
+import json, os, re, subprocess, datetime
+
+def run(cmd):
+    try:
+        return subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=20).stdout.strip()
+    except Exception:
+        return ""
+
+start = datetime.datetime.fromtimestamp(int(os.environ["START_TS"]), datetime.timezone.utc)
+now = datetime.datetime.now(datetime.timezone.utc)
+
+podman_vm = {}
+try:
+    insp = json.loads(run("podman machine inspect") or "[]")
+    if insp:
+        res = insp[0].get("Resources", {})
+        podman_vm = {"cpus": res.get("CPUs"), "memoryMiB": res.get("Memory"), "diskGiB": res.get("DiskSize")}
+except Exception:
+    pass
+
+kafka_default, ver = "", ""
+try:
+    for line in open(os.path.join(os.environ["PROJECT_DIR"], "kafka-versions.yaml")):
+        s = line.strip()
+        if s.startswith("- version:"):
+            ver = s.split(":", 1)[1].strip()
+        if s == "default: true":
+            kafka_default = ver
+except Exception:
+    pass
+
+kubectl_ver = ""
+try:
+    kubectl_ver = json.loads(run("kubectl version --client -o json") or "{}").get("clientVersion", {}).get("gitVersion", "")
+except Exception:
+    pass
+
+meta = {
+    "commitSha": os.environ["COMMIT_SHA"],
+    "startedAt": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "finishedAt": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "durationSeconds": int((now - start).total_seconds()),
+    "upstreamSynced": os.environ["SYNC_MERGED"] == "true",
+    "kafkaDefaultVersion": kafka_default,
+    "host": {
+        "macos": run("sw_vers -productVersion"),
+        "model": run("sysctl -n hw.model"),
+        "cpus": run("sysctl -n hw.ncpu"),
+        "memBytes": run("sysctl -n hw.memsize"),
+        "loadAvgEnd": run("sysctl -n vm.loadavg").strip("{} "),
+    },
+    "podmanMachine": podman_vm,
+    "versions": {
+        "podman": run("podman --version").replace("podman version ", ""),
+        "kind": run("kind --version").replace("kind version ", ""),
+        "kubectl": kubectl_ver,
+        "java": run("java -version 2>&1 | head -1"),
+    },
+}
+with open(os.path.join(os.environ["OUT_DIR"], "metadata.json"), "w") as f:
+    json.dump(meta, f, indent=2)
+    f.write("\n")
+print("metadata.json written (commit %s, duration %ss)" % (meta["commitSha"], meta["durationSeconds"]))
+PYEOF
 fi
 
 # ---- Step 6: Push results ----
