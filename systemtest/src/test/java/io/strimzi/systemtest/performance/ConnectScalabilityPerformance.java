@@ -10,6 +10,7 @@ import io.skodjob.annotations.Step;
 import io.skodjob.annotations.SuiteDoc;
 import io.skodjob.annotations.TestDoc;
 import io.skodjob.kubetest4j.resources.KubeResourceManager;
+import io.strimzi.api.kafka.model.connect.build.DockerOutputBuilder;
 import io.strimzi.api.kafka.model.connect.build.JarArtifactBuilder;
 import io.strimzi.api.kafka.model.connect.build.Plugin;
 import io.strimzi.api.kafka.model.connect.build.PluginBuilder;
@@ -128,7 +129,7 @@ public class ConnectScalabilityPerformance extends AbstractST {
                     .addToConfig("value.converter", "org.apache.kafka.connect.storage.StringConverter")
                     .withNewBuild()
                         .withPlugins(echoSinkPlugin)
-                        .withOutput(KafkaConnectTemplates.dockerOutput(imageFullPath))
+                        .withOutput(KafkaConnectTemplates.dockerOutput(imageFullPath, new DockerOutputBuilder()))
                     .endBuild()
                 .endSpec()
                 .build()
