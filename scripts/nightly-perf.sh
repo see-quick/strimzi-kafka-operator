@@ -219,6 +219,26 @@ if [[ "${DRY_RUN}" == "false" ]]; then
     export CONNECT_BUILD_IMAGE_PATH=$(podman inspect -f '{{.NetworkSettings.Networks.kind.IPAddress}}' kind-registry):5000/strimzi-connect-build
     log "CONNECT_BUILD_IMAGE_PATH=${CONNECT_BUILD_IMAGE_PATH}"
 
+    # Pre-pull the images the first test class needs, on every Kind node, in the
+    # background while the build runs. A fresh :latest pull otherwise eats into
+    # the first operator-deploy readiness timeout (CaRenewalPerformance failed
+    # exactly this way on 2026-09-13).
+    prepull_images() {
+        local kafka_version images node image
+        kafka_version=$(awk '/^- version:/ {v=$3} /^  default: true/ {print v}' "${PROJECT_DIR}/kafka-versions.yaml" | head -1)
+        images=("quay.io/strimzi/operator:latest")
+        [[ -n "${kafka_version}" ]] && images+=("quay.io/strimzi/kafka:latest-kafka-${kafka_version}")
+        for node in $(podman ps --format '{{.Names}}' | grep '^kind-cluster' || true); do
+            for image in "${images[@]}"; do
+                podman exec "${node}" crictl pull "${image}" >>"${LOG_FILE}" 2>&1 \
+                    || log "WARNING: pre-pull of ${image} on ${node} failed"
+            done
+        done
+        log "Image pre-pull finished."
+    }
+    prepull_images &
+    PREPULL_PID=$!
+
     # ---- Step 3: Build systemtest module and deploy Strimzi ----
     log "Building systemtest module..."
     cd "${PROJECT_DIR}"
@@ -227,6 +247,11 @@ if [[ "${DRY_RUN}" == "false" ]]; then
     SYNC_BUILD_OK=true
 
     # ---- Step 4: Run performance tests ----
+    # Make sure the image pre-pull is done before the first deploy needs it.
+    if [[ -n "${PREPULL_PID:-}" ]]; then
+        wait "${PREPULL_PID}" 2>/dev/null || true
+    fi
+
     # Full mvn output goes only to LOG_FILE; teeing it to stdout was growing
     # launchd-stdout.log without bound (169MB before rotation was added).
     log "Running performance tests (non-capacity), full output in ${LOG_FILE}..."
