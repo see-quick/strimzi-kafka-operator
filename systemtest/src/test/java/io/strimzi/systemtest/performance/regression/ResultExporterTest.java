@@ -129,15 +129,15 @@ class ResultExporterTest {
     @Test
     void testWriteResultWithoutDistinguishingParam(@TempDir Path outputDir) throws Exception {
         Map<String, Double> metrics = new LinkedHashMap<>();
-        metrics.put("caRenewalTimeMs", 165058.0);
+        metrics.put("totalRollingUpdateTimeMs", 165058.0);
 
         Map<String, Object> parameters = new LinkedHashMap<>();
         parameters.put("brokerCount", 3);
 
         TestResult result = new TestResult(
-            "ClusterOperatorCaRenewalPerformance",
+            "ClusterOperatorRollingUpdatePerformance",
             "cluster-operator",
-            "caRenewal",
+            "rollingUpdate",
             "2026-06-13T02:00:00Z",
             "abc1234",
             parameters,
@@ -146,7 +146,7 @@ class ResultExporterTest {
 
         ResultExporter.writeResult(result, outputDir);
 
-        File outputFile = outputDir.resolve("cluster-operator-caRenewal.json").toFile();
+        File outputFile = outputDir.resolve("cluster-operator-rollingUpdate.json").toFile();
         assertTrue(outputFile.exists());
     }
 

@@ -30,28 +30,6 @@ public class ClusterOperatorPerformanceReporter extends BasePerformanceReporter 
             dirPathBuilder.append("-controllers-").append(controllerCount);
         }
 
-        // Append use-case specific suffixes
-        String connectorCount = performanceAttributes.getOrDefault(PerformanceConstants.CLUSTER_OPERATOR_IN_CONNECTOR_COUNT, "").toString();
-        if (!connectorCount.isEmpty()) {
-            dirPathBuilder.append("-connectors-").append(connectorCount);
-        }
-
-        String caType = performanceAttributes.getOrDefault(PerformanceConstants.CLUSTER_OPERATOR_IN_CA_TYPE, "").toString();
-        if (!caType.isEmpty()) {
-            dirPathBuilder.append("-ca-").append(caType);
-        }
-
-        String topicCount = performanceAttributes.getOrDefault(PerformanceConstants.CLUSTER_OPERATOR_IN_TOPIC_COUNT, "").toString();
-        if (!topicCount.isEmpty()) {
-            dirPathBuilder.append("-topics-").append(topicCount);
-        }
-
-        String initialBrokers = performanceAttributes.getOrDefault(PerformanceConstants.CLUSTER_OPERATOR_IN_INITIAL_BROKER_COUNT, "").toString();
-        String scaledBrokers = performanceAttributes.getOrDefault(PerformanceConstants.CLUSTER_OPERATOR_IN_SCALED_BROKER_COUNT, "").toString();
-        if (!initialBrokers.isEmpty() && !scaledBrokers.isEmpty()) {
-            dirPathBuilder.append("-scale-").append(initialBrokers).append("-to-").append(scaledBrokers);
-        }
-
         final Path clusterOperatorUseCasePathDir = performanceLogDir.resolve(dirPathBuilder.toString());
 
         LOGGER.info("Resolved CO performance log directory: {} for use case '{}'", clusterOperatorUseCasePathDir, useCaseName);
