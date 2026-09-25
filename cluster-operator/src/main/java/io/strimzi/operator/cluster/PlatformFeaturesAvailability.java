@@ -4,6 +4,8 @@
  */
 package io.strimzi.operator.cluster;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.fabric8.kubernetes.api.model.APIGroup;
 import io.fabric8.kubernetes.api.model.APIResourceList;
 import io.fabric8.kubernetes.client.KubernetesClient;
@@ -26,11 +28,48 @@ import java.util.Map;
 public class PlatformFeaturesAvailability implements PlatformFeatures {
     private static final Logger LOGGER = LogManager.getLogger(PlatformFeaturesAvailability.class.getName());
 
+    /**
+     * Path of the OIDC discovery (well-known) endpoint exposed by the Kubernetes API server for Service Account Issuer
+     * Discovery
+     */
+    /* test */ static final String OIDC_DISCOVERY_PATH = "/.well-known/openid-configuration";
+
     private boolean routes = false;
     private boolean builds = false;
     private boolean images = false;
     private boolean tlsRoutes = false;
     private KubernetesVersion kubernetesVersion;
+    private OidcDiscovery oidcDiscovery = null;
+
+    private PlatformFeaturesAvailability() {}
+
+    /**
+     * This constructor is used in tests. It sets all OpenShift APIs to true or false depending on the isOpenShift parameter
+     *
+     * @param isOpenShift       Set all OpenShift APIs to true
+     * @param kubernetesVersion Set the Kubernetes version
+     */
+    public PlatformFeaturesAvailability(boolean isOpenShift, KubernetesVersion kubernetesVersion) {
+        this.kubernetesVersion = kubernetesVersion;
+        this.routes = isOpenShift;
+        this.images = isOpenShift;
+        this.builds = isOpenShift;
+    }
+
+    /**
+     * This constructor is used in tests. It sets all OpenShift APIs to true or false depending on the isOpenShift parameter
+     *
+     * @param isOpenShift       Set all OpenShift APIs to true
+     * @param hasTlsRoutes      Set TLS Routes support
+     * @param kubernetesVersion Set the Kubernetes version
+     */
+    public PlatformFeaturesAvailability(boolean isOpenShift, boolean hasTlsRoutes, KubernetesVersion kubernetesVersion) {
+        this.kubernetesVersion = kubernetesVersion;
+        this.tlsRoutes = hasTlsRoutes;
+        this.routes = isOpenShift;
+        this.images = isOpenShift;
+        this.builds = isOpenShift;
+    }
 
     /**
      * Creates a PlatformFeaturesAvailability instance
@@ -64,6 +103,9 @@ public class PlatformFeaturesAvailability implements PlatformFeatures {
             return checkApiAvailability(vertx, client, "gateway.networking.k8s.io", "v1", "TLSRoute");
         }).compose(supported -> {
             pfa.setTLSRoutes(supported);
+            return detectOidcDiscovery(vertx, client);
+        }).compose(oidcDiscovery -> {
+            pfa.setOidcDiscovery(oidcDiscovery);
             return Future.succeededFuture(pfa);
         }).onComplete(pfaPromise);
 
@@ -75,7 +117,7 @@ public class PlatformFeaturesAvailability implements PlatformFeatures {
      * environment variable. If defined, the environment variable will take the precedence. Otherwise, the API server
      * endpoint will be used.
      *
-     * And example of the STRIMZI_KUBERNETES_VERSION environment variable in Cluster Operator deployment:
+     * An example of the STRIMZI_KUBERNETES_VERSION environment variable in Cluster Operator deployment:
      * <pre><code>
      *       env:
      *         - name: STRIMZI_KUBERNETES_VERSION
@@ -158,7 +200,7 @@ public class PlatformFeaturesAvailability implements PlatformFeatures {
                     supported = false;
                 }
 
-                LOGGER.warn("API Group {} is {}supported", group, supported ? "" : "not ");
+                LOGGER.debug("API Group {} is {}supported", group, supported ? "" : "not ");
                 return supported;
             } catch (Exception e) {
                 LOGGER.error("Detection of API availability failed.", e);
@@ -169,7 +211,7 @@ public class PlatformFeaturesAvailability implements PlatformFeatures {
 
     /**
      * Checks whether a specific resource kind is supported or not. This check is useful for APIs where different
-     * resources use different API versions and chercking the group support is not sufficient (such as Gateway API).
+     * resources use different API versions, and checking the group support is not enough (such as Gateway API).
      *
      * @param vertx     Vert.x instance
      * @param client    Kubernetes client
@@ -177,7 +219,7 @@ public class PlatformFeaturesAvailability implements PlatformFeatures {
      * @param version   API version to check
      * @param kind      Resource kind to check
      *
-     * @return  Future that completes with true when the resource kind is supported in version or false when not.
+     * @return  Future that completes with true when the resource kind is supported in a version or false when not.
      */
     private static Future<Boolean> checkApiAvailability(Vertx vertx, KubernetesClient client, String group, String version, String kind)   {
         return vertx.executeBlocking(() -> {
@@ -191,7 +233,7 @@ public class PlatformFeaturesAvailability implements PlatformFeatures {
                     supported = false;
                 }
 
-                LOGGER.warn("Kind {} in API Group {} is {}supported", kind, group, supported ? "" : "not ");
+                LOGGER.debug("Kind {} in API Group {} is {}supported", kind, group, supported ? "" : "not ");
                 return supported;
             } catch (Exception e) {
                 LOGGER.error("Detection of API availability failed.", e);
@@ -200,34 +242,62 @@ public class PlatformFeaturesAvailability implements PlatformFeatures {
         });
     }
 
-    private PlatformFeaturesAvailability() {}
-
     /**
-     * This constructor is used in tests. It sets all OpenShift APIs to true or false depending on the isOpenShift parameter
+     * Queries the OIDC discovery (well-known) endpoint of the Kubernetes API server and extracts the issuer and JWKS
+     * endpoint URLs from it. The OIDC discovery endpoint is optional -> it might be disabled or not accessible to the
+     * operator. So a failure to get the OIDC discovery information does not fail the whole platform feature detection.
+     * Instead, it just logs a warning and completes with null.
      *
-     * @param isOpenShift       Set all OpenShift APIs to true
-     * @param kubernetesVersion Set the Kubernetes version
+     * @param vertx     Vert.x instance
+     * @param client    Kubernetes client
+     *
+     * @return  Future that completes with the OIDC discovery information or with null if it is not available
      */
-    public PlatformFeaturesAvailability(boolean isOpenShift, KubernetesVersion kubernetesVersion) {
-        this.kubernetesVersion = kubernetesVersion;
-        this.routes = isOpenShift;
-        this.images = isOpenShift;
-        this.builds = isOpenShift;
+    private static Future<OidcDiscovery> detectOidcDiscovery(Vertx vertx, KubernetesClient client)   {
+        return vertx.executeBlocking(() -> {
+            try {
+                OidcDiscovery oidcDiscovery = parseOidcDiscovery(client.raw(OIDC_DISCOVERY_PATH));
+
+                if (oidcDiscovery != null) {
+                    LOGGER.debug("Kubernetes OIDC discovery endpoint found with issuer {} and JWKS URI {}", oidcDiscovery.issuer(), oidcDiscovery.jwksUri());
+                } else {
+                    LOGGER.warn("Kubernetes OIDC discovery endpoint is not available");
+                }
+
+                return oidcDiscovery;
+            } catch (Exception e) {
+                LOGGER.warn("Detection of Kubernetes OIDC discovery endpoint failed.", e);
+                return null;
+            }
+        });
     }
 
     /**
-     * This constructor is used in tests. It sets all OpenShift APIs to true or false depending on the isOpenShift parameter
+     * Parses the OIDC discovery document and extracts the issuer and JWKS URI from it.
      *
-     * @param isOpenShift       Set all OpenShift APIs to true
-     * @param hasTlsRoutes      Set TLS Routes support
-     * @param kubernetesVersion Set the Kubernetes version
+     * @param discoveryDocument     The OIDC discovery document (JSON)
+     *
+     * @return  OIDC discovery information or null if the discovery document is null or does not contain both the
+     *          issuer and the JWKS URI
+     *
+     * @throws Exception    If the discovery document cannot be parsed
      */
-    public PlatformFeaturesAvailability(boolean isOpenShift, boolean hasTlsRoutes, KubernetesVersion kubernetesVersion) {
-        this.kubernetesVersion = kubernetesVersion;
-        this.tlsRoutes = hasTlsRoutes;
-        this.routes = isOpenShift;
-        this.images = isOpenShift;
-        this.builds = isOpenShift;
+    /* test */ static OidcDiscovery parseOidcDiscovery(String discoveryDocument) throws Exception {
+        if (discoveryDocument == null) {
+            // Endpoint returned 404
+            return null;
+        }
+
+        JsonNode json = new ObjectMapper().readTree(discoveryDocument);
+        String issuer = json.path("issuer").asText(null);
+        String jwksUri = json.path("jwks_uri").asText(null);
+
+        if (issuer == null || issuer.isBlank() || jwksUri == null || jwksUri.isBlank()) {
+            LOGGER.warn("Kubernetes OIDC discovery document is missing the issuer or the JWKS URI: {}", discoveryDocument);
+            return null;
+        }
+
+        return new OidcDiscovery(issuer, jwksUri);
     }
 
     @Override
@@ -305,6 +375,19 @@ public class PlatformFeaturesAvailability implements PlatformFeatures {
         this.tlsRoutes = tlsRoutes;
     }
 
+    /**
+     * Gets the information detected from the Kubernetes OIDC discovery endpoint.
+     *
+     * @return  The OIDC discovery information or null if it was not detected
+     */
+    public OidcDiscovery getOidcDiscovery() {
+        return oidcDiscovery;
+    }
+
+    private void setOidcDiscovery(OidcDiscovery oidcDiscovery) {
+        this.oidcDiscovery = oidcDiscovery;
+    }
+
     @Override
     public String toString() {
         return "PlatformFeaturesAvailability(" +
@@ -313,6 +396,15 @@ public class PlatformFeaturesAvailability implements PlatformFeatures {
                 ",OpenShiftBuilds=" + builds +
                 ",OpenShiftImageStreams=" + images +
                 ",TLSRoutes=" + tlsRoutes +
+                ",OidcDiscovery=" + oidcDiscovery +
                 ")";
     }
+
+    /**
+     * Holds the information obtained from the OIDC discovery endpoint
+     *
+     * @param issuer    Issuer URL
+     * @param jwksUri   JWKS endpoint URL
+     */
+    public record OidcDiscovery(String issuer, String jwksUri) { }
 }
