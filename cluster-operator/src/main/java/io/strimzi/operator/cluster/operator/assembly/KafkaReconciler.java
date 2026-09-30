@@ -283,7 +283,7 @@ public class KafkaReconciler {
                 .compose(i -> metadataVersion(kafkaStatus))
                 .compose(i -> deletePersistentClaims())
                 .compose(i -> sharedKafkaConfigurationCleanup())
-                .compose(i -> deleteOldCertificateSecrets())
+                .compose(i -> deleteOldCertificateResources())
                 // This has to run after all possible rolling updates which might move the pods to different nodes
                 .compose(i -> nodePortExternalListenerStatus())
                 .compose(i -> updateKafkaStatus(kafkaStatus));
@@ -326,7 +326,7 @@ public class KafkaReconciler {
      * @return  Completes when the Cluster Operator identity have been created and stored in a record
      */
     protected Future<Void> initClusterOperatorIdentity() {
-        return ReconcilerUtils.coIdentity(reconciliation, secretOperator, kafka.securityContext())
+        return VertxUtil.toFuture(ReconcilerUtils.coIdentity(reconciliation, secretOperator, kafka.securityContext()))
                 .onSuccess(coIdentity -> this.coIdentity = coIdentity)
                 .mapEmpty();
     }
@@ -553,16 +553,16 @@ public class KafkaReconciler {
     protected Future<Void> initClusterRoleBinding() {
         ClusterRoleBinding desired = kafka.generateClusterRoleBinding(reconciliation.namespace());
 
-        return ReconcilerUtils.withIgnoreRbacError(
+        return VertxUtil.toFuture(ReconcilerUtils.withIgnoreRbacError(
                 reconciliation,
-                VertxUtil.toFuture(clusterRoleBindingOperator
+                clusterRoleBindingOperator
                         .reconcile(
                                 reconciliation,
                                 KafkaResources.initContainerClusterRoleBindingName(reconciliation.name(), reconciliation.namespace()),
                                 desired
-                        )),
+                        ),
                 desired
-        ).mapEmpty();
+        )).mapEmpty();
     }
 
     /**
@@ -818,7 +818,7 @@ public class KafkaReconciler {
         List<Future<Object>> futures = kafka.getListeners().stream()
                 .filter(l -> l.isTls() && l.getConfiguration() != null && l.getConfiguration().getBrokerCertChainAndKey() != null)
                 .map(l ->
-                        ReconcilerUtils.getCertificateAndKeyAsync(secretOperator, reconciliation.namespace(), l.getConfiguration().getBrokerCertChainAndKey())
+                        VertxUtil.toFuture(ReconcilerUtils.getCertificateAndKeyAsync(secretOperator, reconciliation.namespace(), l.getConfiguration().getBrokerCertChainAndKey()))
                                 .onSuccess(certAndKey -> customCertsData.putAll(CertSecretUtils.buildSecretData(ListenersUtils.identifier(l), certAndKey)))
                                 .mapEmpty()
                 ).toList();
@@ -827,16 +827,17 @@ public class KafkaReconciler {
     }
 
     /**
-     * Delete old certificate Secrets that are no longer needed.
+     * Delete old certificate resources that are no longer needed.
      *
-     * @return Future that completes when the Secrets have been deleted.
+     * @return Future that completes when the resources have been deleted.
      */
-    protected Future<Void> deleteOldCertificateSecrets() {
+    protected Future<Void> deleteOldCertificateResources() {
         List<Future<Void>> deleteFutures = secretsToDelete.stream()
-                .map(secretName -> {
-                    LOGGER.debugCr(reconciliation, "Deleting old Secret {}/{} that is no longer used.", reconciliation.namespace(), secretName);
-                    return VertxUtil.toFuture(secretOperator.deleteAsync(reconciliation, reconciliation.namespace(), secretName, false));
-                }).toList();
+                .map(secretName -> VertxUtil.toFuture(clusterCa.cleanupEndEntityCert(secretName)
+                        .thenCompose(i -> {
+                            LOGGER.debugCr(reconciliation, "Deleting old Secret {}/{} that is no longer used.", reconciliation.namespace(), secretName);
+                            return secretOperator.deleteAsync(reconciliation, reconciliation.namespace(), secretName, false);
+                        }))).toList();
         return Future.join(deleteFutures).mapEmpty();
     }
 
@@ -873,7 +874,7 @@ public class KafkaReconciler {
      * @return  Completes when the JMX secret is successfully created or updated
      */
     protected Future<Void> jmxSecret() {
-        return ReconcilerUtils.reconcileJmxSecret(reconciliation, secretOperator, kafka);
+        return VertxUtil.toFuture(ReconcilerUtils.reconcileJmxSecret(reconciliation, secretOperator, kafka));
     }
 
     /**
@@ -942,13 +943,13 @@ public class KafkaReconciler {
      * @return  Future that completes when all the new nodes are ready
      */
     private Future<Void> waitForNewNodes() {
-        return ReconcilerUtils
+        return VertxUtil.toFuture(ReconcilerUtils
                 .podsReady(
                         reconciliation,
                         podOperator,
                         operationTimeoutMs,
                         kafka.addedNodes().stream().map(NodeRef::podName).toList()
-                );
+                ));
     }
 
     /**
@@ -982,13 +983,13 @@ public class KafkaReconciler {
      * @return  Future which completes when all Kafka pods are ready
      */
     protected Future<Void> podsReady() {
-        return ReconcilerUtils
+        return VertxUtil.toFuture(ReconcilerUtils
                 .podsReady(
                         reconciliation,
                         podOperator,
                         operationTimeoutMs,
                         kafka.nodes().stream().map(node -> node.podName()).toList()
-                );
+                ));
     }
 
     /**
