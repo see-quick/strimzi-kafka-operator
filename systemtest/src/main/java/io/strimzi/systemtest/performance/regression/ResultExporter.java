@@ -4,12 +4,14 @@
  */
 package io.strimzi.systemtest.performance.regression;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
 import io.strimzi.systemtest.performance.report.parser.BasePerformanceMetricsParser;
 import io.strimzi.systemtest.performance.report.parser.ExperimentMetrics;
 import io.strimzi.systemtest.performance.report.parser.ParserFactory;
 import io.strimzi.systemtest.performance.report.parser.ParserType;
+import tools.jackson.databind.MapperFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.SerializationFeature;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -25,7 +27,10 @@ import java.util.regex.Pattern;
 
 public class ResultExporter {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
+    private static final ObjectMapper MAPPER = JsonMapper.builder()
+        .enable(SerializationFeature.INDENT_OUTPUT)
+        .disable(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY)
+        .build();
     private static final DateTimeFormatter DIR_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH").withZone(ZoneOffset.UTC);
     private static final Pattern UNIT_SUFFIX = Pattern.compile("\\s*\\(([^)]+)\\)\\s*$");
 

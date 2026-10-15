@@ -4,11 +4,13 @@
  */
 package io.strimzi.systemtest.performance.regression;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.MapperFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.SerializationFeature;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -22,7 +24,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PerformanceBaselineComparatorTest {
 
-    private final ObjectMapper mapper = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
+    private final ObjectMapper mapper = JsonMapper.builder()
+        .enable(SerializationFeature.INDENT_OUTPUT)
+        .disable(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY)
+        .build();
 
     @Test
     void testFirstRunInitializesBaseline(@TempDir Path repoDir) throws Exception {

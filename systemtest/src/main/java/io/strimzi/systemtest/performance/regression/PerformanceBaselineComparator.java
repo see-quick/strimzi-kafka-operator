@@ -4,9 +4,11 @@
  */
 package io.strimzi.systemtest.performance.regression;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.MapperFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.SerializationFeature;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.io.File;
 import java.io.IOException;
@@ -22,7 +24,10 @@ import java.util.Map;
 
 public class PerformanceBaselineComparator {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
+    private static final ObjectMapper MAPPER = JsonMapper.builder()
+        .enable(SerializationFeature.INDENT_OUTPUT)
+        .disable(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY)
+        .build();
 
     private final Path repoDir;
     private final int windowSize;

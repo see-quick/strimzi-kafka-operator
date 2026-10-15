@@ -4,9 +4,9 @@
  */
 package io.strimzi.systemtest.performance.regression;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import tools.jackson.databind.ObjectMapper;
 
 import java.io.File;
 import java.nio.file.Path;
