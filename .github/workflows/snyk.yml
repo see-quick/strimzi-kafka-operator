@@ -8,6 +8,10 @@ on:
       - completed
     branches:
       - main
+    # `branches` matches the triggering run's head branch by name only. A fork PR
+    # whose branch is also named "main" matches it, and workflow_run jobs get the
+    # org secrets regardless of who produced the build. Every job below therefore
+    # also checks head_repository before touching the build artifact.
   # Allow to run it also as reusable workflow from releases
   workflow_call:
     inputs:
@@ -37,7 +41,10 @@ jobs:
   # Scan Maven dependencies using Snyk
   snyk-maven-scan:
     name: Snyk Maven Scan
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name != 'workflow_run' }}
+    if: >-
+      ${{ github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -50,12 +57,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Java and Maven
-        uses: strimzi/github-actions/.github/actions/dependencies/setup-java@4aefb08c299693441fb87284984c760a1c708fbc # v2.4
+        uses: strimzi/github-actions/.github/actions/dependencies/setup-java@8a88edc07beb03fbd99d6d72f59c86d7d7aadda4 # v3.0
         with:
           javaVersion: "21"
 
       - name: Install yq
-        uses: strimzi/github-actions/.github/actions/dependencies/install-yq@4aefb08c299693441fb87284984c760a1c708fbc # v2.4
+        uses: strimzi/github-actions/.github/actions/dependencies/install-yq@8a88edc07beb03fbd99d6d72f59c86d7d7aadda4 # v3.0
         with:
           version: "v4.6.3"
 
@@ -84,7 +91,7 @@ jobs:
           MAVEN_TEST_MODULES: "systemtest,mockkube,test"
 
       - name: Run Snyk Maven scan (prod)
-        uses: strimzi/github-actions/.github/actions/security/snyk-maven-scan@4aefb08c299693441fb87284984c760a1c708fbc # v2.4
+        uses: strimzi/github-actions/.github/actions/security/snyk-maven-scan@8a88edc07beb03fbd99d6d72f59c86d7d7aadda4 # v3.0
         with:
           scanName: operators-prod
           snykMonitor: "true"
@@ -93,7 +100,7 @@ jobs:
           exclude: "${{ steps.compute-excludes.outputs.maven-test-modules }},docker-images"
 
       - name: Run Snyk Maven scan (test)
-        uses: strimzi/github-actions/.github/actions/security/snyk-maven-scan@4aefb08c299693441fb87284984c760a1c708fbc # v2.4
+        uses: strimzi/github-actions/.github/actions/security/snyk-maven-scan@8a88edc07beb03fbd99d6d72f59c86d7d7aadda4 # v3.0
         with:
           scanName: operators-test
           snykMonitor: "true"
@@ -102,7 +109,7 @@ jobs:
           exclude: "${{ steps.compute-excludes.outputs.maven-prod-modules }},docker-images"
 
       - name: Run Snyk Maven scan (3rd-party)
-        uses: strimzi/github-actions/.github/actions/security/snyk-maven-scan@4aefb08c299693441fb87284984c760a1c708fbc # v2.4
+        uses: strimzi/github-actions/.github/actions/security/snyk-maven-scan@8a88edc07beb03fbd99d6d72f59c86d7d7aadda4 # v3.0
         with:
           scanName: kafka-3rd-party
           snykMonitor: "true"
@@ -113,7 +120,10 @@ jobs:
   # Discover container images from build artifacts for matrix scanning
   prepare-container-scan:
     name: Prepare Container Scan
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name != 'workflow_run' }}
+    if: >-
+      ${{ github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -122,7 +132,7 @@ jobs:
       images: ${{ steps.list-images.outputs.images }}
     steps:
       - name: Download container archive
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: containers-operators-amd64.tar
           run-id: ${{ inputs.sourceBuildRunId || github.event.workflow_run.id }}
@@ -134,16 +144,22 @@ jobs:
       - name: List container images
         id: list-images
         run: |
+          # Names come from filenames inside the downloaded artifact and flow on into
+          # shell and action inputs, so restrict them to a safe charset here.
           IMAGES=$(find docker-images/container-archives -name '*.tar.gz' ! -name 'base-*' -print0 | \
             xargs -0 -I{} basename {} | \
             sed 's/\.tar\.gz$//' | \
-            jq -R -s -c 'split("\n") | map(select(. != ""))')
+            jq -R -s -c 'split("\n") | map(select(test("^[A-Za-z0-9._-]+$")))')
           echo "images=$IMAGES" >> "$GITHUB_OUTPUT"
           echo "Found images: $IMAGES"
 
   # Scan each container image using Snyk
   snyk-container-scan:
     name: Snyk Container Scan (${{ matrix.image }})
+    if: >-
+      ${{ github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository) }}
     needs:
       - prepare-container-scan
     runs-on: ubuntu-latest
@@ -161,7 +177,7 @@ jobs:
         image: ${{ fromJson(needs.prepare-container-scan.outputs.images) }}
     steps:
       - name: Download container archive
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ env.CONTAINERS_ARCHIVE }}
           run-id: ${{ inputs.sourceBuildRunId || github.event.workflow_run.id }}
@@ -171,10 +187,10 @@ jobs:
         run: tar -xvf "$CONTAINERS_ARCHIVE"
 
       - name: Install Docker
-        uses: strimzi/github-actions/.github/actions/dependencies/install-docker@4aefb08c299693441fb87284984c760a1c708fbc # v2.4
+        uses: strimzi/github-actions/.github/actions/dependencies/install-docker@8a88edc07beb03fbd99d6d72f59c86d7d7aadda4 # v3.0
 
       - name: Run Snyk container scan
-        uses: strimzi/github-actions/.github/actions/security/snyk-container-scan@4aefb08c299693441fb87284984c760a1c708fbc # v2.4
+        uses: strimzi/github-actions/.github/actions/security/snyk-container-scan@8a88edc07beb03fbd99d6d72f59c86d7d7aadda4 # v3.0
         with:
           imageFile: docker-images/container-archives/${{ matrix.image }}.tar.gz
           image: ${{ matrix.image }}

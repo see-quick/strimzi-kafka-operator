@@ -9,7 +9,6 @@ import io.fabric8.kubernetes.api.model.Secret;
 import io.strimzi.api.kafka.model.common.CertificateAuthority;
 import io.strimzi.api.kafka.model.kafka.Kafka;
 import io.strimzi.api.kafka.model.kafka.KafkaResources;
-import io.strimzi.operator.cluster.model.AbstractModel;
 import io.strimzi.operator.common.Annotations;
 import io.strimzi.operator.common.Reconciliation;
 import io.strimzi.operator.common.Util;
@@ -24,6 +23,7 @@ import io.strimzi.operator.common.operator.resource.kubernetes.SecretOperator;
 import java.security.cert.CertificateException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
 import static io.strimzi.operator.common.ca.Ca.ANNO_STRIMZI_IO_CA_KEY_GENERATION;
@@ -95,8 +95,16 @@ public class CertManagerCaProvider extends CaProvider {
                     );
                     Secret caCertSecret = createCaCertSecret(caRole, certManagerCa.caCertData(),
                             certManagerCa.caCertGeneration(), certManagerCa.caKeyGeneration());
-                    return secretOperator.reconcile(reconciliation, reconciliation.namespace(), caCertSecret.getMetadata().getName(), caCertSecret)
-                            .thenApply(i -> new CaProviderResult(certManagerCa, caCertSecret));
+
+                    // CA key secret is not needed, but we should make sure it is removed in case it was used previously in this cluster
+                    String caKeySecretName = switch (caRole) {
+                        case CLUSTER_CA -> KafkaResources.clusterCaKeySecretName(reconciliation.name());
+                        case CLIENTS_CA -> KafkaResources.clientsCaKeySecretName(reconciliation.name());
+                    };
+                    return CompletableFuture.allOf(
+                            secretOperator.reconcile(reconciliation, reconciliation.namespace(), caCertSecret.getMetadata().getName(), caCertSecret).toCompletableFuture(),
+                            secretOperator.reconcile(reconciliation, reconciliation.namespace(), caKeySecretName, null).toCompletableFuture()
+                    ).thenApply(i -> new CaProviderResult(certManagerCa, caCertSecret));
                 });
     }
 
@@ -126,7 +134,7 @@ public class CertManagerCaProvider extends CaProvider {
         String secretName = switch (caRole) {
             case CLUSTER_CA -> {
                 certAnnotations.put(ANNO_STRIMZI_IO_CA_KEY_GENERATION, String.valueOf(caKeyGeneration));
-                yield AbstractModel.clusterCaCertSecretName(reconciliation.name());
+                yield KafkaResources.clusterCaCertificateSecretName(reconciliation.name());
             }
             case CLIENTS_CA -> KafkaResources.clientsCaCertificateSecretName(reconciliation.name());
         };

@@ -4,10 +4,6 @@
  */
 package io.strimzi.build.kafka.metadata;
 
-import com.fasterxml.jackson.databind.MapperFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.json.JsonMapper;
 import io.strimzi.kafka.config.model.ConfigModel;
 import io.strimzi.kafka.config.model.ConfigModels;
 import io.strimzi.kafka.config.model.Scope;
@@ -16,6 +12,9 @@ import kafka.Kafka;
 import kafka.server.KafkaConfig$;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.server.common.MetadataVersion;
+import tools.jackson.databind.MapperFeature;
+import tools.jackson.databind.SerializationFeature;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.io.File;
 import java.io.IOException;
@@ -60,11 +59,11 @@ public class KafkaConfigModelGenerator {
         Map<String, ConfigModel> configs = configs(version);
         addPrometheusMetricsReporterAllowListConfig(configs);
 
-        ObjectMapper mapper = JsonMapper.builder().enable(SerializationFeature.INDENT_OUTPUT).enable(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY).build();
+        JsonMapper jsonMapper = JsonMapper.builder().enable(SerializationFeature.INDENT_OUTPUT).enable(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY).build();
         ConfigModels root = new ConfigModels();
         root.setVersion(version);
         root.setConfigs(configs);
-        mapper.writeValue(new File(args[0]), root);
+        jsonMapper.writeValue(new File(args[0]), root);
     }
 
     private static String kafkaVersion() throws IOException {

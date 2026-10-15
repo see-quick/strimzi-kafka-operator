@@ -4,10 +4,9 @@
  */
 package io.strimzi.crdgenerator;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -33,15 +32,11 @@ class Schema {
     }
 
     static List<JsonNode> enumCases(Enum<?>[] values) {
-        try {
-            List<JsonNode> result = new ArrayList<>();
-            ObjectMapper objectMapper = new ObjectMapper();
-            for (Object o : values) {
-                result.add(objectMapper.readTree(objectMapper.writeValueAsString(o)));
-            }
-            return result;
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+        List<JsonNode> result = new ArrayList<>();
+        JsonMapper jsonMapper = new JsonMapper();
+        for (Object o : values) {
+            result.add(jsonMapper.readTree(jsonMapper.writeValueAsString(o)));
         }
+        return result;
     }
 }

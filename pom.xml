@@ -5,7 +5,7 @@
     <groupId>io.strimzi</groupId>
     <artifactId>strimzi</artifactId>
     <packaging>pom</packaging>
-    <version>1.3.0-SNAPSHOT</version>
+    <version>1.4.0-SNAPSHOT</version>
 
     <licenses>
         <license>
@@ -72,18 +72,20 @@
         <lombok.version>1.18.32</lombok.version>
 
         <!-- Runtime dependencies -->
-        <fabric8.kubernetes-client.version>7.9.0</fabric8.kubernetes-client.version>
-        <fabric8.openshift-client.version>7.9.0</fabric8.openshift-client.version>
-        <fabric8.kubernetes-model.version>7.9.0</fabric8.kubernetes-model.version>
-        <fabric8.zjsonpatch.version>7.9.0</fabric8.zjsonpatch.version>
+        <fabric8.kubernetes-client.version>8.0.0</fabric8.kubernetes-client.version>
+        <fabric8.openshift-client.version>8.0.0</fabric8.openshift-client.version>
+        <fabric8.kubernetes-model.version>8.0.0</fabric8.kubernetes-model.version>
+        <fabric8.zjsonpatch.version>8.0.0</fabric8.zjsonpatch.version>
         <fasterxml.jackson-core.version>2.22.3</fasterxml.jackson-core.version>
         <fasterxml.jackson-databind.version>2.22.3</fasterxml.jackson-databind.version>
         <fasterxml.jackson-dataformat.version>2.22.3</fasterxml.jackson-dataformat.version>
         <fasterxml.jackson-annotations.version>2.22</fasterxml.jackson-annotations.version>
         <fasterxml.jackson-datatype.version>2.22.3</fasterxml.jackson-datatype.version>
         <fasterxml.jackson-jaxrs.version>2.22.3</fasterxml.jackson-jaxrs.version>
-        <vertx.version>5.2.0</vertx.version>
-        <vertx-junit5.version>5.2.0</vertx-junit5.version>
+        <jackson3-core.version>3.2.3</jackson3-core.version>
+        <jackson3-dataformat.version>3.2.3</jackson3-dataformat.version>
+        <vertx.version>5.2.1</vertx.version>
+        <vertx-junit5.version>5.2.1</vertx-junit5.version>
         <kafka.version>4.3.1</kafka.version>
         <yammer-metrics.version>2.2.0</yammer-metrics.version>
         <snappy.version>1.1.10.5</snappy.version>
@@ -93,7 +95,7 @@
         <opentelemetry.version>1.63.0</opentelemetry.version>
         <jetty.version>12.0.39</jetty.version>
         <jakarta-servlet.version>6.1.0</jakarta-servlet.version>
-        <netty.version>4.2.18.Final</netty.version>
+        <netty.version>4.2.19.Final</netty.version>
         <micrometer.version>1.17.1</micrometer.version>
         <commons-codec.version>1.13</commons-codec.version>
         <snakeyaml.version>2.5</snakeyaml.version>
@@ -210,7 +212,7 @@
                 <exclusions>
                     <exclusion>
                         <groupId>io.fabric8</groupId>
-                        <artifactId>kubernetes-httpclient-vertx</artifactId>
+                        <artifactId>kubernetes-httpclient-vertx-5</artifactId>
                     </exclusion>
                 </exclusions>
             </dependency>
@@ -374,6 +376,22 @@
                 <groupId>org.slf4j</groupId>
                 <artifactId>slf4j-api</artifactId>
                 <version>${slf4j.version}</version>
+            </dependency>
+            <!-- Jackson 3 is used by Fabric8 Kubernetes Client -->
+            <dependency>
+                <groupId>tools.jackson.core</groupId>
+                <artifactId>jackson-databind</artifactId>
+                <version>${jackson3-core.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>tools.jackson.core</groupId>
+                <artifactId>jackson-core</artifactId>
+                <version>${jackson3-core.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>tools.jackson.dataformat</groupId>
+                <artifactId>jackson-dataformat-yaml</artifactId>
+                <version>${jackson3-dataformat.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.fasterxml.jackson.core</groupId>

@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## 1.4.0
+
+* Use ubi9-micro as a base image for operators, kafka-based, and maven-builder images.
+* Strimzi Drain Cleaner updated to 1.7.0 (included in the Strimzi installation files)
+
+### Major changes, deprecations, and removals
+
+* The Prometheus JMX Exporter configuration from the metrics `ConfigMap` is now parsed as YAML 1.2 (using the Core schema) instead of YAML 1.1.
+  Unquoted `yes`, `no`, `on`, and `off` values are not converted to booleans anymore and are passed to the JMX Exporter as strings.
+  The JMX Exporter fails to start when these values are used for boolean options such as `lowercaseOutputName`, which prevents the container from starting.
+  Before upgrading, make sure your metrics configuration uses `true` and `false` for boolean values.
+
 ## 1.3.0
 
 * (Early Access) Configurable internal cluster security allows users to configure encryption and authentication on the internal connections within the Apache Kafka cluster.
@@ -11,6 +23,8 @@
   If needed, `UseBackgroundPodDeletion` can be disabled in the feature gates configuration in the Cluster Operator.
 * (Early Access) Integration with cert-manager for issuing certificates.
   While the cert-manager feature is in Early Access it is not recommended for use in production.
+* Updated HTTP Bridge to 1.2.0
+* Add fenced brokers, offline replicas and ISR shrink/expand/failed update panels to the example Kafka Grafana dashboards
 
 ### Major changes, deprecations, and removals
 
