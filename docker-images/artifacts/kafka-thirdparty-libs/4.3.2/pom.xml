@@ -8,10 +8,6 @@
     <artifactId>kafka-thirdparty-libs</artifactId>
     <packaging>pom</packaging>
 
-    <!--
-    Kafka 4.2.1 uses different Jackson version (2.21.2) than Kafka 4.2.0. So we use separate third-party libs directory.
-    -->
-
     <licenses>
         <license>
             <name>Apache License, Version 2.0</name>
@@ -19,25 +15,21 @@
         </license>
     </licenses>
 
+    <!-- Kafka 4.3.2 uses different version of Log4j2 and Jackson libraries compared to 4.3.0 and 4.3.1.
+                            That is why it has its own 3rd party libraries directory.-->
     <properties>
         <strimzi-oauth.version>0.18.0</strimzi-oauth.version>
         <strimzi-metrics-reporter.version>0.4.0</strimzi-metrics-reporter.version>
         <prometheus.version>1.3.6</prometheus.version>
-        <cruise-control.version>2.5.146</cruise-control.version>
+        <cruise-control.version>3.1.0</cruise-control.version>
         <kafka-quotas-plugin.version>0.4.0</kafka-quotas-plugin.version>
         <kafka-kubernetes-config-provider.version>1.2.2</kafka-kubernetes-config-provider.version>
         <opentelemetry.version>1.63.0</opentelemetry.version>
         <opentelemetry.instrumentation.version>1.32.0-alpha</opentelemetry.instrumentation.version>
         <grpc-netty-shaded.version>1.79.0</grpc-netty-shaded.version>
-        <log4j.version>2.25.4</log4j.version>
+        <log4j.version>2.25.5</log4j.version>
+        <jackson.version>2.21.7</jackson.version>
     </properties>
-
-    <repositories>
-        <repository>
-            <id>cruise-control</id>
-            <url>https://linkedin.jfrog.io/artifactory/cruise-control/</url>
-        </repository>
-    </repositories>
 
     <dependencies>
         <!-- Support for the new JsonTemplateLayout as appender type -->
@@ -249,7 +241,7 @@
         </dependency>
         <!-- Cruise Control -->
         <dependency>
-            <groupId>com.linkedin.cruisecontrol</groupId>
+            <groupId>io.cruise-control</groupId>
             <artifactId>cruise-control-metrics-reporter</artifactId>
             <version>${cruise-control.version}</version>
             <exclusions>
@@ -343,7 +335,7 @@
         <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>
             <artifactId>jackson-datatype-jsr310</artifactId>
-            <version>2.21.2</version>
+            <version>${jackson.version}</version>
             <exclusions>
                 <exclusion>
                     <groupId>com.fasterxml.jackson.core</groupId>
