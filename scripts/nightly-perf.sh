@@ -242,7 +242,14 @@ if [[ "${DRY_RUN}" == "false" ]]; then
     # ---- Step 3: Build systemtest module and deploy Strimzi ----
     log "Building systemtest module..."
     cd "${PROJECT_DIR}"
-    mvn install -DskipTests -Dcheckstyle.skip=true -pl systemtest -am 2>&1 | tail -5 | tee -a "${LOG_FILE}"
+    # clean: generated sources (sundrio builders in api/target) are not
+    # regenerated incrementally, so an upstream API field added by the sync
+    # otherwise fails testCompile with "cannot find symbol" (2026-09-29, 2026-10-26).
+    # Full output goes to LOG_FILE; on failure the error lines are logged too.
+    if ! mvn clean install -DskipTests -Dcheckstyle.skip=true -pl systemtest -am >>"${LOG_FILE}" 2>&1; then
+        grep -E '^\[ERROR\] .+' "${LOG_FILE}" | tail -20 | while IFS= read -r line; do log "${line}"; done
+        die "systemtest build failed"
+    fi
     # The merged tree builds, so the sync is safe to publish in Step 6.
     SYNC_BUILD_OK=true
 
