@@ -28,7 +28,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 RESULTS_REPO="${RESULTS_REPO:-${HOME}/Documents/Work/strimzi-perf-results}"
 KIND_SCRIPT="${KIND_SCRIPT:-${HOME}/Documents/Work/kind-script/kind-cluster.sh}"
-LOG_DIR="${PROJECT_DIR}/target/perf-logs"
+# Outside target/: the clean build in Step 3 would delete the running log.
+LOG_DIR="${LOG_DIR:-${HOME}/Library/Logs/strimzi-perf}"
 LOG_FILE="${LOG_DIR}/nightly-perf-$(date +%Y-%m-%d-%H%M%S).log"
 
 SKIP_CLUSTER=false
