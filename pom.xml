@@ -107,8 +107,8 @@
         <mockito.version>5.21.0</mockito.version>
         <opentest4j.version>1.2.0</opentest4j.version>
         <jupiter.version>6.0.0</jupiter.version>
-        <strimzi-test-container.version>0.117.0</strimzi-test-container.version>
-        <strimzi-test-connectors.version>0.1.0</strimzi-test-connectors.version>
+        <strimzi-test-container.version>0.118.0</strimzi-test-container.version>
+        <strimzi-test-connectors.version>0.2.0</strimzi-test-connectors.version>
         <wiremock.version>3.13.2</wiremock.version>
         <valid4j.version>1.1</valid4j.version>
         <javax.json.version>1.1.4</javax.json.version>
@@ -119,7 +119,7 @@
         <skodjob.kubetest4j.version>1.4.0</skodjob.kubetest4j.version>
         <skodjob-doc.version>0.6.0</skodjob-doc.version>
         <helm-client.version>0.0.15</helm-client.version>
-        <access-operator.version>0.3.0</access-operator.version>
+        <access-operator.version>0.4.0</access-operator.version>
         <test-clients.version>0.15.0</test-clients.version>
         <!-- properties to skip surefire tests during failsafe execution -->
         <skipTests>false</skipTests>

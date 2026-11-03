@@ -8,9 +8,11 @@
 * Use ubi9-micro as a base image for operators, kafka-based, and maven-builder images.
 * Strimzi Drain Cleaner updated to 1.8.0 (included in the Strimzi installation files)
 * Add support for Strimzi-native configurable RSA key sizes
+* Strimzi Access Operator updated to 0.4.0 - included in Strimzi installation files, examples, and documentation
 
 ### Major changes, deprecations, and removals
 
+* Delegation token options (`delegation.token.` prefix) are now forbidden in the Kafka broker configuration, because Strimzi does not support delegation tokens and these options did never work properly.
 * The Prometheus JMX Exporter configuration from the metrics `ConfigMap` is now parsed as YAML 1.2 (using the Core schema) instead of YAML 1.1.
   Unquoted `yes`, `no`, `on`, and `off` values are not converted to booleans anymore and are passed to the JMX Exporter as strings.
   The JMX Exporter fails to start when these values are used for boolean options such as `lowercaseOutputName`, which prevents the container from starting.
