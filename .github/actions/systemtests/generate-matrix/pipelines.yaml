@@ -197,6 +197,23 @@ pipelines:
     parallel: 2
     ipFamily: "ipv4"
   #######################
+  ### Acceptance FIPS ###
+  #######################
+  # Runs inside a nested VM booted in FIPS mode (see .github/scripts/fips-vm), so it needs an x86 agent with nested virtualization
+  - agent: "cncf-ubuntu-8-32-x86"
+    arch: "amd64"
+    pipeline: "acceptance-fips"
+    profile: "acceptance"
+    timeout: 180
+    strimzi_feature_gates: ""
+    strimzi_rbac_scope: "CLUSTER"
+    cluster_operator_install_type: "yaml"
+    parallel: 2
+    ipFamily: "ipv4"
+    fips: true
+    # Single test while the FIPS pipeline is being proven out
+    tests: "UserST#testUpdateUser"
+  #######################
   ### Acceptance Helm ###
   #######################
   # x86-64

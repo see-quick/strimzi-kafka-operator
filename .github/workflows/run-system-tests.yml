@@ -129,7 +129,9 @@ jobs:
           helmVersion: "v3.16.0"
           helmUnitTestVersion: "v1.0.3"
 
+      # FIPS pipelines create their Kind cluster inside the FIPS VM (see "Run systemtests in FIPS VM")
       - name: Setup Kind cluster
+        if: ${{ !matrix.config.fips }}
         uses: strimzi/github-actions/.github/actions/dependencies/setup-kind@bb4758d4afacd9c0ff8f426395bbbece41fd142a # v4.0
         with:
           architecture: ${{ matrix.config.arch }}
@@ -187,7 +189,7 @@ jobs:
 
       # Load Strimzi images from Build workflow
       - name: Load Strimzi images
-        if: ${{ env.DOCKER_TAG == 'latest' && inputs.ref != 'refs/heads/main' }}
+        if: ${{ env.DOCKER_TAG == 'latest' && inputs.ref != 'refs/heads/main' && !matrix.config.fips }}
         uses: ./.github/actions/build/load-containers
         with:
           architecture: ${{ matrix.config.arch }}
@@ -227,7 +229,7 @@ jobs:
       ############################################################################
       - name: Build KafkaConnect image
         # we want to let Connect image build for different versions of Kafka inside the upgrade/downgrade STs
-        if: ${{ !contains(env.PROFILE, 'upgrade') }}
+        if: ${{ !contains(env.PROFILE, 'upgrade') && !matrix.config.fips }}
         run: |
           CONNECT_IMAGE="${CONNECT_BUILD_REGISTRY}/${DOCKER_ORG}/connect-file-sink:latest"
           KAFKA_VERSION=$([[ "${KAFKA_VERSION}" == *"latest"* ]] && yq eval '.[] | select(.default) | .version' kafka-versions.yaml || echo "${KAFKA_VERSION}")
@@ -276,6 +278,7 @@ jobs:
       ############################################################################
       - name: Run systemtests
         id: run_tests
+        if: ${{ !matrix.config.fips }}
         timeout-minutes: ${{ fromJson(matrix.config.timeout) }}
         run: |
           mvn -f systemtest/pom.xml verify \
@@ -299,6 +302,34 @@ jobs:
           TEST_LOG_DIR: "systemtest-logs"
           CONNECT_IMAGE_WITH_FILE_SINK_PLUGIN: ${{ env.CONNECT_IMAGE_WITH_FILE_SINK_PLUGIN }}
           # Build the switch only when the input is non-empty
+          GROUPS_OPT: ${{ matrix.config.groups != '' && format('-Dgroups={0}', matrix.config.groups) || '' }}
+          TESTS_OPT: ${{ matrix.config.tests  != '' && format('-Dit.test={0}',  matrix.config.tests)  || '' }}
+          EXCLUDED_GROUPS: ${{ matrix.config.excluded_groups || '' }}
+          STRIMZI_TEST_LOG_LEVEL: INFO
+
+      ############################################################################
+      # FIPS pipelines: the Kind cluster and the tests run inside a nested VM booted in FIPS mode,
+      # because the runner itself cannot boot into a FIPS kernel
+      ############################################################################
+      - name: Start FIPS VM
+        if: ${{ matrix.config.fips }}
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q qemu-system-x86 qemu-utils cloud-image-utils
+          sudo chmod 666 /dev/kvm
+          .github/scripts/fips-vm/start-fips-vm.sh
+
+      - name: Run systemtests in FIPS VM
+        id: run_tests_fips
+        if: ${{ matrix.config.fips }}
+        timeout-minutes: ${{ fromJson(matrix.config.timeout) }}
+        run: .github/scripts/fips-vm/run-systemtests-in-vm.sh
+        env:
+          KIND_VERSION: v${{ inputs.kindVersion || '0.33.0' }}
+          BRIDGE_IMAGE: "latest-released"
+          BUILD_ID: ${{ matrix.config.agent }}-${{ matrix.config.pipeline }}-${{ matrix.config.profile }}-systemtests
+          RESOURCE_ALLOCATION_STRATEGY: "SHARE_MEMORY_FOR_ALL_COMPONENTS"
+          TEST_LOG_DIR: "systemtest-logs"
           GROUPS_OPT: ${{ matrix.config.groups != '' && format('-Dgroups={0}', matrix.config.groups) || '' }}
           TESTS_OPT: ${{ matrix.config.tests  != '' && format('-Dit.test={0}',  matrix.config.tests)  || '' }}
           EXCLUDED_GROUPS: ${{ matrix.config.excluded_groups || '' }}
@@ -339,6 +370,6 @@ jobs:
         uses: ./.github/actions/utils/check-and-status
         with:
           sha: ${{ inputs.sha }}
-          checkState: ${{ steps.run_tests.conclusion }}
+          checkState: ${{ matrix.config.fips && steps.run_tests_fips.conclusion || steps.run_tests.conclusion }}
           checkName: ${{ matrix.config.jobName }}
           checkDescription: "Test run for ${{ matrix.config.jobName }}"
